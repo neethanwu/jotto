@@ -1,0 +1,45 @@
+name: Jotto
+options:
+  bundleIdPrefix: com.neethanwu
+  deploymentTarget:
+    iOS: "26.0"
+    watchOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ""  # Pick your team in Xcode, or put its Team ID here
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  Jotto:
+    type: application
+    platform: iOS
+    sources: [Apps/iOS]
+    dependencies:
+      - target: JottoWatch
+    info:
+      path: Apps/iOS/Info.plist
+      properties:
+        CFBundleDisplayName: Jotto
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neethanwu.jotto
+  JottoWatch:
+    type: application
+    platform: watchOS
+    sources: [Apps/Watch]
+    info:
+      path: Apps/Watch/Info.plist
+      properties:
+        CFBundleDisplayName: Jotto
+        WKApplication: true
+        WKCompanionAppBundleIdentifier: com.neethanwu.jotto
+        WKBackgroundModes: [audio]
+        NSMicrophoneUsageDescription: Jotto uses the microphone to record.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neethanwu.jotto.watchkitapp
