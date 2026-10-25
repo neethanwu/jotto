@@ -9,7 +9,7 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     CODE_SIGN_STYLE: Automatic
-    DEVELOPMENT_TEAM: ""  # Pick your team in Xcode, or put its Team ID here
+    DEVELOPMENT_TEAM: AV25N53237  # Hallidai Inc.
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
 targets:
