@@ -25,6 +25,9 @@ targets:
         CFBundleDisplayName: Jotto
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # Lets the app talk to a dev server on localhost / the Mac's LAN address.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.neethanwu.jotto

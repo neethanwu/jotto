@@ -1,16 +1,26 @@
 import AVFoundation
 
+/// A finished segment file, numbered within its recording session.
+struct ClosedSegment: Sendable {
+    let url: URL
+    let index: Int
+    let startedAt: Date
+    let endedAt: Date
+}
+
 /// Writes incoming PCM buffers to rolling AAC segments on disk.
 /// Called from the audio render thread, so state is guarded by a lock.
 final class SegmentWriter: @unchecked Sendable {
     private let lock = NSLock()
     private let directory: URL
+    private let sessionID: UUID
     private let maxDuration: TimeInterval
-    private let onSegmentClosed: @Sendable (URL) -> Void
+    private let onSegmentClosed: @Sendable (ClosedSegment) -> Void
     private let onError: @Sendable (String) -> Void
 
     private var file: AVAudioFile?
     private var fileStartedAt = Date.distantPast
+    private var nextIndex = 0
 
     /// 16 kHz mono AAC, ~32 kbps ≈ 14 MB / hour. Plenty for speech.
     nonisolated(unsafe) private static let fileSettings: [String: Any] = [
@@ -22,11 +32,13 @@ final class SegmentWriter: @unchecked Sendable {
 
     init(
         directory: URL,
+        sessionID: UUID,
         maxDuration: TimeInterval,
-        onSegmentClosed: @escaping @Sendable (URL) -> Void,
+        onSegmentClosed: @escaping @Sendable (ClosedSegment) -> Void,
         onError: @escaping @Sendable (String) -> Void
     ) {
         self.directory = directory
+        self.sessionID = sessionID
         self.maxDuration = maxDuration
         self.onSegmentClosed = onSegmentClosed
         self.onError = onError
@@ -49,15 +61,19 @@ final class SegmentWriter: @unchecked Sendable {
     }
 
     /// Closes the current segment (if any). Safe to call from any thread.
-    func finish() {
+    /// Returns how many segments this session has produced so far.
+    @discardableResult
+    func finish() -> Int {
         lock.lock()
         defer { lock.unlock() }
         closeCurrent()
+        return nextIndex
     }
 
     private func openNew(format: AVAudioFormat) {
         let start = Date.now
-        let url = directory.appending(path: "seg-\(Self.fileStamp(start)).m4a")
+        let name = "\(sessionID.uuidString.lowercased())-\(String(format: "%03d", nextIndex)).m4a"
+        let url = directory.appending(path: name)
         do {
             file = try AVAudioFile(
                 forWriting: url,
@@ -74,16 +90,10 @@ final class SegmentWriter: @unchecked Sendable {
 
     private func closeCurrent() {
         guard let file else { return }
-        let url = file.url
+        let segment = ClosedSegment(url: file.url, index: nextIndex, startedAt: fileStartedAt, endedAt: .now)
         file.close()
         self.file = nil
-        onSegmentClosed(url)
-    }
-
-    private static func fileStamp(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "yyyyMMdd-HHmmss"
-        return f.string(from: date)
+        nextIndex += 1
+        onSegmentClosed(segment)
     }
 }

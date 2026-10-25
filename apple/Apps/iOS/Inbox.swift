@@ -2,8 +2,9 @@ import Foundation
 import Observation
 import WatchConnectivity
 
-/// Receives audio segments and spike logs from the watch and keeps them in
-/// Documents/Inbox. Spike-only: the real app will ingest into a proper store.
+/// Receives everything the watch sends. Recording segments go to
+/// Documents/Sessions and into the upload queue; anything else (spike logs,
+/// segments from older builds without session info) lands in Documents/Inbox.
 @MainActor @Observable
 final class Inbox: NSObject {
     static let shared = Inbox()
@@ -64,16 +65,76 @@ extension Inbox: WCSessionDelegate {
 
     /// The file is deleted when this returns, so move it synchronously.
     nonisolated func session(_ session: WCSession, didReceive file: WCSessionFile) {
-        let name = (file.metadata?["name"] as? String) ?? file.fileURL.lastPathComponent
+        let meta = file.metadata ?? [:]
+        if let segment = SegmentInfo(meta) {
+            let destination = Uploader.audioURL(session: segment.session, index: segment.index)
+            try? FileManager.default.createDirectory(
+                at: destination.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
+            try? FileManager.default.removeItem(at: destination)
+            do {
+                try FileManager.default.moveItem(at: file.fileURL, to: destination)
+            } catch {
+                return
+            }
+            Task { @MainActor in
+                Uploader.shared.enqueue(.init(
+                    session: segment.session,
+                    sessionStartedAt: segment.sessionStartedAt,
+                    kind: .segment(index: segment.index, offset: segment.offset, duration: segment.duration)
+                ))
+            }
+            return
+        }
+
+        let name = (meta["name"] as? String) ?? file.fileURL.lastPathComponent
         let destination = Self.directory.appending(path: name)
         try? FileManager.default.removeItem(at: destination)
         try? FileManager.default.moveItem(at: file.fileURL, to: destination)
         Task { @MainActor in self.reload() }
     }
 
+    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+        guard userInfo["kind"] as? String == "finish",
+              let id = userInfo["session"] as? String,
+              let started = userInfo["sessionStartedAt"] as? Double,
+              let ended = userInfo["endedAt"] as? Double,
+              let count = userInfo["segmentCount"] as? Int else { return }
+        Task { @MainActor in
+            Uploader.shared.enqueue(.init(
+                session: id,
+                sessionStartedAt: Date(timeIntervalSince1970: started),
+                kind: .finish(segmentCount: count, endedAt: Date(timeIntervalSince1970: ended))
+            ))
+        }
+    }
+
     nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}
 
     nonisolated func sessionDidDeactivate(_ session: WCSession) {
         session.activate()
+    }
+}
+
+/// Metadata the watch attaches to each recording segment (`WatchTransfer.sendSegment`).
+private struct SegmentInfo {
+    let session: String
+    let sessionStartedAt: Date
+    let index: Int
+    let offset: Double
+    let duration: Double
+
+    init?(_ meta: [String: Any]) {
+        guard meta["kind"] as? String == "audio",
+              let session = meta["session"] as? String,
+              let started = meta["sessionStartedAt"] as? Double,
+              let index = meta["index"] as? Int,
+              let offset = meta["offset"] as? Double,
+              let duration = meta["duration"] as? Double else { return nil }
+        self.session = session
+        self.sessionStartedAt = Date(timeIntervalSince1970: started)
+        self.index = index
+        self.offset = offset
+        self.duration = duration
     }
 }

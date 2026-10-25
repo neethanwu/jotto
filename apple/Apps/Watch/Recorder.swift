@@ -12,6 +12,7 @@ final class Recorder {
 
     private(set) var state: State = .idle
     private(set) var startedAt: Date?
+    private var sessionID: UUID?
     private(set) var segmentsWritten = 0
     private(set) var lastEvent = "—"
 
@@ -49,11 +50,19 @@ final class Recorder {
         }
 
         let directory = URL.documentsDirectory.appending(path: "Segments")
+        let sessionID = UUID()
+        let startedAt = Date.now
         writer = SegmentWriter(
             directory: directory,
+            sessionID: sessionID,
             maxDuration: segmentDuration,
-            onSegmentClosed: { [weak self] url in
-                Task { @MainActor in self?.segmentClosed(url) }
+            onSegmentClosed: { [weak self] segment in
+                // Captures the session values: the recorder may already have
+                // stopped by the time the last segment closes.
+                Task { @MainActor in
+                    self?.segmentsWritten += 1
+                    WatchTransfer.shared.sendSegment(segment, session: sessionID, sessionStartedAt: startedAt)
+                }
             },
             onError: { message in
                 SpikeLog.shared.log("writer_error", message)
@@ -65,16 +74,24 @@ final class Recorder {
             return
         }
         state = .recording
-        startedAt = .now
-        note("start")
+        self.startedAt = startedAt
+        self.sessionID = sessionID
+        segmentsWritten = 0
+        note("start", sessionID.uuidString)
         startBatteryLogging()
     }
 
     func stop() {
         guard state != .idle else { return }
         stopEngine()
-        writer?.finish()
+        let segmentCount = writer?.finish() ?? 0
         writer = nil
+        if let sessionID, let startedAt {
+            WatchTransfer.shared.sendFinish(
+                session: sessionID, startedAt: startedAt, endedAt: .now, segmentCount: segmentCount
+            )
+        }
+        sessionID = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         batteryTask?.cancel()
         batteryTask = nil
@@ -137,11 +154,6 @@ final class Recorder {
         } else {
             state = .interrupted
         }
-    }
-
-    private func segmentClosed(_ url: URL) {
-        segmentsWritten += 1
-        WatchTransfer.shared.send(url, kind: "audio")
     }
 
     // MARK: - Observation
