@@ -19,13 +19,14 @@ node brand/elements/build.mjs --dark         # illustrations (needs the anatomy 
 
 ## Apps
 
-Already wired in `apple/Apps/{iOS,Watch}/Assets.xcassets`:
+Already wired in `apple/Apps/`:
 
-- `AppIcon`: `icon-ios-1024.png` / `icon-watch-1024.png`, opaque, full bleed. The system applies the mask.
+- iOS icon: `apple/Apps/iOS/AppIcon.icon`, a copy of `logo/final/AppIcon.icon` (Icon Composer format). The system renders Liquid Glass and the dark, tinted and clear looks from it; previews in `logo/out/liquid/`. In dark the ground goes ink, the dot takes the orange and the bar turns white.
+- Watch icon: `AppIcon.appiconset` with `icon-watch-1024.png`, opaque, full bleed; watchOS crops it to a circle.
 - `AccentColor`: iOS `#D03B00` light / `#FF4F00` dark (it tints text, so light mode uses the readable orange); watch `#FF4F00`.
 - `BrandOrange`: `#FF4F00` everywhere. For fills that mean "live": the record button, the recording badge.
 
-After replacing an icon in `logo/final/`, copy it into the asset catalogs again.
+After regenerating, copy `AppIcon.icon` and `icon-watch-1024.png` into the apps again.
 
 ## Website
 

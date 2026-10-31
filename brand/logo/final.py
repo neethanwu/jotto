@@ -223,6 +223,44 @@ def favicon_svg():
     )
 
 
+def write_icon_composer():
+    """AppIcon.icon for Icon Composer / Xcode 26: the system renders Liquid Glass
+    and the dark, tinted and clear looks from it. In dark the ground goes ink
+    and the dot takes the orange, so the bar turns white; in tinted and clear
+    the bar is white at 60% so the dot still leads."""
+    import json
+
+    bundle = os.path.join(OUT, "AppIcon.icon")
+    os.makedirs(os.path.join(bundle, "Assets"), exist_ok=True)
+    cx, cy, r, (bx0, by0, bx1, by1) = icon_geometry()
+    layer = lambda shape: f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">{shape}</svg>\n'
+    with open(os.path.join(bundle, "Assets", "dot.svg"), "w") as f:
+        f.write(layer(f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r:.1f}" fill="{WHITE}"/>'))
+    with open(os.path.join(bundle, "Assets", "bar.svg"), "w") as f:
+        f.write(layer(f'<rect x="{bx0:.1f}" y="{by0:.1f}" width="{bx1 - bx0:.1f}" height="{by1 - by0:.1f}" fill="{INK}"/>'))
+    srgb = lambda hex_, a=1.0: "srgb:" + ",".join(f"{int(hex_[i:i + 2], 16) / 255:.3f}" for i in (1, 3, 5)) + f",{a:.3f}"
+    doc = {
+        "fill": {"solid": srgb(ORANGE)},
+        "groups": [{
+            "layers": [
+                {"glass": False, "image-name": "dot.svg", "name": "dot"},
+                {
+                    "glass": False, "image-name": "bar.svg", "name": "bar",
+                    "fill-specializations": [
+                        {"appearance": "dark", "value": {"solid": srgb(WHITE)}},
+                        {"appearance": "tinted", "value": {"solid": srgb(WHITE, 0.6)}},
+                    ],
+                },
+            ],
+            "shadow": {"kind": "neutral", "opacity": 0.3},
+        }],
+        "supported-platforms": {"squares": "shared"},
+    }
+    with open(os.path.join(bundle, "icon.json"), "w") as f:
+        json.dump(doc, f, indent=2)
+        f.write("\n")
+
+
 def write_icons():
     files = {
         "icon-ios.svg": icon_svg("square"),  # full bleed: iOS applies the mask
@@ -248,3 +286,4 @@ if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
     write_wordmarks()
     write_icons()
+    write_icon_composer()

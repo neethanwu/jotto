@@ -1,0 +1,42 @@
+{
+  "fill": {
+    "solid": "srgb:1.000,0.310,0.000,1.000"
+  },
+  "groups": [
+    {
+      "layers": [
+        {
+          "glass": false,
+          "image-name": "dot.svg",
+          "name": "dot"
+        },
+        {
+          "glass": false,
+          "image-name": "bar.svg",
+          "name": "bar",
+          "fill-specializations": [
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:1.000,1.000,1.000,1.000"
+              }
+            },
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "srgb:1.000,1.000,1.000,0.600"
+              }
+            }
+          ]
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.3
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}
