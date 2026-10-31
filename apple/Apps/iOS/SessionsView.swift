@@ -124,8 +124,9 @@ struct StatusBadge: View {
 
     var body: some View {
         switch status {
-        case "recording": Label("Recording", systemImage: "record.circle").foregroundStyle(.red)
-        case "processing": Label("Processing", systemImage: "hourglass").foregroundStyle(.orange)
+        // Orange means live: only a recording gets it. Waiting states stay ink.
+        case "recording": Label("Recording", systemImage: "record.circle").foregroundStyle(Color("BrandOrange"))
+        case "processing": Label("Processing", systemImage: "hourglass").foregroundStyle(.secondary)
         default: EmptyView()
         }
     }

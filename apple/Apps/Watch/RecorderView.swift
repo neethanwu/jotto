@@ -16,7 +16,7 @@ struct RecorderView: View {
                     .font(.title)
                     .frame(maxWidth: .infinity, minHeight: 56)
             }
-            .tint(recorder.state == .idle ? .accentColor : .red)
+            .tint(Color("BrandOrange"))  // the one action on screen, start or stop
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("state: \(recorder.state.rawValue)")
