@@ -1,0 +1,4 @@
+fonttools
+matplotlib
+skia-pathops
+pillow
