@@ -150,14 +150,17 @@ def icon_geometry(size=1024, k=0.46 * 1024 / 120):
     return cx, cy, r, bar
 
 
-def squircle(size, n=5, steps=720):
-    """Superellipse close to the iOS icon mask."""
-    a = size / 2
+def squircle(size, corner=0.31, n=3.4, steps=90):
+    """The iOS icon mask: straight edges, with each corner a superellipse quarter so the
+    curvature eases in (a continuous corner, not a circle). `corner` is how far along each
+    edge the curve starts, as a share of the size."""
+    c = size * corner
     pts = []
-    for i in range(steps):
-        t = 2 * math.pi * i / steps
-        c, s = math.cos(t), math.sin(t)
-        pts.append((a + a * math.copysign(abs(c) ** (2 / n), c), a + a * math.copysign(abs(s) ** (2 / n), s)))
+    sg = lambda v, e: math.copysign(abs(v) ** e, v)
+    for k, (cx, cy) in enumerate(((size - c, c), (size - c, size - c), (c, size - c), (c, c))):
+        for i in range(steps + 1):
+            t = -math.pi / 2 + math.pi / 2 * (k + i / steps)
+            pts.append((cx + c * sg(math.cos(t), 2 / n), cy + c * sg(math.sin(t), 2 / n)))
     return pts
 
 

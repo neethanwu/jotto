@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jotto · Neethan</title>
+<meta name="description" content="Jotto turns the Apple Watch you already own into an everyday recording companion.">
+<link rel="icon" href="../logo/final/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#FFFFFF">
+<link rel="stylesheet" href="../color/tokens.css">
+<link rel="stylesheet" href="iso.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+  /* Scoped to the Jotto page: brand tokens only. */
+  .jotto { --max: 1200px; --pad: clamp(20px, 5vw, 64px); --sans: "Geist", system-ui, sans-serif; --mono: "Geist Mono", ui-monospace, monospace;
+    background: var(--ink-0); color: var(--ink-950); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+  * { box-sizing: border-box; margin: 0; }
+  html { scroll-snap-type: y proximity; }
+  .snap { position: absolute; left: 0; width: 1px; height: 1px; scroll-snap-align: start; pointer-events: none; }
+  .hero, .end { scroll-snap-align: start; }
+  .wrap { width: 100%; max-width: calc(var(--max) + var(--pad) * 2); margin: 0 auto; padding: 0 var(--pad); }
+  h1, h2 { font-weight: 600; letter-spacing: -0.03em; line-height: 1; font-kerning: normal; }
+  .ico { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+  .top { position: fixed; inset: 0 0 auto 0; z-index: 20; pointer-events: none; }
+  .top .wrap { display: flex; align-items: center; justify-content: space-between; height: 76px; }
+  .top a { pointer-events: auto; }
+  .top img { height: 22px; display: block; }
+  .top nav { display: flex; gap: 22px; align-items: center; font-size: 14px; font-weight: 500; }
+  .top nav a { color: var(--ink-600); text-decoration: none; transition: color .3s, background .3s; }
+  .top nav a.pill { color: var(--ink-0); background: var(--ink-950); padding: 8px 15px; border-radius: 999px; }
+  .top.dark nav a { color: var(--ink-400); }
+  .top.dark nav a.pill { color: var(--ink-950); background: var(--ink-50); }
+
+  #gl { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 15; }
+
+  /* Drawn objects (anatomy kit) */
+  .art { position: relative; }
+  .art.iso { --anatomy-paper: #fff; --anatomy-card: #fff; --anatomy-weight: .7px; background: transparent; }
+  .art.iso[data-theme="dark"] { --anatomy-paper: #0A0A0A; --anatomy-card: #0A0A0A; }
+  .art svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .art svg * { vector-effect: non-scaling-stroke; transition: fill .7s ease, stroke .7s ease; }
+  .art .jt-black { fill: #0A0A0A; transition: none; }
+  .art .jt-hole { fill: var(--anatomy-shade-0); }
+  .art .jt-floor { fill: var(--anatomy-paper); }
+  .art .ov { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; }
+  .art .scr { position: absolute; left: 0; top: 0; transform-origin: 0 0; overflow: hidden; }
+  .rig .fr, .rig .chg { position: absolute; inset: 0; }
+  .rig .fr { visibility: hidden; }
+  .rig .fr.on { visibility: visible; }
+  .rig .chg svg { overflow: hidden; }
+
+  /* Watch display (local units: about 79 × 96) */
+  .wui { position: absolute; inset: 0; background: #000; color: #fff; font-family: var(--sans); transition: background .5s ease; }
+  .wui .clock { position: absolute; top: 9px; width: 100%; text-align: center; font: 600 7px var(--sans); color: #A6A4A1; font-variant-numeric: tabular-nums; }
+  .wui .btn { position: absolute; left: 50%; top: 50%; width: 42px; height: 42px; margin: -21px 0 0 -21px; border-radius: 50%;
+    background: var(--orange-500); border: 0; padding: 0; cursor: pointer; pointer-events: auto; transition: transform .25s cubic-bezier(.3,1.5,.5,1), opacity .4s; }
+  .wui .btn::after { content: ""; position: absolute; inset: 15px; border-radius: 3px; background: #fff; transform: scale(0); transition: transform .25s; }
+  .wui .ring { position: absolute; left: 50%; top: 50%; width: 42px; height: 42px; margin: -21px 0 0 -21px; border-radius: 50%; border: 1.2px solid var(--orange-500); opacity: 0; }
+  .wui.rec .btn { transform: scale(.88); }
+  .wui.rec .btn::after { transform: scale(1); }
+  .wui.rec .ring { animation: ring 1.1s ease-out infinite; }
+  .wui .el { position: absolute; bottom: 9px; width: 100%; text-align: center; font: 500 7.5px var(--mono); color: #fff; opacity: 0; transition: opacity .2s; font-variant-numeric: tabular-nums; }
+  .wui.rec .el { opacity: 1; }
+  .wui .big { position: absolute; top: 30px; width: 100%; text-align: center; font: 600 22px var(--sans); letter-spacing: -.02em; color: #fff; opacity: 0; transition: opacity .4s; font-variant-numeric: tabular-nums; }
+  .wui .sub { position: absolute; top: 58px; width: 100%; text-align: center; font: 500 6px var(--mono); color: #fff; opacity: 0; transition: opacity .4s; }
+  .wui.charging { background: var(--orange-500); }
+  .wui.charging .big, .wui.charging .sub { opacity: 1; }
+  .wui.charging .btn, .wui.charging .clock { opacity: 0; }
+  .wui .btn:focus-visible { outline: 1px solid #fff; outline-offset: 3px; }
+  @keyframes ring { 0% { opacity: .8; transform: scale(1); } 100% { opacity: 0; transform: scale(1.5); } }
+
+  /* iPhone display (local units: about 157 × 339) */
+  .pui { position: absolute; inset: 0; background: #fff; color: var(--ink-950); font-family: var(--sans); }
+  .pui .island { position: absolute; left: 50%; top: 7px; width: 40px; height: 11px; margin-left: -20px; border-radius: 6px; background: #000; }
+  .pui .ttl { position: absolute; left: 12px; top: 30px; font: 600 17px var(--sans); letter-spacing: -.02em; }
+  .pui .date { position: absolute; left: 12px; top: 51px; font: 500 6px var(--mono); color: var(--ink-500); }
+  .pui .row { position: absolute; left: 12px; right: 12px; height: 50px; border-top: .6px solid var(--ink-200); opacity: 0; transition: opacity .3s; }
+  .pui .row.on { opacity: 1; }
+  .pui .meta { display: flex; align-items: center; gap: 3.5px; padding-top: 6px; font: 500 5.5px var(--mono); color: var(--ink-500); }
+  .pui .meta .ico { width: 8px; height: 8px; stroke-width: 1.1; color: var(--ink-600); }
+  .pui .meta .ttl2 { color: var(--ink-950); font: 600 6.5px var(--sans); }
+  .pui .meta .when { margin-left: auto; }
+  .pui .meta .live { color: var(--orange-500); }
+  .pui .txt { margin-top: 4px; font: 500 8.5px/11px var(--sans); }
+  .ch { opacity: 0; transition: opacity .16s ease; }
+  .ch.on { opacity: 1; }
+
+  /* Hero */
+  .hero { position: relative; min-height: 100svh; display: flex; flex-direction: column; align-items: center; padding: 112px 0 40px; }
+  .hero-copy { text-align: center; }
+  .hero h1 { font-size: clamp(42px, 6vw, 88px); }
+  .hero .lede { margin: 18px auto 0; font-size: clamp(17px, 1.45vw, 20px); line-height: 1.5; color: var(--ink-600); max-width: 520px; }
+  .stage { position: relative; flex: 1; width: 100%; display: flex; align-items: center; justify-content: center; min-height: 380px; }
+  .stage .art { width: min(50vw, 600px); }
+  .said { position: absolute; max-width: 420px; }
+  .said.below { position: static; text-align: center; padding: 0 var(--pad); margin: -6px auto 0; min-height: 96px; max-width: 560px; }
+  .evt { display: flex; align-items: center; gap: 8px; width: 100%; font: 500 12px var(--mono); color: var(--ink-500); letter-spacing: .02em; margin-bottom: 10px; opacity: 0; transform: translateY(4px); transition: opacity .3s ease, transform .3s ease; }
+  .said.below .evt { justify-content: center; }
+  .evt .ico { color: var(--ink-950); }
+  .evt .len { margin-left: auto; }
+  .said.below .evt .len { margin-left: 0; }
+  .evt b { font-weight: 500; color: var(--ink-950); }
+  .evt.on { opacity: 1; transform: none; }
+  .line { font-size: clamp(20px, 1.9vw, 27px); line-height: 1.38; font-weight: 500; letter-spacing: -0.02em; color: var(--ink-950); }
+  .line .f { position: relative; display: inline-block; white-space: pre; overflow: hidden; vertical-align: bottom; transition: color .2s ease, width .26s cubic-bezier(.4,0,.2,1), opacity .26s; }
+  .line .f::after { content: ""; position: absolute; left: 0; right: 0; top: 55%; height: 1.5px; background: currentColor; transform: scaleX(0); transform-origin: left; transition: transform .2s ease; }
+  .line .f.x { color: var(--ink-300); }
+  .line .f.x::after { transform: scaleX(1); }
+  .line .f.gone { opacity: 0; }
+  .hint { font: 500 13px var(--mono); color: var(--ink-500); text-align: center; min-height: 18px; }
+  .hint .live { color: var(--orange-500); }
+  @media (hover: none), (max-width: 759px) { .hint .kb { display: none; } }
+
+  /* The story: one pinned stage, moved step by step */
+  .scene { position: relative; height: var(--len, 300vh); }
+  .pin { position: sticky; top: 0; height: 100svh; overflow: hidden; transition: background .7s ease; }
+  .heads { position: absolute; left: 0; right: 0; top: clamp(100px, 14vh, 140px); pointer-events: none; z-index: 2; }
+  .heads h2 { position: absolute; left: 0; right: 0; text-align: center; font-size: clamp(30px, 3.9vw, 56px); padding: 0 var(--pad);
+    opacity: 0; transform: translateY(12px); transition: opacity .45s ease, transform .45s ease; }
+  .heads h2.on { opacity: 1; transform: none; }
+  .heads h2 .ln { display: block; opacity: 0; transform: translateY(10px); transition: opacity .45s ease, transform .45s ease; }
+  .heads h2 .ln.on { opacity: 1; transform: none; }
+  .night .heads h2 { color: var(--ink-50); }
+  .gadgets { position: absolute; left: 50%; top: 64%; width: min(88vw, 1120px); transform: translate(-50%, -50%); }
+  .rigwrap { position: absolute; inset: 0; --m3: 82%; --m4: 96%; -webkit-mask-image: linear-gradient(180deg, transparent 18%, #000 34%, #000 var(--m3), transparent var(--m4)); mask-image: linear-gradient(180deg, transparent 18%, #000 34%, #000 var(--m3), transparent var(--m4)); pointer-events: none; }
+  .rig { position: absolute; left: 50%; top: 58%; width: min(56vw, 760px); transform-origin: 50% 50%; will-change: transform; pointer-events: auto; }
+  .phone { position: absolute; left: 50%; top: 58%; width: 300px; will-change: transform; z-index: 1; }
+  .event { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 10px; white-space: nowrap;
+    font: 500 13px var(--mono); letter-spacing: .02em; color: var(--ink-950); transition: opacity .3s ease; }
+  .event .tm { color: var(--ink-500); }
+  .night .event { color: var(--ink-50); }
+  .night .event .tm { color: var(--ink-400); }
+
+  .end { background: var(--ink-950); color: var(--ink-50); min-height: 92svh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 22px; padding: 120px 0 72px; }
+  .end img { width: 88px; height: 88px; }
+  .end h2 { font-size: clamp(40px, 5.6vw, 84px); }
+  .end p { font-size: 18px; line-height: 1.55; color: var(--ink-400); max-width: 470px; margin: 0 auto; }
+  .end .small { font: 500 12px var(--mono); color: var(--ink-500); letter-spacing: .04em; }
+  .end a.btn { margin-top: 6px; color: var(--ink-950); background: var(--ink-50); padding: 14px 24px; border-radius: 999px; font-weight: 600; font-size: 16px; text-decoration: none; }
+  footer { background: var(--ink-950); color: var(--ink-500); font-size: 14px; }
+  footer .wrap { display: flex; align-items: center; justify-content: space-between; height: 88px; text-transform: lowercase; }
+  footer img { height: 18px; display: block; }
+  footer a { color: var(--ink-300); text-decoration: none; }
+  footer a:hover { color: var(--ink-50); }
+
+  @media (max-width: 760px) {
+    .stage { flex-direction: column; min-height: 0; }
+    .stage .art { width: 108vw; }
+    .rig { width: 120vw; }
+    .gadgets { width: 112vw; }
+    .event { font-size: 11px; }
+  }
+  @media (prefers-reduced-motion: reduce) { .wui.rec .ring { animation: none; } }
+</style>
+</head>
+<body class="jotto">
+<canvas id="gl"></canvas>
+
+<header class="top" id="top"><div class="wrap">
+  <a href="#" aria-label="Jotto"><img id="mark" src="../logo/final/wordmark.svg" alt="jotto"></a>
+  <nav><a href="https://neethan.com">neethan.com</a><a class="pill" href="#get">Join the beta</a></nav>
+</div></header>
+
+<section class="hero" id="hero">
+  <div class="wrap hero-copy">
+    <h1>The recorder<br>you already own.</h1>
+    <p class="lede">Jotto turns your Apple Watch into an everyday recording companion.</p>
+  </div>
+  <div class="stage" id="stage">
+    <div class="art iso" data-theme="light" id="heroWatch"></div>
+    <div class="said" id="said" aria-live="polite"><div class="evt" id="evt"></div><p class="line" id="line"></p></div>
+  </div>
+  <p class="hint" id="hint">Tap the dot<span class="kb"> · or press space</span></p>
+</section>
+
+<section class="scene" id="story" style="--len:1100vh">
+  <div class="pin" id="pin">
+    <div class="heads">
+      <h2 id="h-gadgets"><span class="ln">Another device.</span><span class="ln">Another charger.</span><span class="ln">Another thing to remember.</span></h2>
+      <h2>Or the one already on your wrist.</h2>
+      <h2>Tap once. Talk for hours.</h2>
+      <h2>No phone nearby? It catches up.</h2>
+      <h2>Clean text, ready on your iPhone.</h2>
+      <h2>And it charges with your watch.</h2>
+    </div>
+    <div class="art iso gadgets" data-theme="light" id="gadgetArt"></div>
+    <div class="art iso phone" data-theme="light" id="phone"></div>
+    <div class="rigwrap" id="rigwrap"><div class="art iso rig" data-theme="light" id="rig"></div></div>
+    <p class="event" id="event"></p>
+  </div>
+</section>
+
+<section class="end" id="get">
+  <img src="../logo/final/icon-ios-masked.svg" alt="">
+  <h2>Start with the watch<br>you already have.</h2>
+  <p>Jotto is in beta on TestFlight. Bring your own API key, or use a Jotto subscription.</p>
+  <a class="btn" href="#">Join the beta</a>
+  <p class="small">iOS 26 · watchOS 26</p>
+</section>
+<footer><div class="wrap">
+  <img src="../logo/final/wordmark-dark.svg" alt="jotto">
+  <span>built by <a href="https://x.com/neethanwu">neethan</a></span>
+</div></footer>
+
+<script src="art.js"></script>
+<script>
+(() => {
+  const ART = window.JOTTO_ART;
+  const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+  const seg = (p, a, b) => clamp((p - a) / (b - a));
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const ease = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  const easeOut = t => 1 - Math.pow(1 - t, 3);
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const narrow = () => innerWidth < 760;
+  const localTime = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  const ICONS = {
+    coffee: "M4 8h10v3.5a4.5 4.5 0 0 1-4.5 4.5h-1A4.5 4.5 0 0 1 4 11.5z M14 9h1.2a2.3 2.3 0 0 1 0 4.6H14 M7.5 3.5v2 M10.5 3.5v2",
+    people: "M7.5 9a2.8 2.8 0 1 0 0-5.6 2.8 2.8 0 0 0 0 5.6z M2.5 17a5 5 0 0 1 10 0 M13.5 9a2.4 2.4 0 1 0 0-4.8 M14 11.8a4.6 4.6 0 0 1 4 5.2",
+    walk: "M5 17.5a1.6 1.6 0 1 0 0-.01 M15 4a1.6 1.6 0 1 0 0-.01 M7 17.5h5.5a3 3 0 0 0 0-6h-5a3 3 0 0 1 0-6H13",
+    mic: "M10 3a2.8 2.8 0 0 0-2.8 2.8v3.7a2.8 2.8 0 0 0 5.6 0V5.8A2.8 2.8 0 0 0 10 3z M5 9.5a5 5 0 0 0 10 0 M10 14.5V17",
+    lunch: "M5.5 3v5.5a2 2 0 0 0 4 0V3 M7.5 10.5V17 M14.5 3c-1.6 1.4-2.2 3.6-2.2 6h2.2v8",
+    idea: "M7 13.5a4.8 4.8 0 1 1 6 0V15H7z M8 17.5h4",
+  };
+  const icon = k => `<svg class="ico" viewBox="0 0 20 20"><path d="${ICONS[k]}"/></svg>`;
+
+  /* ---------- Drawn objects with HTML laid on their screens ---------- */
+  function overlay(el, vb, screen) {
+    const ov = document.createElement("div"); ov.className = "ov";
+    ov.style.width = vb[0] + "px"; ov.style.height = vb[1] + "px";
+    const scr = document.createElement("div"); scr.className = "scr";
+    ov.append(scr); el.append(ov);
+    const o = { el, ov, scr, vb, m: null };
+    o.setScreen = s => { o.m = s.m; Object.assign(scr.style, { width: s.w + "px", height: s.h + "px", borderRadius: s.r + "px", transform: `matrix(${s.m.join(",")})` }); o.sw = s.w; o.sh = s.h; };
+    o.setScreen(screen);
+    const fit = () => (ov.style.transform = `scale(${el.offsetWidth / vb[0]})`);
+    new ResizeObserver(fit).observe(el); fit();
+    // a point on the screen (local units) → coordinates relative to `frame`, with every CSS transform applied
+    o.at = (u, v, frame) => {
+      const r = el.getBoundingClientRect(), f = frame.getBoundingClientRect(), m = o.m, s = r.width / vb[0];
+      return [r.left - f.left + s * (m[0] * u + m[2] * v + m[4]), r.top - f.top + s * (m[1] * u + m[3] * v + m[5])];
+    };
+    return o;
+  }
+  function mount(el, a) { el.innerHTML = a.svg; return a.screen ? overlay(el, a.vb, a.screen) : { el }; }
+  function watchUI(o) {
+    o.scr.innerHTML = `<div class="wui"><div class="clock"></div><div class="ring"></div><button class="btn" aria-label="Record"></button><div class="el">00:00</div><div class="big"></div><div class="sub">CHARGING</div></div>`;
+    o.ui = o.scr.firstChild; o.clock = o.ui.querySelector(".clock"); o.el2 = o.ui.querySelector(".el"); o.big = o.ui.querySelector(".big");
+    o.center = () => [o.sw / 2, o.sh / 2];
+    return o;
+  }
+  const fmtDur = s => { s = Math.floor(s); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, x = s % 60; return (h ? `${h}:${String(m).padStart(2, "0")}` : String(m).padStart(2, "0")) + `:${String(x).padStart(2, "0")}`; };
+
+  /* ---------- WebGL particles ---------- */
+  const TONES = ["#FFCEBF", "#FFAC94", "#FF815C", "#FF4F00", "#FF4F00", "#FF4F00", "#D03B00", "#AB2C00", "#871E00", "#641200", "#4C4A48", "#1F1E1C"];
+  const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255);
+  const GL = (() => {
+    const c = document.getElementById("gl");
+    const gl = c.getContext("webgl", { premultipliedAlpha: true, alpha: true, antialias: false });
+    if (!gl) return null;
+    const VS = `
+      attribute vec2 aS, aE, aC; attribute vec4 aM; attribute vec4 aK; attribute float aG;
+      uniform float uT, uFade, uDpr; uniform vec2 uRes, uOff;
+      varying vec3 vC; varying float vA;
+      void main() {
+        float lag = aG * 22.0, kr = (uT - aM.x - lag) / aM.y, k = clamp(kr, 0.0, 1.0);
+        float e = k < .5 ? 4.0 * k * k * k : 1.0 - pow(-2.0 * k + 2.0, 3.0) / 2.0;
+        float u = 1.0 - e;
+        vec2 p = u * u * aS + 2.0 * u * e * aC + e * e * aE;
+        p += sin(e * 3.14159) * vec2(sin(aM.w * 40.0 + e * 6.0), cos(aM.w * 31.0 + e * 5.0)) * (4.0 + 7.0 * aM.w);
+        vec2 q = (p + uOff) / uRes * 2.0 - 1.0;
+        gl_Position = vec4(q.x, -q.y, 0.0, 1.0);
+        gl_PointSize = aM.z * (1.0 + sin(e * 3.14159) * 0.9) * (1.0 - aG * 0.25) * uDpr;
+        vC = mix(aK.rgb, vec3(0.039), smoothstep(aK.w, 1.0, k));
+        float alive = step(0.0001, uT - aM.x - lag);
+        float landed = 1.0 - smoothstep(1.0, 1.25, kr);
+        vA = alive * landed * uFade * (aG > 0.5 ? (1.0 - aG * 0.3) * sin(e * 3.14159) * 0.55 : 1.0);
+      }`;
+    const FS = `precision mediump float; varying vec3 vC; varying float vA;
+      void main() { float d = length(gl_PointCoord - .5); float a = smoothstep(.5, .1, d) * vA; gl_FragColor = vec4(vC * a, a); }`;
+    const sh = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(o)); return o; };
+    const prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(prog); gl.useProgram(prog);
+    const A = n => gl.getAttribLocation(prog, n), U = n => gl.getUniformLocation(prog, n);
+    const loc = { aS: A("aS"), aE: A("aE"), aC: A("aC"), aM: A("aM"), aK: A("aK"), aG: A("aG"), uT: U("uT"), uFade: U("uFade"), uDpr: U("uDpr"), uRes: U("uRes"), uOff: U("uOff") };
+    gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    const STRIDE = 15, GHOSTS = 3, list = new Set();
+    function burst(parts) {
+      const data = new Float32Array(parts.length * GHOSTS * STRIDE);
+      let i = 0, total = 0;
+      for (const q of parts) {
+        total = Math.max(total, q.delay + q.dur * 1.25 + GHOSTS * 22);
+        for (let g = 0; g < GHOSTS; g++) data.set([q.s[0], q.s[1], q.e[0], q.e[1], q.c[0], q.c[1], q.delay, q.dur, q.size, q.seed, q.tone[0], q.tone[1], q.tone[2], q.cool, g], (i++) * STRIDE);
+      }
+      const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+      const b = { buf, n: parts.length * GHOSTS, total, t: 0, fade: 1, off: [0, 0], on: false };
+      list.add(b); return b;
+    }
+    function drop(b) { if (!b) return; gl.deleteBuffer(b.buf); list.delete(b); }
+    function draw() {
+      const dpr = Math.min(devicePixelRatio || 1, 2), w = innerWidth, h = innerHeight;
+      if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+      gl.viewport(0, 0, c.width, c.height); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.uniform2f(loc.uRes, w, h); gl.uniform1f(loc.uDpr, dpr);
+      for (const b of list) {
+        if (!b.on || b.fade <= 0) continue;
+        gl.bindBuffer(gl.ARRAY_BUFFER, b.buf);
+        const F = 4, bind = (l, n, o) => { gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, n, gl.FLOAT, false, STRIDE * F, o * F); };
+        bind(loc.aS, 2, 0); bind(loc.aE, 2, 2); bind(loc.aC, 2, 4); bind(loc.aM, 4, 6); bind(loc.aK, 4, 10); bind(loc.aG, 1, 14);
+        gl.uniform1f(loc.uT, b.t); gl.uniform1f(loc.uFade, b.fade); gl.uniform2f(loc.uOff, b.off[0], b.off[1]);
+        gl.drawArrays(gl.POINTS, 0, b.n);
+      }
+    }
+    return { burst, drop, draw };
+  })();
+
+  // Characters: wrap every letter so it can appear the moment its particles land.
+  function charify(el) {
+    const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT), nodes = [];
+    while (walk.nextNode()) nodes.push(walk.currentNode);
+    for (const n of nodes) { const f = document.createDocumentFragment(); for (const c of n.data) { const sp = document.createElement("span"); sp.className = "ch"; sp.textContent = c; f.append(sp); } n.replaceWith(f); }
+    return [...el.querySelectorAll(".ch")];
+  }
+  // Paint the characters where the page laid them out and sample their ink, in the element's own units (÷ scale).
+  // Each point and each character gets an order: reading order, line by line, 0 → 1.
+  const off = document.createElement("canvas");
+  function inkOf(el, chars, scale, step, ss = 2) {
+    const r0 = el.getBoundingClientRect(), cs = getComputedStyle(el), size = parseFloat(cs.fontSize);
+    const W = Math.ceil(r0.width / scale) + 2, H = Math.ceil(r0.height / scale) + 2;
+    off.width = W * ss; off.height = H * ss;
+    const ctx = off.getContext("2d");
+    ctx.setTransform(ss, 0, 0, ss, 0, 0); ctx.font = `${cs.fontWeight} ${size}px Geist`; ctx.fillStyle = "#000"; ctx.textBaseline = "alphabetic";
+    const fm = ctx.measureText("Hg"), aS = fm.fontBoundingBoxAscent, dS = fm.fontBoundingBoxDescent;
+    const info = chars.map(ch => { const r = ch.getBoundingClientRect(); return { x: (r.left - r0.left) / scale, top: (r.top - r0.top) / scale, h: r.height / scale, w: r.width / scale, c: ch.textContent }; });
+    const tops = [...new Set(info.map(i => Math.round(i.top)))].sort((a, b) => a - b), nL = tops.length || 1;
+    const lineOf = y => { let best = 0; tops.forEach((t, k) => { if (y >= t - 1) best = k; }); return best; };
+    const order = (x, line) => (line * W + x) / (nL * W);
+    info.forEach(i => { if (i.c.trim()) ctx.fillText(i.c, i.x, i.top + i.h * aS / (aS + dS)); i.order = order(i.x + i.w / 2, tops.indexOf(Math.round(i.top))); });
+    const d = ctx.getImageData(0, 0, off.width, off.height).data, pts = [], st = step * ss;
+    for (let y = 0; y < off.height; y += st) for (let x = 0; x < off.width; x += st) {
+      const jx = Math.min(off.width - 1, x + Math.random() * st * .7), jy = Math.min(off.height - 1, y + Math.random() * st * .7);
+      if (d[(Math.floor(jy) * off.width + Math.floor(jx)) * 4 + 3] > 110) { const px = jx / ss, py = jy / ss; pts.push([px, py, order(px, lineOf(py))]); }
+    }
+    return { pts, orders: info.map(i => i.order) };
+  }
+  // Particles leave from `from()` and land on the targets in reading order; times in ms.
+  function particles(targets, from, spread, { wave = 340, jit = 140, dur = 760, size = 2 } = {}) {
+    const parts = targets.map(([tx, ty, o]) => {
+      const [sx, sy] = from(), warm = Math.random() < .16;
+      const mx = (sx + tx) / 2 + (Math.random() - .5) * spread, my = Math.min(sy, ty) - (.3 + Math.random() * .7) * spread * .6;
+      return { s: [sx, sy], e: [tx, ty], c: [mx, my], delay: wave * o + Math.random() * jit, dur: dur * (.85 + Math.random() * .3),
+        size: size * (.55 + Math.random() * .7), seed: Math.random(), tone: rgb(TONES[Math.floor(Math.random() * TONES.length)]), cool: warm ? .85 : .45 + Math.random() * .2 };
+    });
+    // when the character at reading order o has its particles down
+    parts.landsAt = o => wave * o + jit * .7 + dur * 1.05;
+    return parts;
+  }
+  const showChars = (chars, times, t) => chars.forEach((c, i) => c.classList.toggle("on", t >= times[i]));
+
+  /* ---------- Hero: tap the dot ---------- */
+  const hero = document.getElementById("hero"), stage = document.getElementById("stage"), said = document.getElementById("said");
+  const evt = document.getElementById("evt"), line = document.getElementById("line"), hint = document.getElementById("hint");
+  const hw = watchUI(mount(document.getElementById("heroWatch"), ART.watch));
+  // what was said, with the words the clean-up takes out (f) and the ones it recapitalises (c)
+  const PRESETS = [
+    { icon: "coffee", what: "Coffee with Priya", secs: 2772, toks: [["So, um, ", "f"], ["the pilot runs six weeks, ", "c", "The pilot runs six weeks, "], ["uh, ", "f"], ["and we review after week two…"]] },
+    { icon: "people", what: "Design review", secs: 4320, toks: [["Okay, like, ", "f"], ["design locks on Friday, ", "c", "Design locks on Friday, "], ["um, ", "f"], ["engineering starts Monday…"]] },
+    { icon: "walk", what: "Walk with Sam", secs: 1464, toks: [["I mean, ", "f"], ["we should, ", "c", "We should "], ["we should ", "f"], ["hire for the platform role first…"]] },
+    { icon: "mic", what: "User interview", secs: 2280, toks: [["Honestly, ", "f"], ["I just want ", "c", "I just want "], ["like, ", "f"], ["the notes without typing them…"]] },
+  ];
+  let hs = "idle", t0 = 0, preset = 0, hb = null, tr = 0, autoStop = 0, parts = null, cleanAt = 0, cur = PRESETS[0], hChars = [], hTimes = [];
+  const REC_MS = 2600;
+  function placeSaid() {
+    const sr = stage.getBoundingClientRect(), [x, y] = hw.at(hw.sw + 14, hw.sh * .55, stage);
+    const left = Math.max(x + 60, sr.width * .5 + 60), room = sr.width - left - 24;
+    const below = narrow() || room < 300;
+    said.classList.toggle("below", below);
+    if (below) { said.style.left = said.style.top = said.style.width = ""; return; }
+    Object.assign(said.style, { left: left + "px", top: (y - 20) + "px", width: Math.min(420, room) + "px" });
+  }
+  function start() {
+    cur = PRESETS[preset++ % PRESETS.length];
+    hs = "rec"; t0 = performance.now(); hw.ui.classList.add("rec"); hw.el2.textContent = "00:01";
+    evt.classList.remove("on"); line.innerHTML = ""; if (GL) GL.drop(hb); hb = null;
+    hint.innerHTML = '<span class="live">● Recording</span> · tap to stop';
+    clearTimeout(autoStop); autoStop = setTimeout(stop, REC_MS);
+  }
+  function stop() {
+    if (hs !== "rec") return;
+    clearTimeout(autoStop); hw.ui.classList.remove("rec");
+    evt.innerHTML = `${icon(cur.icon)}<b>${cur.what}</b><span class="len">${cur.secs >= 3600 ? `${Math.floor(cur.secs / 3600)} h ${Math.round(cur.secs % 3600 / 60)} min` : `${Math.round(cur.secs / 60)} min`}</span>`;
+    line.innerHTML = cur.toks.map(([t, kind, alt]) => `<span class="${kind === "f" ? "f" : kind === "c" ? "cap" : ""}"${alt ? ` data-alt="${alt}"` : ""}>${t}</span>`).join("");
+    placeSaid(); evt.classList.add("on");
+    hChars = charify(line);
+    hint.textContent = "Saved to your iPhone · tap again";
+    if (!GL || reduced) { hChars.forEach(c => c.classList.add("on")); cleanAt = performance.now() + 300; hs = "shown"; return; }
+    const size = parseFloat(getComputedStyle(line).fontSize), lr = line.getBoundingClientRect(), fr = hero.getBoundingClientRect();
+    const ink = inkOf(line, hChars, 1, size > 24 ? 1.1 : 1);
+    const targets = ink.pts.map(([x, y, o]) => [lr.left - fr.left + x, lr.top - fr.top + y, o]);
+    const [cu, cv] = hw.center();
+    const from = () => { const a = Math.random() * 6.283, r = Math.sqrt(Math.random()) * 19; return hw.at(cu + Math.cos(a) * r, cv + Math.sin(a) * r, hero); };
+    parts = particles(targets, from, 160, { size: size > 24 ? 2.2 : 1.9 });
+    hTimes = ink.orders.map(o => parts.landsAt(o));
+    hb = GL.burst(parts); hb.on = true; tr = performance.now(); hs = "forming";
+  }
+  function clean() {
+    // the clean-up: filler words go pale and get struck, then fold away
+    const fs = [...line.querySelectorAll(".f")];
+    fs.forEach(f => f.classList.add("x"));
+    setTimeout(() => {
+      fs.forEach(f => { f.style.width = f.offsetWidth + "px"; requestAnimationFrame(() => { f.style.width = "0px"; f.classList.add("gone"); }); });
+      line.querySelectorAll(".cap").forEach(c => (c.textContent = c.dataset.alt));
+    }, 320);
+  }
+  const toggle = () => (hs === "rec" ? stop() : start());
+  hw.ui.querySelector(".btn").addEventListener("click", toggle);
+  addEventListener("keydown", e => {
+    if (e.code !== "Space" || hero.getBoundingClientRect().bottom < innerHeight * .4) return;
+    if (e.target.closest && e.target.closest("a, button, input, textarea")) return;
+    e.preventDefault(); if (!e.repeat) toggle();
+  });
+  addEventListener("resize", placeSaid);
+  function tickHero(now) {
+    hw.clock.textContent = localTime();
+    // the recording runs for a couple of seconds on the page, and the counter runs through the whole conversation
+    if (hs === "rec") hw.el2.textContent = fmtDur(1 + Math.pow(clamp((now - t0) / REC_MS), 2.2) * (cur.secs - 1));
+    if (hs === "shown" && now > cleanAt) { clean(); hs = "done"; }
+    if (!hb) return;
+    const fr = hero.getBoundingClientRect(); hb.off = [fr.left, fr.top]; hb.t = now - tr;
+    showChars(hChars, hTimes, hb.t);
+    if (hs === "forming" && hb.t > hb.total) { GL.drop(hb); hb = null; hChars.forEach(c => c.classList.add("on")); hs = "shown"; cleanAt = now + 200; }
+  }
+
+  /* ---------- The story: scroll picks the step, time plays it ---------- */
+  const story = document.getElementById("story"), pin = document.getElementById("pin"), eventEl = document.getElementById("event");
+  const heads = [...pin.querySelectorAll(".heads > h2")], gLines = [...document.querySelectorAll("#h-gadgets .ln")];
+  const gArt = mount(document.getElementById("gadgetArt"), ART.gadgets), gEls = [...gArt.el.querySelectorAll(".jt-gadget")];
+  const rigEl = document.getElementById("rig"), rigWrap = document.getElementById("rigwrap");
+  rigEl.innerHTML = `<div class="chg">${ART.charger.svg}</div>` + ART.frames.svgs.map((s, i) => `<div class="fr" data-f="${i}">${s}</div>`).join("");
+  rigEl.style.aspectRatio = `${ART.frames.vb[0]} / ${ART.frames.vb[1]}`;
+  const frs = [...rigEl.querySelectorAll(".fr")], chg = rigEl.querySelector(".chg");
+  const rig = watchUI(overlay(rigEl, ART.frames.vb, ART.frames.screens[0]));
+  let curF = -1;
+  const setFrame = i => { if (i === curF) return; frs.forEach((f, j) => f.classList.toggle("on", j === i)); rig.setScreen(ART.frames.screens[i]); curF = i; };
+  setFrame(0);
+  const ph = mount(document.getElementById("phone"), ART.phone);
+  const DAY = [
+    { t: "08:30", icon: "coffee", what: "Coffee with Priya", text: "The pilot runs six weeks. We review after week two.", dur: "46 min", secs: 2772 },
+    { t: "10:00", icon: "people", what: "Design review", text: "Design locks Friday. Engineering starts Monday.", dur: "1 h 12 min", secs: 4320 },
+    { t: "12:30", icon: "lunch", what: "Lunch with Alex", text: "They closed the round in March with two angels.", dur: "52 min", secs: 3120 },
+    { t: "16:30", icon: "walk", what: "Walk with Sam", text: "Hire for the platform role before the launch.", dur: "24 min", secs: 1464, queued: true },
+    { t: "18:45", icon: "idea", what: "On the way home", text: "Idea: the complication is just the dot.", dur: "0:48", secs: 48 },
+  ];
+  const ROW0 = 64, ROWH = 52, TX = 12;
+  ph.scr.innerHTML = `<div class="pui"><div class="island"></div><div class="ttl">Today</div><div class="date">THU 31 OCT</div>${DAY.map((d, i) =>
+    `<div class="row" style="top:${ROW0 + i * ROWH}px"><div class="meta">${icon(d.icon)}<span class="ttl2">${d.what}</span><span class="when">${d.t} · <span class="st"></span></span></div><div class="txt">${d.text}…</div></div>`).join("")}</div>`;
+  const rows = [...ph.scr.querySelectorAll(".row")], txts = rows.map(r => r.querySelector(".txt")), dateEl = ph.scr.querySelector(".date");
+  const rowChars = txts.map(t => charify(t));
+  const mins = s => { const [h, m] = s.split(":").map(Number); return h * 60 + m; };
+  const hhmm = m => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(Math.floor(m % 60)).padStart(2, "0")}`;
+
+  // steps: 0 gadgets · 1 hub + cables · 2 last line · 3 tossed, watch rises · 4 watch turns, phone in · 5–9 the day · 10 night · 11 charger
+  const N = 12, DUR = [.7, .7, .55, 1.2, 1.2, 2.4, 2.4, 2.4, 2.8, 2.4, 1.2, 1.4];
+  // scroll room per step: the watch (3) and its turn (4) get the most, so they are never skipped by a flick
+  const ROOM = [1, 1, 1, 2.2, 1.8, 1.2, 1.2, 1.2, 1.2, 1.2, 1.4, 1.4], CUM = ROOM.reduce((a, r) => [...a, a[a.length - 1] + r], [0]);
+  // a snap point in the middle of each step's scroll room, so a flick comes to rest on a step instead of between two
+  const snaps = ROOM.map(() => { const d = document.createElement("div"); d.className = "snap"; story.append(d); return d; });
+  const placeSnaps = () => { const span = story.offsetHeight - innerHeight; snaps.forEach((d, k) => (d.style.top = `${((CUM[k] + ROOM[k] * .55) / CUM[N]) * span}px`)); };
+  placeSnaps(); addEventListener("resize", placeSnaps);
+  let phase = -1, target = -1, last = 0;
+  const u = k => clamp(phase - k + 1); // progress of step k, linear in time
+  const dB = new Map();
+  function dayBurst(i) {
+    const key = `${innerWidth}x${innerHeight}`, have = dB.get(i);
+    if (have && have.key === key) return have;
+    if (have) GL.drop(have.b);
+    const t = txts[i], y0 = rows[i].offsetTop + t.offsetTop, sc = t.getBoundingClientRect().width / t.offsetWidth;
+    const ink = inkOf(t, rowChars[i], sc, .55, 4);
+    const targets = ink.pts.map(([x, y, o]) => [...ph.at(TX + x, y0 + y, pin), o]);
+    const [cu, cv] = rig.center();
+    const from = () => { const a = Math.random() * 6.283, r = Math.sqrt(Math.random()) * 19; return rig.at(cu + Math.cos(a) * r, cv + Math.sin(a) * r, pin); };
+    const parts = particles(targets, from, 150, { size: 1.7, wave: 380, jit: 140, dur: 820 });
+    const rec = { key, b: GL.burst(parts), parts, times: ink.orders.map(o => parts.landsAt(o)) }; dB.set(i, rec); return rec;
+  }
+
+  function layout() {
+    const W = innerWidth, H = innerHeight, nw = narrow();
+    // the phone and the face of the watch should hold the frame; straps can run off it
+    const pw = nw ? Math.min(W * .36, H * .16) : Math.min(W * .26, H * .34);
+    ph.el.style.width = pw + "px";
+    const caseUnits = 108 * rigEl.offsetWidth / ART.frames.vb[0];
+    const s1 = (nw ? Math.min(W * .26, H * .12) : Math.min(H * .3, W * .21, 300)) / caseUnits;
+    return { W, H, nw, s1, side: nw ? [0, -H * .19] : [-Math.min(W * .17, 300), 0], phone: nw ? [0, H * .2] : [Math.min(W * .17, 300), 0] };
+  }
+
+  function drawStory(now) {
+    const dt = last ? Math.min((now - last) / 1000, .05) : 0; last = now;
+    const r = story.getBoundingClientRect(), p = (-r.top) / (r.height - innerHeight);
+    const at = clamp(p) * CUM[N];
+    target = r.top > innerHeight * .35 ? -1 : (at >= CUM[N] ? N - 1 : clamp(CUM.findIndex(c => c > at) - 1, 0, N - 1));
+    // time plays the step the scroll picked; steps skipped on the way are run through fast, and going back rewinds fast,
+    // so the picture is never more than about half a second away from the scroll
+    const k = clamp(Math.ceil(phase + 1e-6), 0, N - 1), d = target - phase;
+    if (d > 0) phase = Math.min(target, phase + dt * (reduced ? 5 : Math.max(1 / DUR[k], (d - 1) / .35)));
+    else if (d < 0) phase = Math.max(target, phase - dt * (reduced ? 5 : Math.max(2.2, -d / .35)));
+    const L = layout();
+    // 0–2 gadgets come in, then the hub and its cables; 3 everything is thrown out
+    const TOSS = [[-1.2, -1.1, -30], [-1.1, .6, 24], [1.1, .6, -24], [1.2, -1.1, 30], [0, -1.4, 12]];
+    gEls.forEach((g, i) => {
+      const inK = ease(i < 4 ? clamp(u(0) * 1.6 - i * .2) : u(1)), out = clamp(u(3) * 1.5 - (i === 4 ? .5 : i * .08)), o = out * out;
+      const [dx, dy, rot] = TOSS[i];
+      g.style.opacity = inK * (1 - seg(out, .4, .9));
+      g.style.transform = `translate(${dx * o * 700}px, ${(1 - inK) * 24 + dy * o * 520}px) rotate(${rot * o}deg)`;
+    });
+    gLines.forEach((l, i) => l.classList.toggle("on", u(i) > .35));
+    // the watch: rises (3), turns to face you and moves aside (4); at night turns back to the middle (10)
+    const rise = ease(seg(u(3), .45, 1)), turn = ease(u(4)), back = ease(u(10)), pose = turn * (1 - back);
+    setFrame(Math.round(pose * 12));
+    rigEl.style.opacity = rise;
+    // on a phone the watch sits above the phone: its lower strap fades out before the moment and the phone
+    rigWrap.style.setProperty("--m3", `${lerp(82, 47, L.nw ? pose : 0)}%`); rigWrap.style.setProperty("--m4", `${lerp(96, 55, L.nw ? pose : 0)}%`);
+    rigEl.style.transform = `translate(-50%, -50%) translate(${L.side[0] * pose}px, ${(1 - rise) * L.H * .3 + L.side[1] * pose}px) scale(${lerp(1, L.s1, pose)})`;
+    // the phone slides in with the turn, out at night
+    const pin2 = ease(seg(u(4), .3, 1)), pout = ease(seg(u(10), 0, .7));
+    ph.el.style.transform = `translate(-50%, -50%) translate(${L.phone[0] + (1 - pin2 + pout) * L.W * .6}px, ${L.phone[1]}px)`;
+    ph.el.style.opacity = pin2 * (1 - pout);
+    // night and the charger
+    const n = u(10) > .3;
+    pin.classList.toggle("night", n); pin.style.background = n ? "#0A0A0A" : "";
+    rigEl.dataset.theme = n ? "dark" : "light";
+    chg.style.visibility = curF === 0 && u(11) > 0 ? "visible" : "hidden";
+    chg.style.transform = `translateX(${-(1 - ease(seg(u(11), 0, .8))) * 120}%)`;
+    rig.ui.classList.toggle("charging", u(11) > .85);
+    // the day: each step is one conversation, recorded, sent, and written down
+    const mi = clamp(Math.floor(phase) - 4, 0, DAY.length - 1), live = phase > 4 && phase <= 9.999 ? clamp(Math.ceil(phase) - 5, 0, 4) : -1;
+    const m = DAY[live < 0 ? mi : live], q = live < 0 ? 1 : u(live + 5);
+    const prevT = live > 0 ? mins(DAY[live - 1].t) + 30 : 8 * 60;
+    const clock = phase <= 4 ? 8 * 60 + 12 : phase > 10 ? 23 * 60 + 14 + u(11) * 10 : live < 0 ? mins(DAY[4].t) + 3 : prevT + (mins(m.t) - prevT) * ease(seg(q, 0, .15));
+    rig.clock.textContent = hhmm(clock); rig.big.textContent = hhmm(clock);
+    const recOn = live >= 0 && q > .12 && q < (m.queued ? .62 : .4);
+    rig.ui.classList.toggle("rec", recOn);
+    if (recOn) rig.el2.textContent = fmtDur(1 + Math.pow(seg(q, .12, m.queued ? .62 : .4), 2) * (m.secs - 1));
+    let done = 0;
+    DAY.forEach((d, i) => {
+      const lq = u(i + 5), started = lq > .12, finished = lq >= 1;
+      rows[i].classList.toggle("on", started);
+      const st = rows[i].querySelector(".st"), label = finished ? d.dur : d.queued && lq < .62 ? "on watch" : "● live";
+      if (st.textContent !== label) { st.textContent = label; st.className = "st" + (label === "● live" ? " live" : ""); }
+      if (finished) done++;
+      const a = d.queued ? .62 : .32;
+      if (GL && !reduced && started && lq < .999) {
+        const rec = dayBurst(i), b = rec.b, pr = pin.getBoundingClientRect();
+        b.on = lq > a; b.off = [pr.left, pr.top]; b.t = seg(lq, a, .98) * b.total;
+        showChars(rowChars[i], rec.times, lq > a ? b.t : -1);
+      } else {
+        if (dB.has(i)) dB.get(i).b.on = false;
+        const all = (!GL || reduced) ? lq > .6 : lq >= .999;
+        if (rowChars[i][0].classList.contains("on") !== all) rowChars[i].forEach(c => c.classList.toggle("on", all));
+      }
+    });
+    dateEl.textContent = done ? `THU 31 OCT · ${done} RECORDING${done > 1 ? "S" : ""}` : "THU 31 OCT";
+    // the moment, between the watch and the phone
+    const showEvt = u(11) > .85 ? 1 : live >= 0 || (phase > 9 && phase < 9.8) ? 1 : 0;
+    const ev = u(11) > .85 ? { t: "23:24", icon: "idea", what: "On the charger" } : m;
+    const html = `${icon(ev.icon)}<span class="tm">${ev.t}</span><span>${ev.what}</span>`;
+    if (eventEl.dataset.k !== ev.what) { eventEl.innerHTML = html; eventEl.dataset.k = ev.what; }
+    eventEl.style.opacity = showEvt;
+    const pr2 = ph.el.getBoundingClientRect(), pinR = pin.getBoundingClientRect();
+    eventEl.style.top = L.nw && phase > 10 ? "86%" : `${Math.max(pr2.top - pinR.top - (L.nw ? 20 : 26), innerHeight * .24)}px`;
+    eventEl.style.left = `calc(50% + ${(L.side[0] + L.phone[0]) / 2}px)`;
+    // headings
+    const hi = phase < 2.6 ? 0 : phase < 3.6 ? 1 : phase < 7.5 ? (phase > 4.4 ? 2 : -1) : phase < 8.5 ? 3 : phase < 9.6 ? 4 : phase > 10.2 ? 5 : -1;
+    heads.forEach((h, i) => h.classList.toggle("on", i === hi));
+    return n;
+  }
+
+  /* ---------- One loop ---------- */
+  const top = document.getElementById("top"), mark = document.getElementById("mark"), end = document.getElementById("get");
+  function setDark(on) { if (top.classList.contains("dark") === on) return; top.classList.toggle("dark", on); mark.src = `../logo/final/wordmark${on ? "-dark" : ""}.svg`; }
+  function frame(now) {
+    tickHero(now);
+    const sr = story.getBoundingClientRect();
+    let night = false;
+    if (sr.bottom > 0 && sr.top < innerHeight) night = drawStory(now); else { last = 0; phase = sr.top > 0 ? -1 : N - 1; dB.forEach(v => (v.b.on = false)); }
+    setDark(night || end.getBoundingClientRect().top < 60);
+    if (GL) GL.draw();
+    requestAnimationFrame(frame);
+  }
+  document.fonts.ready.then(() => { placeSaid(); requestAnimationFrame(frame); });
+})();
+</script>
+</body>
+</html>
