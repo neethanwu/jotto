@@ -97,7 +97,7 @@ final class Uploader: NSObject {
 
     func pump() {
         guard AppConfig.shared.isReady else {
-            lastError = jobs.isEmpty ? nil : "No server yet; recordings wait on the phone"
+            lastError = jobs.isEmpty ? nil : "No server yet, so recordings wait on this iPhone"
             return
         }
         let now = Date.now

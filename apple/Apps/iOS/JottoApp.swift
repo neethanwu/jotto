@@ -9,6 +9,7 @@ struct JottoApp: App {
         // Start receiving from the watch and resume pending uploads at launch.
         _ = Inbox.shared
         _ = Uploader.shared
+        _ = Library.shared
         #if DEBUG
         Uploader.shared.enqueueDemoRecordingIfRequested()
         #endif
@@ -16,18 +17,14 @@ struct JottoApp: App {
 
     var body: some Scene {
         WindowGroup {
-            TabView {
-                Tab("Transcripts", systemImage: "text.quote") {
-                    SessionsView(config: .shared, uploader: .shared)
-                }
-                Tab("Debug", systemImage: "ladybug") {
-                    InboxView(inbox: .shared)
-                }
-            }
+            RootView()
         }
         .onChange(of: scenePhase) { _, phase in
             // Coming to the foreground is a good moment to skip any backoff.
-            if phase == .active { Uploader.shared.retryAll() }
+            if phase == .active {
+                Uploader.shared.retryAll()
+                Task { await Library.shared.refresh() }
+            }
         }
     }
 }

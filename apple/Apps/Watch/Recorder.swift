@@ -2,8 +2,8 @@ import AVFoundation
 import Observation
 import WatchKit
 
-/// Spike 0 recorder: background audio capture into rolling segments,
-/// with logging for battery drain, interruptions and recovery.
+/// Background audio capture into rolling segments, with logging for
+/// battery drain, interruptions and recovery (the Spike 0 log).
 @MainActor @Observable
 final class Recorder {
     enum State: String {
@@ -15,6 +15,14 @@ final class Recorder {
     private var sessionID: UUID?
     private(set) var segmentsWritten = 0
     private(set) var lastEvent = "—"
+    /// Recent input levels, 0…1, newest last, for the level bars.
+    private(set) var levels: [Float] = Array(repeating: 0, count: Recorder.levelCount)
+    /// The recording that just ended, shown on the Saved screen.
+    private(set) var justSaved: (length: TimeInterval, sentNow: Bool)?
+
+    static let levelCount = 30
+    private let meter = LevelMeter()
+    private var meterTask: Task<Void, Never>?
 
     /// Short segments keep transfers small and give Spike 1 plenty of clips.
     let segmentDuration: TimeInterval = 120
@@ -77,8 +85,12 @@ final class Recorder {
         self.startedAt = startedAt
         self.sessionID = sessionID
         segmentsWritten = 0
+        justSaved = nil
+        WatchTransfer.shared.sendStart(session: sessionID, startedAt: startedAt)
+        WKInterfaceDevice.current().play(.start)
         note("start", sessionID.uuidString)
         startBatteryLogging()
+        startMetering()
     }
 
     func stop() {
@@ -87,10 +99,16 @@ final class Recorder {
         let segmentCount = writer?.finish() ?? 0
         writer = nil
         if let sessionID, let startedAt {
+            let endedAt = Date.now
             WatchTransfer.shared.sendFinish(
-                session: sessionID, startedAt: startedAt, endedAt: .now, segmentCount: segmentCount
+                session: sessionID, startedAt: startedAt, endedAt: endedAt, segmentCount: segmentCount
             )
+            History.shared.add(startedAt: startedAt, length: endedAt.timeIntervalSince(startedAt))
+            justSaved = (endedAt.timeIntervalSince(startedAt), WatchTransfer.shared.isPhoneReachable)
         }
+        WKInterfaceDevice.current().play(.stop)
+        meterTask?.cancel()
+        levels = Array(repeating: 0, count: Self.levelCount)
         sessionID = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         batteryTask?.cancel()
@@ -104,7 +122,24 @@ final class Recorder {
         }
     }
 
+    func dismissSaved() {
+        justSaved = nil
+    }
+
     // MARK: - Engine
+
+    /// Samples the meter ten times a second while recording.
+    private func startMetering() {
+        meterTask?.cancel()
+        meterTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(100))
+                guard let self else { return }
+                self.levels.removeFirst()
+                self.levels.append(self.meter.take())
+            }
+        }
+    }
 
     @discardableResult
     private func startEngine() -> Bool {
@@ -116,9 +151,7 @@ final class Recorder {
         }
 
         input.removeTap(onBus: 0)
-        input.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
-            writer.append(buffer)
-        }
+        input.installTap(onBus: 0, bufferSize: 4096, format: format, block: Self.tap(writer: writer, meter: meter))
         do {
             engine.prepare()
             try engine.start()
@@ -127,6 +160,16 @@ final class Recorder {
             input.removeTap(onBus: 0)
             note("engine_error", error.localizedDescription)
             return false
+        }
+    }
+
+    /// Runs on the audio render thread. Built outside the main actor: a
+    /// closure written inside a main-actor method inherits that isolation,
+    /// and Swift 6 traps when the audio thread calls it.
+    nonisolated private static func tap(writer: SegmentWriter, meter: LevelMeter) -> AVAudioNodeTapBlock {
+        { buffer, _ in
+            writer.append(buffer)
+            meter.add(buffer)
         }
     }
 
@@ -228,4 +271,59 @@ final class Recorder {
         lastEvent = event
         log.log(event, battery: battery, detail)
     }
+}
+
+/// Peak level of the audio since it was last read. Written on the audio
+/// thread, read on the main actor.
+final class LevelMeter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var peak: Float = 0
+
+    func add(_ buffer: AVAudioPCMBuffer) {
+        guard let samples = buffer.floatChannelData?[0] else { return }
+        var sum: Float = 0
+        let n = Int(buffer.frameLength)
+        for i in stride(from: 0, to: n, by: 2) { sum += samples[i] * samples[i] }
+        let rms = sqrt(sum / Float(max(1, n / 2)))
+        lock.lock()
+        peak = max(peak, rms)
+        lock.unlock()
+    }
+
+    /// 0…1 on a rough speech scale (−50 dB … −10 dB).
+    func take() -> Float {
+        lock.lock()
+        let value = peak
+        peak = 0
+        lock.unlock()
+        let db = 20 * log10(max(value, 1e-6))
+        return min(1, max(0, (db + 50) / 40))
+    }
+}
+
+/// Recordings made on this watch, for the "4 today · 3 h 18" line.
+@MainActor
+final class History {
+    static let shared = History()
+    private let key = "history"
+
+    struct Item: Codable {
+        let startedAt: Date
+        let length: TimeInterval
+    }
+
+    private(set) var items: [Item]
+
+    private init() {
+        items = (UserDefaults.standard.data(forKey: key))
+            .flatMap { try? JSONDecoder().decode([Item].self, from: $0) } ?? []
+    }
+
+    func add(startedAt: Date, length: TimeInterval) {
+        let weekAgo = Date.now.addingTimeInterval(-7 * 86400)
+        items = items.filter { $0.startedAt > weekAgo } + [Item(startedAt: startedAt, length: length)]
+        UserDefaults.standard.set(try? JSONEncoder().encode(items), forKey: key)
+    }
+
+    var today: [Item] { items.filter { Calendar.current.isDateInToday($0.startedAt) } }
 }

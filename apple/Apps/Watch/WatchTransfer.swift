@@ -9,6 +9,16 @@ final class WatchTransfer: NSObject {
     static let shared = WatchTransfer()
 
     private(set) var pendingCount = 0
+    /// Parts not yet on the phone, grouped by recording, oldest first.
+    private(set) var pending: [PendingRecording] = []
+    private(set) var isPhoneReachable = false
+
+    struct PendingRecording: Identifiable {
+        let id: String
+        let startedAt: Date
+        let parts: Int
+        let length: TimeInterval
+    }
 
     private override init() {
         super.init()
@@ -25,6 +35,16 @@ final class WatchTransfer: NSObject {
             "index": segment.index,
             "offset": segment.startedAt.timeIntervalSince(sessionStartedAt),
             "duration": segment.endedAt.timeIntervalSince(segment.startedAt),
+        ])
+    }
+
+    /// Tells the phone a recording started, so it can show it live.
+    func sendStart(session: UUID, startedAt: Date) {
+        guard WCSession.default.activationState == .activated else { return }
+        WCSession.default.transferUserInfo([
+            "kind": "start",
+            "session": session.uuidString.lowercased(),
+            "sessionStartedAt": startedAt.timeIntervalSince1970,
         ])
     }
 
@@ -53,8 +73,21 @@ final class WatchTransfer: NSObject {
         refreshPending()
     }
 
-    private func refreshPending() {
-        pendingCount = WCSession.default.outstandingFileTransfers.count
+    func refreshPending() {
+        let transfers = WCSession.default.outstandingFileTransfers
+        pendingCount = transfers.count
+        isPhoneReachable = WCSession.default.isReachable
+        var groups: [String: (start: Date, parts: Int, length: TimeInterval)] = [:]
+        for t in transfers {
+            let meta = t.file.metadata ?? [:]
+            guard meta["kind"] as? String == "audio",
+                  let id = meta["session"] as? String,
+                  let started = meta["sessionStartedAt"] as? Double else { continue }
+            let g = groups[id] ?? (Date(timeIntervalSince1970: started), 0, 0)
+            groups[id] = (g.start, g.parts + 1, g.length + ((meta["duration"] as? Double) ?? 0))
+        }
+        pending = groups.map { PendingRecording(id: $0.key, startedAt: $0.value.start, parts: $0.value.parts, length: $0.value.length) }
+            .sorted { $0.startedAt < $1.startedAt }
     }
 }
 
@@ -65,6 +98,10 @@ extension WatchTransfer: WCSessionDelegate {
         error: Error?
     ) {
         SpikeLog.shared.log("wc_activated", "state=\(activationState.rawValue) \(error?.localizedDescription ?? "")")
+        Task { @MainActor in self.refreshPending() }
+    }
+
+    nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
         Task { @MainActor in self.refreshPending() }
     }
 

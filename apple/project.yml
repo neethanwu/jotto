@@ -19,6 +19,7 @@ targets:
   Jotto:
     type: application
     platform: iOS
+    scheme: {}
     sources: [Apps/iOS]
     dependencies:
       - target: JottoWatch
@@ -37,6 +38,7 @@ targets:
   JottoWatch:
     type: application
     platform: watchOS
+    scheme: {}
     sources: [Apps/Watch]
     info:
       path: Apps/Watch/Info.plist
@@ -45,7 +47,7 @@ targets:
         WKApplication: true
         WKCompanionAppBundleIdentifier: com.neethanwu.jotto
         WKBackgroundModes: [audio]
-        NSMicrophoneUsageDescription: Jotto uses the microphone to record.
+        NSMicrophoneUsageDescription: Jotto records through the microphone while you talk.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.neethanwu.jotto.watchkitapp

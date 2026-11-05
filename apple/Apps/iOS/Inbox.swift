@@ -78,6 +78,7 @@ extension Inbox: WCSessionDelegate {
                 return
             }
             Task { @MainActor in
+                Library.shared.watchSent(segment.session, startedAt: segment.sessionStartedAt, index: segment.index)
                 Uploader.shared.enqueue(.init(
                     session: segment.session,
                     sessionStartedAt: segment.sessionStartedAt,
@@ -95,17 +96,26 @@ extension Inbox: WCSessionDelegate {
     }
 
     nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
-        guard userInfo["kind"] as? String == "finish",
-              let id = userInfo["session"] as? String,
-              let started = userInfo["sessionStartedAt"] as? Double,
-              let ended = userInfo["endedAt"] as? Double,
-              let count = userInfo["segmentCount"] as? Int else { return }
-        Task { @MainActor in
-            Uploader.shared.enqueue(.init(
-                session: id,
-                sessionStartedAt: Date(timeIntervalSince1970: started),
-                kind: .finish(segmentCount: count, endedAt: Date(timeIntervalSince1970: ended))
-            ))
+        guard let id = userInfo["session"] as? String,
+              let started = (userInfo["sessionStartedAt"] as? Double).map(Date.init(timeIntervalSince1970:))
+        else { return }
+        switch userInfo["kind"] as? String {
+        case "start":
+            Task { @MainActor in Library.shared.watchStarted(id, at: started) }
+        case "finish":
+            guard let ended = userInfo["endedAt"] as? Double,
+                  let count = userInfo["segmentCount"] as? Int else { return }
+            let endedAt = Date(timeIntervalSince1970: ended)
+            Task { @MainActor in
+                Library.shared.watchFinished(id, startedAt: started, endedAt: endedAt, segmentCount: count)
+                Uploader.shared.enqueue(.init(
+                    session: id,
+                    sessionStartedAt: started,
+                    kind: .finish(segmentCount: count, endedAt: endedAt)
+                ))
+            }
+        default:
+            break
         }
     }
 

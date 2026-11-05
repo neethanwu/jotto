@@ -9,7 +9,6 @@ struct InboxView: View {
     @State private var playing: URL?
 
     var body: some View {
-        NavigationStack {
             List {
                 Section {
                     LabeledContent("Watch", value: inbox.watchStatus)
@@ -25,7 +24,8 @@ struct InboxView: View {
                     }
                 }
             }
-            .navigationTitle("Jotto · Spike 0")
+            .navigationTitle("Files from the watch")
+            .toolbar(.visible, for: .navigationBar)
             .refreshable { inbox.reload() }
             .toolbar {
                 if !inbox.items.isEmpty {
@@ -34,7 +34,6 @@ struct InboxView: View {
                     }
                 }
             }
-        }
     }
 
     @ViewBuilder

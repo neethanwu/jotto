@@ -21,7 +21,7 @@
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Jotto uses the microphone to record.</string>
+	<string>Jotto records through the microphone while you talk.</string>
 	<key>WKApplication</key>
 	<true/>
 	<key>WKBackgroundModes</key>
