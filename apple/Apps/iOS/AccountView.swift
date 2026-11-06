@@ -7,25 +7,34 @@ struct AccountView: View {
     private var config: AppConfig { .shared }
     private var uploader: Uploader { .shared }
     private var inbox: Inbox { .shared }
+    private var library: Library { .shared }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Account")
-                    .dayTitleStyle()
-                    .padding(.top, 72)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Account")
+                        .font(.transcriptTitle)
+                        .tracking(-0.68)
+                        .foregroundStyle(Color.jText)
+                    Text("Beta · signed in with a server token")
+                        .font(.metaSmall)
+                        .foregroundStyle(Color.jText3)
+                }
+                .padding(.top, 20)
 
-                numbers.padding(.top, 24)
+                MonthCard(entries: library.entries)
+                    .padding(.top, 24)
 
-                section("Recording") {
-                    row("Audio kept", value: "\(stats?.audioRetentionDays ?? 30) days")
-                    row("Text kept", value: "Always")
-                    row("Share as", value: "Markdown")
+                section("Keeping and sending", first: true) {
+                    row("Keep audio", value: "\(stats?.audioRetentionDays ?? 30) days")
+                    row("Send as", value: "Markdown", last: true)
                 }
 
                 section("Devices") {
                     row("Apple Watch", value: inbox.watchStatus.capitalizedFirst)
-                    row("Waiting to upload", value: uploader.jobs.isEmpty ? "None" : Format.plural(uploader.jobs.count, "part"))
+                    row("Waiting to upload", value: uploader.jobs.isEmpty ? "None" : Format.plural(uploader.jobs.count, "part"),
+                        last: uploader.lastError == nil || uploader.jobs.isEmpty)
                     if let error = uploader.lastError, !uploader.jobs.isEmpty {
                         Text(error).font(.metaSmall).foregroundStyle(Color.jText3).padding(.vertical, 8)
                     }
@@ -33,22 +42,26 @@ struct AccountView: View {
 
                 section("Server") {
                     NavigationLink(value: Route.server) {
-                        row("Connection", value: config.isReady ? (config.baseURL?.host() ?? "Set") : "Not set", chevron: true)
+                        row("Connection", value: config.isReady ? (config.baseURL?.host() ?? "Set") : "Not set", chevron: true, last: true)
                     }
                     .buttonStyle(.plain)
                 }
 
                 section("For testing") {
                     NavigationLink(value: Route.inbox) {
-                        row("Files from the watch", value: "\(inbox.items.count)", chevron: true)
+                        row("Files from the watch", value: "\(inbox.items.count)", chevron: true, last: true)
                     }
                     .buttonStyle(.plain)
                 }
 
-                Text("Jotto \(Bundle.main.version)")
-                    .font(.metaSmall)
-                    .foregroundStyle(Color.jText4)
-                    .padding(.top, 32)
+                HStack {
+                    Text("Jotto \(Bundle.main.version) · beta")
+                    Spacer()
+                    Text("built by neethan")
+                }
+                .font(.scaled(11, .medium, relativeTo: .caption2).monospacedDigit())
+                .foregroundStyle(Color.jText4)
+                .padding(.top, 28)
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 140)
@@ -59,59 +72,105 @@ struct AccountView: View {
         .refreshable { await load() }
     }
 
-    private var numbers: some View {
-        HStack(alignment: .top, spacing: 0) {
-            stat(stats.map { "\($0.recordings)" } ?? "–", "recordings")
-            stat(stats.map { Format.hours($0.seconds) } ?? "–", "recorded")
-            stat(stats.map { Format.hours($0.lastSevenDays.seconds) } ?? "–", "last 7 days")
-        }
-        .padding(.vertical, 20)
-        .overlay(alignment: .top) { Rectangle().fill(Color.jHairline).frame(height: 1) }
-        .overlay(alignment: .bottom) { Rectangle().fill(Color.jHairline).frame(height: 1) }
-    }
-
-    private func stat(_ value: String, _ label: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(value)
-                .font(.scaled(28, .bold, relativeTo: .title1).monospacedDigit())
-                .tracking(-0.56)
-                .foregroundStyle(Color.jText)
-            Text(label).font(.metaSmall).foregroundStyle(Color.jText3)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
-    }
-
-    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+    private func section<Content: View>(_ title: String, first: Bool = false, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(title)
-                .font(.speaker)
+                .font(.scaled(11, .medium, relativeTo: .caption2))
                 .foregroundStyle(Color.jText3)
-                .padding(.bottom, 4)
+                .padding(.bottom, 6)
             content()
         }
-        .padding(.top, 32)
+        .padding(.top, first ? 28 : 24)
     }
 
-    private func row(_ label: String, value: String, chevron: Bool = false) -> some View {
+    private func row(_ label: String, value: String, chevron: Bool = false, last: Bool = false) -> some View {
         HStack(spacing: 8) {
-            Text(label).font(.rowTitle).foregroundStyle(Color.jText)
+            Text(label).font(.reading).foregroundStyle(Color.jText)
             Spacer()
-            Text(value).font(.settingValue).foregroundStyle(Color.jText2).lineLimit(1)
+            Text(value)
+                .font(.scaled(15, .medium, relativeTo: .subheadline))
+                .foregroundStyle(Color.jText2)
+                .lineLimit(1)
             if chevron {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Color.jText4)
             }
         }
-        .frame(minHeight: 52)
+        .frame(minHeight: 50)
         .contentShape(Rectangle())
-        .overlay(alignment: .bottom) { Rectangle().fill(Color.jHairline).frame(height: 1) }
+        .overlay(alignment: .top) { Rectangle().fill(Color.jHairline).frame(height: 1) }
+        .overlay(alignment: .bottom) {
+            if last { Rectangle().fill(Color.jHairline).frame(height: 1) }
+        }
     }
 
     private func load() async {
         guard config.isReady else { return }
         stats = try? await API.stats()
+        await library.refresh()
+    }
+}
+
+/// This month at a glance: how much was recorded, and a dot per day,
+/// filled on days with recordings, orange for today.
+struct MonthCard: View {
+    let entries: [TimelineEntry]
+
+    var body: some View {
+        let calendar = Calendar.current
+        let now = Date.now
+        let month = calendar.dateInterval(of: .month, for: now)
+        let inMonth = entries.filter { month?.contains($0.startedAt) ?? false }
+        let seconds = inMonth.compactMap(\.length).reduce(0, +)
+        let recordedDays = Set(inMonth.map { calendar.component(.day, from: $0.startedAt) })
+        let days = calendar.range(of: .day, in: .month, for: now)?.count ?? 30
+        let today = calendar.component(.day, from: now)
+        let (big, small) = Self.amount(seconds)
+
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text(now.formatted(.dateTime.month(.wide)))
+                Spacer()
+                Text(Format.plural(inMonth.count, "recording"))
+            }
+            .font(.scaled(11, .medium, relativeTo: .caption2).monospacedDigit())
+            .foregroundStyle(Color.jText3)
+
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(big)
+                    .font(.scaled(40, .semibold, relativeTo: .largeTitle).monospacedDigit())
+                    .tracking(-0.8)
+                    .foregroundStyle(Color.jText)
+                Text(small)
+                    .font(.scaled(15, .medium, relativeTo: .subheadline))
+                    .foregroundStyle(Color.jText2)
+            }
+            .accessibilityElement(children: .combine)
+
+            HStack(spacing: 0) {
+                ForEach(1...days, id: \.self) { day in
+                    Circle()
+                        .fill(day == today ? Color.jLive : recordedDays.contains(day) ? Color.jText : Color.jText5)
+                        .frame(width: 6, height: 6)
+                        .opacity(day > today ? 0 : 1)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .frame(height: 14)
+            .accessibilityHidden(true)
+        }
+        .padding(18)
+        .background(Color.jSurface, in: RoundedRectangle(cornerRadius: 24))
+        .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(Color.jHairline, lineWidth: 1))
+    }
+
+    /// "12 h 40" + "min recorded", "46" + "min recorded", "3 h" + "recorded".
+    static func amount(_ seconds: TimeInterval) -> (String, String) {
+        let minutes = Int(seconds / 60)
+        if minutes < 60 { return ("\(minutes)", "min recorded") }
+        let h = minutes / 60, m = minutes % 60
+        return m == 0 ? ("\(h) h", "recorded") : ("\(h) h \(m)", "min recorded")
     }
 }
 

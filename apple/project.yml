@@ -26,7 +26,10 @@ targets:
     info:
       path: Apps/iOS/Info.plist
       properties:
-        CFBundleDisplayName: Jotto
+        CFBundleDisplayName: jotto
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         # Lets the app talk to a dev server on localhost / the Mac's LAN address.
@@ -35,6 +38,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.neethanwu.jotto
+        TARGETED_DEVICE_FAMILY: "1"  # iPhone only
   JottoWatch:
     type: application
     platform: watchOS
@@ -43,10 +47,14 @@ targets:
     info:
       path: Apps/Watch/Info.plist
       properties:
-        CFBundleDisplayName: Jotto
+        CFBundleDisplayName: jotto
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
         WKApplication: true
         WKCompanionAppBundleIdentifier: com.neethanwu.jotto
-        WKBackgroundModes: [audio]
+        # Keeps recording with the screen off (Background Modes → Audio).
+        UIBackgroundModes: [audio]
         NSMicrophoneUsageDescription: Jotto records through the microphone while you talk.
     settings:
       base:

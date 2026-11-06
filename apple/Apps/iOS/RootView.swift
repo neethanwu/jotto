@@ -82,19 +82,30 @@ struct RootView: View {
 // MARK: - Tab bar
 
 /// Floating black pill: the selected tab is an ink-50 capsule with its
-/// label, the others are icons only.
+/// label, the others are icons only. The capsule slides between tabs.
 struct TabBar: View {
     @Binding var selection: AppTab
+    @Namespace private var pill
 
     var body: some View {
         HStack(spacing: 4) {
-            item(.days, "Days") { DaysIcon(selected: selection == .days) }
-            item(.search, "Search") { Image(systemName: "magnifyingglass") }
-            item(.account, "Account") { Image(systemName: "person") }
+            item(.days, "Days") { DaysIcon(selected: $0) }
+            item(.search, "Search") { SearchIcon(color: $0 ? .jOnChromeOn : .ink400) }
+            item(.account, "Account") { PersonIcon(color: $0 ? .jOnChromeOn : .ink400) }
         }
-        .padding(6)
+        .background {
+            // One capsule that follows the selected tab, so it slides
+            // rather than fading out in one place and in at another.
+            Capsule()
+                .fill(Color.jChromeOn)
+                .matchedGeometryEffect(id: selection, in: pill, isSource: false)
+        }
+        .padding(.horizontal, 6)
         .frame(height: 62)
         .chromePill()
+        // Only the bar animates; the pages swap instantly underneath.
+        .animation(.spring(duration: 0.38, bounce: 0.18), value: selection)
+        .sensoryFeedback(.selection, trigger: selection)
         .padding(.top, 28)
         .padding(.bottom, 34)
         .frame(maxWidth: .infinity)
@@ -110,40 +121,104 @@ struct TabBar: View {
         .ignoresSafeArea(edges: .bottom)
     }
 
-    private func item<Icon: View>(_ tab: AppTab, _ label: String, @ViewBuilder icon: () -> Icon) -> some View {
+    private func item<Icon: View>(_ tab: AppTab, _ label: String, @ViewBuilder icon: (Bool) -> Icon) -> some View {
         let selected = selection == tab
         return Button {
             selection = tab
         } label: {
             HStack(spacing: 8) {
-                icon().font(.system(size: 18, weight: .semibold)).frame(width: 20, height: 20)
+                icon(selected).frame(width: 20, height: 20)
                 if selected {
-                    Text(label).font(.label).lineLimit(1)
+                    Text(label)
+                        .font(.label)
+                        .foregroundStyle(Color.jOnChromeOn)
+                        .lineLimit(1)
+                        .fixedSize()
+                        // Fade in once the capsule has mostly opened.
+                        .transition(.asymmetric(
+                            insertion: .opacity.animation(.easeOut(duration: 0.15).delay(0.2)),
+                            removal: .opacity.animation(.easeOut(duration: 0.08))
+                        ))
                 }
             }
-            .foregroundStyle(selected ? Color.jOnChromeOn : Color.ink400)
-            .padding(.leading, selected ? 18 : 0)
+            .padding(.leading, selected ? (tab == .account ? 14 : 18) : 0)
             .padding(.trailing, selected ? 20 : 0)
-            .frame(minWidth: 56, minHeight: 50)
-            .background(selected ? Color.jChromeOn : .clear, in: Capsule())
+            .frame(minWidth: 56)
+            .frame(height: 50)
+            .matchedGeometryEffect(id: tab, in: pill, isSource: true)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        // Switch on touch down, like the system tab bar; the button action
+        // still covers VoiceOver and keyboard.
+        .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in
+            if selection != tab { selection = tab }
+        })
         .accessibilityLabel(label)
         .accessibilityAddTraits(selected ? .isSelected : [])
-        .animation(.spring(response: 0.35, dampingFraction: 0.9), value: selection)
     }
 }
 
-/// Days icon: an orange dot over a short line, the timeline in miniature.
+/// Days icon: the timeline in miniature. A spine with two stops and two
+/// lines of text; the top stop is orange when the tab is selected.
+/// Drawn on the design's 18-unit grid and scaled to fit.
 struct DaysIcon: View {
     var selected: Bool
 
     var body: some View {
-        VStack(spacing: 2) {
-            Circle().fill(Color.jLive).frame(width: 8, height: 8)
-            Capsule().fill(selected ? Color.ink950 : Color.ink400).frame(width: 2, height: 9)
+        Canvas { context, size in
+            let k = min(size.width, size.height) / 18
+            context.scaleBy(x: k, y: k)
+            let ink = selected ? Color.jOnChromeOn : Color.ink400
+            let style = StrokeStyle(lineWidth: 1.5, lineCap: .round)
+            var spine = Path()
+            spine.move(to: CGPoint(x: 5, y: 1.5)); spine.addLine(to: CGPoint(x: 5, y: 16.5))
+            context.stroke(spine, with: .color(ink), style: style)
+            context.fill(Path(ellipseIn: CGRect(x: 2.5, y: 2, width: 5, height: 5)),
+                         with: .color(selected ? .jLive : ink))
+            let ring = Path(ellipseIn: CGRect(x: 2.8, y: 8.3, width: 4.4, height: 4.4))
+            context.fill(ring, with: .color(selected ? .jChromeOn : .jChrome))
+            context.stroke(ring, with: .color(ink), style: style)
+            var lines = Path()
+            lines.move(to: CGPoint(x: 10, y: 4.5)); lines.addLine(to: CGPoint(x: 16, y: 4.5))
+            lines.move(to: CGPoint(x: 10, y: 10.5)); lines.addLine(to: CGPoint(x: 15, y: 10.5))
+            context.stroke(lines, with: .color(ink), style: style)
         }
+        .accessibilityHidden(true)
+    }
+}
+
+/// Magnifier on the design's 24-unit grid.
+struct SearchIcon: View {
+    var color: Color
+
+    var body: some View {
+        Canvas { context, size in
+            let k = min(size.width, size.height) / 24
+            context.scaleBy(x: k, y: k)
+            var p = Path(ellipseIn: CGRect(x: 4, y: 4, width: 14, height: 14))
+            p.move(to: CGPoint(x: 20, y: 20)); p.addLine(to: CGPoint(x: 16.5, y: 16.5))
+            context.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// Head and shoulders on the design's 20-unit grid.
+struct PersonIcon: View {
+    var color: Color
+
+    var body: some View {
+        Canvas { context, size in
+            let k = min(size.width, size.height) / 20
+            context.scaleBy(x: k, y: k)
+            var p = Path(ellipseIn: CGRect(x: 6.5, y: 3, width: 7, height: 7))
+            p.move(to: CGPoint(x: 3.5, y: 17.5))
+            p.addCurve(to: CGPoint(x: 10, y: 12.5), control1: CGPoint(x: 4.3, y: 14.2), control2: CGPoint(x: 6.8, y: 12.5))
+            p.addCurve(to: CGPoint(x: 16.5, y: 17.5), control1: CGPoint(x: 13.2, y: 12.5), control2: CGPoint(x: 15.7, y: 14.2))
+            context.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: 1.7, lineCap: .round))
+        }
+        .accessibilityHidden(true)
     }
 }
 

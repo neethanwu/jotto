@@ -65,7 +65,9 @@ struct DaysView: View {
 
     private var meta: String {
         var parts = [Format.dayMonth(day)]
-        if !entries.isEmpty {
+        if entries.isEmpty, Calendar.current.isDateInToday(day) {
+            parts.append("nothing yet")
+        } else if !entries.isEmpty {
             parts.append(Format.plural(entries.count, "recording"))
             let total = entries.compactMap(\.length).reduce(0, +)
             if total > 0 { parts.append(Format.length(total)) }
@@ -85,7 +87,7 @@ struct DaysView: View {
             }
         } else if entries.isEmpty {
             if Calendar.current.isDateInToday(day) {
-                EmptyDay(title: "Nothing yet today", detail: "Tap the dot on your watch and talk. The text shows up here")
+                EmptyDay(title: "Tap the dot when it matters", detail: "Recordings from your watch land here, cleaned up, a minute after each part.")
             } else if day > .now {
                 EmptyDay(title: "Not yet", detail: nil)
             } else {
@@ -113,82 +115,121 @@ struct WeekStrip: View {
     let marked: Set<Date>
     let liveDay: Date?
     @State private var week: Date?
+    @State private var weeks = WeekStrip.makeWeeks()
+    @Namespace private var highlight
 
-    private let calendar = Calendar.current
     private static let cell = CGSize(width: 50, height: 64)
 
-    private var weeks: [Date] {
+    /// One cell's fixed text, worked out once rather than on every render.
+    struct Day: Hashable {
+        let date: Date
+        let letter: String
+        let number: String
+        let label: String
+    }
+
+    struct Week: Identifiable, Hashable {
+        let id: Date
+        let days: [Day]
+    }
+
+    private static func makeWeeks() -> [Week] {
+        let calendar = Calendar.current
         let thisWeek = calendar.dateInterval(of: .weekOfYear, for: .now)?.start ?? .now
-        return (-26...1).compactMap { calendar.date(byAdding: .weekOfYear, value: $0, to: thisWeek) }
+        return (-26...1).compactMap { offset -> Week? in
+            guard let start = calendar.date(byAdding: .weekOfYear, value: offset, to: thisWeek) else { return nil }
+            let days = (0..<7).compactMap { i -> Day? in
+                guard let date = calendar.date(byAdding: .day, value: i, to: start) else { return nil }
+                return Day(
+                    date: date,
+                    letter: date.formatted(.dateTime.weekday(.narrow)),
+                    number: date.formatted(.dateTime.day()),
+                    label: date.formatted(date: .complete, time: .omitted)
+                )
+            }
+            return Week(id: start, days: days)
+        }
     }
 
     var body: some View {
-        GeometryReader { geo in
-            let margin = max(0, (geo.size.width - Self.cell.width * 7) / 2)
-            ScrollView(.horizontal) {
-                LazyHStack(spacing: 0) {
-                    ForEach(weeks, id: \.self) { start in
-                        HStack(spacing: 0) {
-                            ForEach(0..<7, id: \.self) { i in
-                                let day = calendar.date(byAdding: .day, value: i, to: start) ?? start
-                                cell(day)
-                            }
+        let now = Date.now
+        ScrollView(.horizontal) {
+            HStack(spacing: 0) {
+                ForEach(weeks) { week in
+                    HStack(spacing: 0) {
+                        ForEach(week.days, id: \.date) { day in
+                            cell(day, now: now)
                         }
-                        .id(start)
                     }
+                    .id(week.id)
                 }
-                .scrollTargetLayout()
             }
-            .contentMargins(.horizontal, margin, for: .scrollContent)
-            .scrollTargetBehavior(.viewAligned)
-            .scrollPosition(id: $week, anchor: .center)
-            .scrollIndicators(.hidden)
-            .scrollClipDisabled()
+            .scrollTargetLayout()
         }
+        .contentMargins(.horizontal, sideMargin, for: .scrollContent)
+        .scrollTargetBehavior(.viewAligned(limitBehavior: .always))
+        .scrollPosition(id: $week, anchor: .center)
+        .scrollIndicators(.hidden)
+        .scrollClipDisabled()
         .frame(height: Self.cell.height)
-        .onAppear { week = weekStart(selection) }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+            sideMargin = max(0, (width - Self.cell.width * 7) / 2)
+        }
+        .onAppear {
+            if weeks.last.map({ $0.id < Calendar.current.startOfDay(for: .now).addingTimeInterval(-7 * 86400) }) ?? true {
+                weeks = Self.makeWeeks()
+            }
+            week = weekStart(selection)
+        }
         .onChange(of: selection) { _, day in
             let start = weekStart(day)
-            if week != start { withAnimation { week = start } }
+            if week != start { withAnimation(.smooth(duration: 0.35)) { week = start } }
         }
+        .sensoryFeedback(.selection, trigger: selection)
     }
+
+    @State private var sideMargin: CGFloat = 0
 
     private func weekStart(_ day: Date) -> Date {
-        calendar.dateInterval(of: .weekOfYear, for: day)?.start ?? day
+        Calendar.current.dateInterval(of: .weekOfYear, for: day)?.start ?? day
     }
 
-    private func cell(_ day: Date) -> some View {
-        let selected = calendar.isDate(day, inSameDayAs: selection)
-        let hasRecordings = marked.contains(day)
-        let future = day > .now
-        let live = liveDay.map { calendar.isDate($0, inSameDayAs: day) } ?? false
+    private func cell(_ day: Day, now: Date) -> some View {
+        let selected = Calendar.current.isDate(day.date, inSameDayAs: selection)
+        let hasRecordings = marked.contains(day.date)
+        let future = day.date > now
+        let live = liveDay == day.date
         let dayColor: Color = selected ? .jBg : hasRecordings ? .jText : future ? .jText5 : .jText4
 
-        return Button {
-            selection = day
-        } label: {
-            VStack(spacing: 4) {
-                Text(day.formatted(.dateTime.weekday(.narrow)))
-                    .font(.weekday)
-                    .foregroundStyle(selected ? Color.jBg.opacity(0.6) : future ? Color.jText5 : Color.jText4)
-                Text(day.formatted(.dateTime.day()))
-                    .font(.system(size: 16, weight: selected ? .semibold : .medium).monospacedDigit())
-                    .foregroundStyle(dayColor)
-                Circle()
-                    .fill(live ? Color.jLive : selected ? Color.jBg : Color.jText)
-                    .frame(width: 4, height: 4)
-                    .opacity(hasRecordings || live ? 1 : 0)
-            }
-            .frame(width: Self.cell.width, height: Self.cell.height)
-            .background {
-                if selected { RoundedRectangle(cornerRadius: 22).fill(Color.jText) }
-            }
-            .contentShape(Rectangle())
+        return VStack(spacing: 4) {
+            Text(day.letter)
+                .font(.weekday)
+                .foregroundStyle(selected ? Color.jBg.opacity(0.6) : future ? Color.jText5 : Color.jText4)
+            Text(day.number)
+                .font(.system(size: 16, weight: selected ? .semibold : .medium).monospacedDigit())
+                .foregroundStyle(dayColor)
+            Circle()
+                .fill(live ? Color.jLive : selected ? Color.jBg : Color.jText)
+                .frame(width: 4, height: 4)
+                .opacity(hasRecordings || live ? 1 : 0)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(day.formatted(date: .complete, time: .omitted))
+        .frame(width: Self.cell.width, height: Self.cell.height)
+        .background {
+            if selected {
+                RoundedRectangle(cornerRadius: 22)
+                    .fill(Color.jText)
+                    .matchedGeometryEffect(id: "selected", in: highlight)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.spring(duration: 0.32, bounce: 0.15)) { selection = day.date }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(day.label)
         .accessibilityValue(hasRecordings ? "Has recordings" : "")
-        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction { selection = day.date }
     }
 }
 
@@ -384,20 +425,40 @@ struct EmptyDay<Actions: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Image("WristArt")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 220, height: 220)
-                .frame(maxWidth: .infinity)
-                .padding(.bottom, 8)
+        VStack(spacing: 0) {
+            // The watch is drawn at 680×485 and bleeds past both edges; it
+            // takes 293 pt of height, the rest overlaps the space around it.
+            Color.clear
+                .frame(height: 293)
+                .overlay {
+                    Image("WatchArt")
+                        .resizable()
+                        .frame(width: 680, height: 485)
+                        .offset(x: -15)
+                }
                 .accessibilityHidden(true)
-            Text(title).font(.rowTitle).foregroundStyle(Color.jText)
-            if let detail {
-                Text(detail).font(.summary).foregroundStyle(Color.jText2).lineSpacing(3)
+                .allowsHitTesting(false)
+
+            VStack(spacing: 8) {
+                Text(title)
+                    .font(.scaled(22, .semibold, relativeTo: .title2))
+                    .tracking(-0.44)
+                    .foregroundStyle(Color.jText)
+                if let detail {
+                    Text(detail)
+                        .font(.summary)
+                        .foregroundStyle(Color.jText2)
+                        .lineSpacing(4)
+                        .frame(maxWidth: 300)
+                }
             }
-            actions.padding(.top, 8)
+            .multilineTextAlignment(.center)
+            .padding(.top, 20)
+
+            actions.padding(.top, 20)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 52 - 28)
         .padding(.horizontal, 20)
     }
 }
