@@ -16,6 +16,8 @@ enum Route: Hashable {
 @MainActor @Observable
 final class Router {
     var tab = AppTab.days
+    /// Bumped when Days is tapped while already showing: back to today.
+    var daysReselected = 0
     var days: [Route] = []
     var search: [Route] = []
     var account: [Route] = []
@@ -41,7 +43,9 @@ struct RootView: View {
             tab(.account) { AccountView() }
 
             if router.showsTabBar {
-                TabBar(selection: $router.tab)
+                TabBar(selection: $router.tab) { tab in
+                    if tab == .days { router.daysReselected += 1 }
+                }
                     .transition(.opacity)
             }
         }
@@ -85,7 +89,11 @@ struct RootView: View {
 /// label, the others are icons only. The capsule slides between tabs.
 struct TabBar: View {
     @Binding var selection: AppTab
+    /// Tapping the tab that's already selected.
+    var onReselect: (AppTab) -> Void = { _ in }
     @Namespace private var pill
+    /// Which tab was selected when the current touch began.
+    @State private var touchBegan: AppTab?
 
     var body: some View {
         HStack(spacing: 4) {
@@ -151,9 +159,18 @@ struct TabBar: View {
         .buttonStyle(.plain)
         // Switch on touch down, like the system tab bar; the button action
         // still covers VoiceOver and keyboard.
-        .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in
-            if selection != tab { selection = tab }
-        })
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    guard touchBegan == nil else { return }
+                    touchBegan = selection
+                    if selection != tab { selection = tab }
+                }
+                .onEnded { _ in
+                    if touchBegan == tab { onReselect(tab) }
+                    touchBegan = nil
+                }
+        )
         .accessibilityLabel(label)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
@@ -171,8 +188,9 @@ struct DaysIcon: View {
             context.scaleBy(x: k, y: k)
             let ink = selected ? Color.jOnChromeOn : Color.ink400
             let style = StrokeStyle(lineWidth: 1.5, lineCap: .round)
+            // Starts at the dot's centre, so no cap pokes out above the dot.
             var spine = Path()
-            spine.move(to: CGPoint(x: 5, y: 1.5)); spine.addLine(to: CGPoint(x: 5, y: 16.5))
+            spine.move(to: CGPoint(x: 5, y: 4.5)); spine.addLine(to: CGPoint(x: 5, y: 16.5))
             context.stroke(spine, with: .color(ink), style: style)
             context.fill(Path(ellipseIn: CGRect(x: 2.5, y: 2, width: 5, height: 5)),
                          with: .color(selected ? .jLive : ink))

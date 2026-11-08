@@ -86,6 +86,14 @@ final class Library {
     // MARK: - From the server
 
     func refresh() async {
+        #if DEBUG
+        // Simulator screenshots: `SIMCTL_CHILD_JOTTO_DEMO_DAYS=1 xcrun simctl launch …`
+        if ProcessInfo.processInfo.environment["JOTTO_DEMO_DAYS"] != nil {
+            server = Self.demo
+            loadedOnce = true
+            return
+        }
+        #endif
         guard AppConfig.shared.isReady else { return }
         do {
             server = try await API.sessions()
@@ -143,6 +151,9 @@ final class Library {
 
     var liveEntry: TimelineEntry? { entries.first { $0.state == .live } }
 
+    /// When the first recording started, so the week strip can reach it.
+    var earliest: Date? { entries.last?.startedAt }
+
     private func isLive(_ l: LocalSession) -> Bool {
         guard l.endedAt == nil else { return false }
         return Date.now.timeIntervalSince(l.startedAt) < Self.liveTimeout
@@ -190,3 +201,31 @@ final class Library {
         )
     }
 }
+
+#if DEBUG
+extension Library {
+    /// A full day of finished recordings, plus a couple of earlier days.
+    static let demo: [SessionSummary] = {
+        let today = Calendar.current.startOfDay(for: .now)
+        func at(_ dayOffset: Int, _ hour: Int, _ minutes: Int, _ title: String, _ summary: String) -> SessionSummary {
+            let start = today.addingTimeInterval(TimeInterval(dayOffset * 86400 + hour * 3600))
+            return SessionSummary(
+                id: UUID().uuidString, startedAt: start, endedAt: start.addingTimeInterval(TimeInterval(minutes * 60)),
+                status: "ready", title: title, summary: summary, segmentCount: minutes / 2, missingSegments: 0,
+                segmentsDone: minutes / 2, segmentsReceived: minutes / 2, lastLine: nil
+            )
+        }
+        return [
+            at(0, 8, 46, "Coffee with Priya", "The pilot runs six weeks. We review after week two and decide then whether to open it up."),
+            at(0, 10, 72, "Design review", "Design locks Friday. Engineering starts Monday, and the export screen moves out of the first build."),
+            at(0, 12, 52, "Lunch with Alex", "Alex wants the watch to start recording from the Action Button, and asks about calls."),
+            at(0, 14, 38, "Standup", "Three people out. The TestFlight build goes to twenty people on Friday."),
+            at(0, 16, 64, "User interview · Mei", "Mei would join a pilot if it starts when she raises her wrist."),
+            at(0, 18, 20, "Notes on the walk home", "Write the key guide before the product page."),
+            at(-2, 9, 30, "Planning", "Order of work for the open-source release."),
+            at(-9, 11, 45, "Kickoff", "Scope, risks and who owns what."),
+        ]
+    }()
+}
+#endif
+

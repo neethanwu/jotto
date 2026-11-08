@@ -12,11 +12,11 @@ struct AccountView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                BrandBar()
+
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Account")
-                        .font(.transcriptTitle)
-                        .tracking(-0.68)
-                        .foregroundStyle(Color.jText)
+                        .dayTitleStyle()
                     Text("Beta · signed in with a server token")
                         .font(.metaSmall)
                         .foregroundStyle(Color.jText3)

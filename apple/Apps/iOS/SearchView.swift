@@ -11,9 +11,11 @@ struct SearchView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                BrandBar()
+
                 Text("Search")
                     .dayTitleStyle()
-                    .padding(.top, 72)
+                    .padding(.top, 20)
 
                 field.padding(.top, 20)
 

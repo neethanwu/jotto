@@ -5,34 +5,56 @@ import SwiftUI
 struct DaysView: View {
     let router: Router
     @State private var day = Calendar.current.startOfDay(for: .now)
+    @State private var scroll = ScrollPosition(edge: .top)
+    /// The week strip has reached the top and is pinned there.
+    @State private var stripPinned = false
     private var library: Library { .shared }
     private var config: AppConfig { .shared }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                Image("Wordmark")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(height: 28)
-                    .frame(height: 52)
-                    .padding(.horizontal, 20)
-                    .accessibilityLabel("Jotto")
+            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: .sectionHeaders) {
+                BrandBar {
+                    if !isToday {
+                        Button("Today", action: goToToday)
+                            .buttonStyle(BarPillStyle())
+                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    }
+                }
+                .padding(.horizontal, 20)
+                .animation(.easeOut(duration: 0.2), value: isToday)
 
                 header
                     .padding(.horizontal, 20)
                     .padding(.top, 20)
+                    .padding(.bottom, 12)
 
-                WeekStrip(selection: $day, marked: library.daysWithRecordings, liveDay: liveDay)
-                    .padding(.top, 20)
-
-                content
-                    .padding(.top, 28)
+                Section {
+                    content
+                        .padding(.top, 28)
+                } header: {
+                    // Stays at the top while the day scrolls under it.
+                    WeekStrip(selection: $day, marked: library.daysWithRecordings, liveDay: liveDay, earliest: library.earliest)
+                        .padding(.vertical, 8)
+                        .background(Color.jBg)
+                        .overlay(alignment: .bottom) {
+                            Rectangle().fill(Color.jHairline).frame(height: 1)
+                                .opacity(stripPinned ? 1 : 0)
+                        }
+                        .onGeometryChange(for: Bool.self) { $0.frame(in: .scrollView).minY <= 0.5 } action: { stripPinned = $0 }
+                        .animation(.easeOut(duration: 0.15), value: stripPinned)
+                }
             }
             .padding(.bottom, 140)
         }
+        .scrollPosition($scroll)
         .scrollIndicators(.hidden)
+        // Content scrolling up under the status bar disappears into the page colour.
+        .overlay(alignment: .top) {
+            Color.jBg.frame(height: 0).ignoresSafeArea(edges: .top)
+        }
         .background(Color.jBg)
+        .onChange(of: router.daysReselected) { goToToday() }
         .toolbar(.hidden, for: .navigationBar)
         .refreshable { await library.refresh() }
         .task {
@@ -45,6 +67,16 @@ struct DaysView: View {
     }
 
     private var entries: [TimelineEntry] { library.entries(on: day) }
+
+    private var isToday: Bool { Calendar.current.isDateInToday(day) }
+
+    /// Back to today and the top, from the Today button or tapping Days again.
+    private func goToToday() {
+        withAnimation(.spring(duration: 0.35, bounce: 0.12)) {
+            day = Calendar.current.startOfDay(for: .now)
+            scroll.scrollTo(edge: .top)
+        }
+    }
 
     private var liveDay: Date? {
         library.liveEntry.map { Calendar.current.startOfDay(for: $0.startedAt) }
@@ -114,8 +146,10 @@ struct WeekStrip: View {
     @Binding var selection: Date
     let marked: Set<Date>
     let liveDay: Date?
+    /// The first recording, so the strip reaches back at least that far.
+    let earliest: Date?
     @State private var week: Date?
-    @State private var weeks = WeekStrip.makeWeeks()
+    @State private var weeks: [Week] = []
     @Namespace private var highlight
 
     private static let cell = CGSize(width: 50, height: 64)
@@ -133,10 +167,15 @@ struct WeekStrip: View {
         let days: [Day]
     }
 
-    private static func makeWeeks() -> [Week] {
+    /// From 26 weeks back (or the first recording, if older) to this week.
+    /// Nothing after this week: future days can't hold recordings.
+    private static func makeWeeks(earliest: Date?) -> [Week] {
         let calendar = Calendar.current
         let thisWeek = calendar.dateInterval(of: .weekOfYear, for: .now)?.start ?? .now
-        return (-26...1).compactMap { offset -> Week? in
+        let back = earliest.flatMap {
+            calendar.dateComponents([.weekOfYear], from: $0, to: thisWeek).weekOfYear.map { $0 + 1 }
+        } ?? 0
+        return (-max(26, back)...0).compactMap { offset -> Week? in
             guard let start = calendar.date(byAdding: .weekOfYear, value: offset, to: thisWeek) else { return nil }
             let days = (0..<7).compactMap { i -> Day? in
                 guard let date = calendar.date(byAdding: .day, value: i, to: start) else { return nil }
@@ -176,10 +215,15 @@ struct WeekStrip: View {
             sideMargin = max(0, (width - Self.cell.width * 7) / 2)
         }
         .onAppear {
-            if weeks.last.map({ $0.id < Calendar.current.startOfDay(for: .now).addingTimeInterval(-7 * 86400) }) ?? true {
-                weeks = Self.makeWeeks()
+            // Rebuild after a week boundary, or if the app sat in the background for days.
+            if weeks.last?.id != weekStart(.now) || weeks.isEmpty {
+                weeks = Self.makeWeeks(earliest: earliest)
             }
             week = weekStart(selection)
+        }
+        .onChange(of: earliest.map(weekStart)) { _, _ in
+            let older = earliest.map { weekStart($0) < (weeks.first?.id ?? .distantFuture) } ?? false
+            if older { weeks = Self.makeWeeks(earliest: earliest) }
         }
         .onChange(of: selection) { _, day in
             let start = weekStart(day)
@@ -223,13 +267,15 @@ struct WeekStrip: View {
         }
         .contentShape(Rectangle())
         .onTapGesture {
+            // Future days hold nothing yet, so they can't be picked.
+            guard !future else { return }
             withAnimation(.spring(duration: 0.32, bounce: 0.15)) { selection = day.date }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(day.label)
-        .accessibilityValue(hasRecordings ? "Has recordings" : "")
-        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
-        .accessibilityAction { selection = day.date }
+        .accessibilityValue(hasRecordings ? "Has recordings" : future ? "Upcoming" : "")
+        .accessibilityAddTraits(future ? [] : selected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction { if !future { selection = day.date } }
     }
 }
 
@@ -434,7 +480,7 @@ struct EmptyDay<Actions: View>: View {
                     Image("WatchArt")
                         .resizable()
                         .frame(width: 680, height: 485)
-                        .offset(x: -15)
+                        .offset(x: -15, y: 14)
                 }
                 .accessibilityHidden(true)
                 .allowsHitTesting(false)
