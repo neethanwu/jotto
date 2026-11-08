@@ -7,6 +7,7 @@ struct JottoApp: App {
 
     init() {
         // Start receiving from the watch and resume pending uploads at launch.
+        MainActor.assumeIsolated { PhoneLog.shared.note("launch") }
         _ = Inbox.shared
         _ = Uploader.shared
         _ = Library.shared
@@ -20,6 +21,7 @@ struct JottoApp: App {
             RootView()
         }
         .onChange(of: scenePhase) { _, phase in
+            PhoneLog.shared.note("scene", "\(phase)")
             // Coming to the foreground is a good moment to skip any backoff.
             if phase == .active {
                 Uploader.shared.retryAll()
@@ -38,6 +40,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         completionHandler: @escaping () -> Void
     ) {
         MainActor.assumeIsolated {
+            PhoneLog.shared.note("bg_url_events")
             Uploader.shared.backgroundCompletion = completionHandler
         }
     }

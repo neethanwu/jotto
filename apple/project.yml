@@ -43,7 +43,9 @@ targets:
     type: application
     platform: watchOS
     scheme: {}
-    sources: [Apps/Watch]
+    sources: [Apps/Watch, Apps/Shared]
+    dependencies:
+      - target: JottoWatchWidgets
     info:
       path: Apps/Watch/Info.plist
       properties:
@@ -59,3 +61,19 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.neethanwu.jotto.watchkitapp
+  JottoWatchWidgets:
+    type: app-extension
+    platform: watchOS
+    sources: [Apps/WatchWidgets, Apps/Shared]
+    info:
+      path: Apps/WatchWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: jotto
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neethanwu.jotto.watchkitapp.widgets
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) JOTTO_WIDGETS

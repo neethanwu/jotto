@@ -1,11 +1,15 @@
 import AVFoundation
 import Observation
+import UserNotifications
 import WatchKit
 
 /// Background audio capture into rolling segments, with logging for
 /// battery drain, interruptions and recovery (the Spike 0 log).
 @MainActor @Observable
 final class Recorder {
+    /// One recorder per app, so App Intents (controls, Action Button) can reach it.
+    static let shared = Recorder()
+
     enum State: String {
         case idle, recording, interrupted
     }
@@ -19,6 +23,9 @@ final class Recorder {
     private(set) var levels: [Float] = Array(repeating: 0, count: Recorder.levelCount)
     /// The recording that just ended, shown on the Saved screen.
     private(set) var justSaved: (length: TimeInterval, sentNow: Bool)?
+    /// Highlights marked in this recording, and when the last one was, for feedback.
+    private(set) var marks = 0
+    private(set) var lastMarkAt: Date?
 
     static let levelCount = 30
     private let meter = LevelMeter()
@@ -35,7 +42,7 @@ final class Recorder {
 
     private var battery: Float { WKInterfaceDevice.current().batteryLevel }
 
-    init() {
+    private init() {
         WKInterfaceDevice.current().isBatteryMonitoringEnabled = true
         observeSession()
     }
@@ -44,6 +51,23 @@ final class Recorder {
 
     func toggle() {
         state == .idle ? start() : stop()
+    }
+
+    /// What the Action Button and the control do: start when idle, mark when recording.
+    func primaryAction(source: String) {
+        note("primary_action", "source=\(source) state=\(state.rawValue) app=\(WKApplication.shared().applicationState.rawValue)")
+        if state == .idle { start() } else { mark(source: source) }
+    }
+
+    /// Marks this moment as a highlight without pausing the recording.
+    func mark(source: String = "screen") {
+        guard state != .idle, let sessionID, let startedAt else { return }
+        let offset = Date.now.timeIntervalSince(startedAt)
+        marks += 1
+        lastMarkAt = .now
+        WKInterfaceDevice.current().play(.click)
+        WatchTransfer.shared.sendMark(session: sessionID, startedAt: startedAt, offset: offset)
+        note("mark", "offset=\(Int(offset))s source=\(source)")
     }
 
     func start() {
@@ -85,7 +109,14 @@ final class Recorder {
         self.startedAt = startedAt
         self.sessionID = sessionID
         segmentsWritten = 0
+        marks = 0
+        lastMarkAt = nil
         justSaved = nil
+        // Needed for the "tap to keep recording" notice after a call.
+        // (Skipped for simulator screenshots, where the prompt would cover the screen.)
+        if ProcessInfo.processInfo.environment["JOTTO_AUTOSTART"] == nil {
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        }
         WatchTransfer.shared.sendStart(session: sessionID, startedAt: startedAt)
         WKInterfaceDevice.current().play(.start)
         note("start", sessionID.uuidString)
@@ -180,23 +211,60 @@ final class Recorder {
 
     /// Restart after an interruption or route/config change. Closes the
     /// current segment so a gap in the audio never hides inside one file.
-    private func recover(reason: String) {
-        guard state != .idle else { return }
+    @discardableResult
+    private func recover(reason: String) -> Bool {
+        guard state != .idle else { return false }
         stopEngine()
         writer?.finish()
+        let app = WKApplication.shared().applicationState.rawValue
         do {
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
             state = .interrupted
-            note("recover_failed", "\(reason): \(error.localizedDescription)")
-            return
+            note("recover_failed", "\(reason) app=\(app): \(error.localizedDescription)")
+            return false
         }
         if startEngine() {
             state = .recording
-            note("recovered", reason)
+            note("recovered", "\(reason) app=\(app)")
+            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [Self.pausedNotice])
+            return true
         } else {
             state = .interrupted
+            return false
         }
+    }
+
+    /// After a call: try a few times (activation can fail for a moment
+    /// while the call's audio winds down), then ask for one tap.
+    private func resumeAfterInterruption() {
+        Task { [weak self] in
+            for (attempt, delay) in [0, 1, 3].enumerated() {
+                if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
+                guard let self, self.state == .interrupted else { return }
+                if self.recover(reason: "interruption_ended#\(attempt + 1)") { return }
+            }
+            self?.notifyPaused()
+        }
+    }
+
+    /// Coming to the foreground counts as the user's go-ahead to resume.
+    func resumeIfInterrupted() {
+        guard state == .interrupted else { return }
+        recover(reason: "foreground")
+    }
+
+    private static let pausedNotice = "paused"
+
+    private func notifyPaused() {
+        let content = UNMutableNotificationContent()
+        content.title = "Recording paused"
+        content.body = "Tap to keep recording."
+        content.sound = .default
+        content.interruptionLevel = .timeSensitive
+        let request = UNNotificationRequest(identifier: Self.pausedNotice, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+        note("paused_notice")
     }
 
     // MARK: - Observation
@@ -210,7 +278,10 @@ final class Recorder {
             let info = notification.userInfo ?? [:]
             let rawType = info[AVAudioSessionInterruptionTypeKey] as? UInt
             let rawReason = info[AVAudioSessionInterruptionReasonKey] as? UInt
-            MainActor.assumeIsolated { self?.handleInterruption(rawType: rawType, rawReason: rawReason) }
+            let rawOptions = info[AVAudioSessionInterruptionOptionKey] as? UInt
+            MainActor.assumeIsolated {
+                self?.handleInterruption(rawType: rawType, rawReason: rawReason, rawOptions: rawOptions)
+            }
         })
 
         observers.append(center.addObserver(
@@ -233,18 +304,18 @@ final class Recorder {
         })
     }
 
-    private func handleInterruption(rawType: UInt?, rawReason: UInt?) {
+    private func handleInterruption(rawType: UInt?, rawReason: UInt?, rawOptions: UInt?) {
         guard let rawType, let type = AVAudioSession.InterruptionType(rawValue: rawType) else { return }
         switch type {
         case .began:
             guard state != .idle else { return }
             state = .interrupted
             writer?.finish()
-            note("interrupt_began", "reason=\(rawReason ?? 0)")
+            note("interrupt_began", "reason=\(rawReason ?? 0) app=\(WKApplication.shared().applicationState.rawValue)")
         case .ended:
-            note("interrupt_ended")
+            note("interrupt_ended", "options=\(rawOptions ?? 0) app=\(WKApplication.shared().applicationState.rawValue)")
             // Always try to resume: an always-on recorder should not wait for permission.
-            recover(reason: "interruption_ended")
+            resumeAfterInterruption()
         @unknown default:
             break
         }

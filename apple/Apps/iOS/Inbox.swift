@@ -66,6 +66,7 @@ extension Inbox: WCSessionDelegate {
     /// The file is deleted when this returns, so move it synchronously.
     nonisolated func session(_ session: WCSession, didReceive file: WCSessionFile) {
         let meta = file.metadata ?? [:]
+        PhoneLog.shared.later("wc_file", "kind=\(meta["kind"] as? String ?? "?") index=\(meta["index"] as? Int ?? -1)")
         if let segment = SegmentInfo(meta) {
             let destination = Uploader.audioURL(session: segment.session, index: segment.index)
             try? FileManager.default.createDirectory(
@@ -75,6 +76,7 @@ extension Inbox: WCSessionDelegate {
             do {
                 try FileManager.default.moveItem(at: file.fileURL, to: destination)
             } catch {
+                PhoneLog.shared.later("wc_file_move_failed", error.localizedDescription)
                 return
             }
             Task { @MainActor in
@@ -96,6 +98,8 @@ extension Inbox: WCSessionDelegate {
     }
 
     nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+        let offset = (userInfo["offset"] as? Double).map { " offset=\(Int($0))s" } ?? ""
+        PhoneLog.shared.later("wc_info", "kind=\(userInfo["kind"] as? String ?? "?")\(offset)")
         guard let id = userInfo["session"] as? String,
               let started = (userInfo["sessionStartedAt"] as? Double).map(Date.init(timeIntervalSince1970:))
         else { return }

@@ -117,18 +117,42 @@ private struct RecordingScreen: View {
                 Text("Paused by another app")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Color.ink400)
-            }
-
-            Button(action: recorder.stop) {
-                ZStack {
-                    Circle().fill(Color.live).frame(width: 84, height: 84)
-                        .opacity(dim ? 0.7 : 1)
-                        .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: dim)
-                    RoundedRectangle(cornerRadius: 6).fill(.white).frame(width: 26, height: 26)
+            } else if let at = recorder.lastMarkAt {
+                // Brief confirmation after a highlight; the haptic carries it with the screen off.
+                TimelineView(.periodic(from: at, by: 1)) { context in
+                    if context.date.timeIntervalSince(at) < 2 {
+                        Text("Marked")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Color.live)
+                    }
                 }
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Stop recording")
+
+            HStack(spacing: 10) {
+                Color.clear.frame(width: 36, height: 36)
+                Button(action: recorder.stop) {
+                    ZStack {
+                        Circle().fill(Color.live).frame(width: 84, height: 84)
+                            .opacity(dim ? 0.7 : 1)
+                            .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: dim)
+                        RoundedRectangle(cornerRadius: 6).fill(.white).frame(width: 26, height: 26)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Stop recording")
+                // Test build: highlight marking; the final design comes from Paper.
+                // Double tap marks rather than stops.
+                Button { recorder.mark(source: "button") } label: {
+                    Image(systemName: "bookmark.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 36, height: 36)
+                        .background(Color.ink900, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .handGestureShortcut(.primaryAction)
+                .accessibilityLabel("Mark this moment")
+            }
             .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

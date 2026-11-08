@@ -24,6 +24,14 @@ final class Uploader: NSObject {
         var attempts = 0
         var notBefore = Date.distantPast
         var lastError: String?
+
+        /// "segment 3" / "finish", for the test log.
+        var logName: String {
+            switch kind {
+            case let .segment(index, _, _): "segment \(index)"
+            case .finish: "finish"
+            }
+        }
     }
 
     private(set) var jobs: [Job] = []
@@ -108,6 +116,7 @@ final class Uploader: NSObject {
                 task.taskDescription = job.id.uuidString
                 inFlight.insert(job.id)
                 task.resume()
+                PhoneLog.shared.note("upload_start", job.logName)
             } catch {
                 fail(job.id, message: error.localizedDescription, permanent: true)
             }
@@ -148,6 +157,7 @@ final class Uploader: NSObject {
     }
 
     private func complete(_ id: UUID, status: Int, error: Error?) {
+        PhoneLog.shared.note("upload_done", "\(jobs.first { $0.id == id }?.logName ?? "?") status=\(status) \(error?.localizedDescription ?? "")")
         inFlight.remove(id)
         try? FileManager.default.removeItem(at: Self.bodiesDirectory.appending(path: "\(id.uuidString).json"))
 

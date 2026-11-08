@@ -2,7 +2,7 @@ import SwiftUI
 
 @main
 struct JottoWatchApp: App {
-    @State private var recorder = Recorder()
+    private let recorder = Recorder.shared
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -21,6 +21,7 @@ struct JottoWatchApp: App {
         }
         .onChange(of: scenePhase) { _, phase in
             recorder.lifecycle("\(phase)")
+            if phase == .active { recorder.resumeIfInterrupted() }
         }
     }
 }
