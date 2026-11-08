@@ -48,6 +48,16 @@ struct AccountView: View {
                 }
 
                 section("For testing") {
+                    Toggle(isOn: Bindable(config).processesLocally) {
+                        Text("Process on this iPhone").font(.reading).foregroundStyle(Color.jText)
+                    }
+                    .tint(Color.jLive)
+                    .frame(minHeight: 50)
+                    .overlay(alignment: .top) { Rectangle().fill(Color.jHairline).frame(height: 1) }
+                    .onChange(of: config.processesLocally) {
+                        Task { await library.refresh() }
+                        if config.processesLocally { Pipeline.shared.run() }
+                    }
                     NavigationLink(value: Route.inbox) {
                         row("Files from the watch", value: "\(inbox.items.count)", chevron: true, last: true)
                     }
@@ -106,7 +116,7 @@ struct AccountView: View {
     }
 
     private func load() async {
-        guard config.isReady else { return }
+        guard config.isReady || config.processesLocally else { return }
         stats = try? await API.stats()
         await library.refresh()
     }

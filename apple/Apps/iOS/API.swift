@@ -144,17 +144,20 @@ enum API {
 
     @MainActor
     static func sessions() async throws -> [SessionSummary] {
+        if AppConfig.shared.processesLocally { return LocalStore.shared.sessions() }
         struct List: Decodable { let sessions: [SessionSummary] }
         return try await send(request(""), as: List.self).sessions
     }
 
     @MainActor
     static func session(_ id: String) async throws -> SessionDetail {
-        try await send(request(id), as: SessionDetail.self)
+        if AppConfig.shared.processesLocally { return try LocalStore.shared.session(id) }
+        return try await send(request(id), as: SessionDetail.self)
     }
 
     @MainActor
     static func rename(_ id: String, to title: String) async throws {
+        if AppConfig.shared.processesLocally { return LocalStore.shared.rename(id, to: title) }
         var request = try request(id, method: "PATCH")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["title": title])
@@ -163,17 +166,20 @@ enum API {
 
     @MainActor
     static func delete(_ id: String) async throws {
+        if AppConfig.shared.processesLocally { return LocalStore.shared.delete(id) }
         try await data(request(id, method: "DELETE"))
     }
 
     @MainActor
     static func search(_ query: String) async throws -> SearchResults {
-        try await send(v1("search", query: [URLQueryItem(name: "q", value: query)]), as: SearchResults.self)
+        if AppConfig.shared.processesLocally { return LocalStore.shared.search(query) }
+        return try await send(v1("search", query: [URLQueryItem(name: "q", value: query)]), as: SearchResults.self)
     }
 
     @MainActor
     static func stats() async throws -> Stats {
-        try await send(v1("stats"), as: Stats.self)
+        if AppConfig.shared.processesLocally { return LocalStore.shared.stats() }
+        return try await send(v1("stats"), as: Stats.self)
     }
 
     /// One segment's audio, cached on disk. The phone usually still has the

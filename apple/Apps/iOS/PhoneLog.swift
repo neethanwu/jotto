@@ -26,6 +26,10 @@ final class PhoneLog: @unchecked Sendable {
         write("\(formatter.string(from: .now)),\(event),\(app),\(protected),\(detail.replacingOccurrences(of: ",", with: ";"))\n")
     }
 
+    func noteAsync(_ event: String, _ detail: String = "") async {
+        await MainActor.run { self.note(event, detail) }
+    }
+
     /// From any thread; the event is noted on the main actor right after.
     nonisolated func later(_ event: String, _ detail: String = "") {
         let at = formatter.string(from: .now)

@@ -26,9 +26,18 @@ final class AppConfig {
 
     var isReady: Bool { baseURL != nil && !token.isEmpty }
 
+    /// Transcribe and clean up on this iPhone instead of the server.
+    /// Defaults to on when no server is set up.
+    var processesLocally: Bool {
+        didSet { UserDefaults.standard.set(processesLocally, forKey: Self.localKey) }
+    }
+    private static let localKey = "processesLocally"
+
     private init() {
         serverURL = UserDefaults.standard.string(forKey: Self.urlKey) ?? ""
         token = Keychain.get(account: Self.tokenAccount) ?? ""
+        processesLocally = UserDefaults.standard.object(forKey: Self.localKey) as? Bool
+            ?? (UserDefaults.standard.string(forKey: Self.urlKey) ?? "").isEmpty
         #if DEBUG
         // Simulator runs: `SIMCTL_CHILD_JOTTO_SERVER_URL=… xcrun simctl launch …`
         let env = ProcessInfo.processInfo.environment

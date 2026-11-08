@@ -109,7 +109,7 @@ struct DaysView: View {
 
     @ViewBuilder
     private var content: some View {
-        if !config.isReady {
+        if !config.isReady && !config.processesLocally {
             EmptyDay(
                 title: "Connect to a server",
                 detail: "Add the server address and token in Account, then record on your watch"

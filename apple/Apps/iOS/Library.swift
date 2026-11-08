@@ -94,7 +94,7 @@ final class Library {
             return
         }
         #endif
-        guard AppConfig.shared.isReady else { return }
+        guard AppConfig.shared.isReady || AppConfig.shared.processesLocally else { return }
         do {
             server = try await API.sessions()
             loadError = nil
@@ -107,7 +107,8 @@ final class Library {
 
     /// Something is still changing, so poll faster.
     var isBusy: Bool {
-        entries.contains { $0.state != .done } || !Uploader.shared.jobs.isEmpty
+        entries.contains { $0.state != .done }
+            || (!AppConfig.shared.processesLocally && !Uploader.shared.jobs.isEmpty)
     }
 
     func applyRename(_ id: String, title: String) {

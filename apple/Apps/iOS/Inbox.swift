@@ -81,6 +81,13 @@ extension Inbox: WCSessionDelegate {
             }
             Task { @MainActor in
                 Library.shared.watchSent(segment.session, startedAt: segment.sessionStartedAt, index: segment.index)
+                if AppConfig.shared.processesLocally {
+                    Pipeline.shared.segmentArrived(
+                        segment.session, startedAt: segment.sessionStartedAt,
+                        index: segment.index, offset: segment.offset, duration: segment.duration
+                    )
+                    return
+                }
                 Uploader.shared.enqueue(.init(
                     session: segment.session,
                     sessionStartedAt: segment.sessionStartedAt,
@@ -105,13 +112,25 @@ extension Inbox: WCSessionDelegate {
         else { return }
         switch userInfo["kind"] as? String {
         case "start":
-            Task { @MainActor in Library.shared.watchStarted(id, at: started) }
+            Task { @MainActor in
+                Library.shared.watchStarted(id, at: started)
+                if AppConfig.shared.processesLocally { Pipeline.shared.started(id, at: started) }
+            }
+        case "mark":
+            guard let offset = userInfo["offset"] as? Double else { return }
+            Task { @MainActor in
+                if AppConfig.shared.processesLocally { Pipeline.shared.marked(id, startedAt: started, offset: offset) }
+            }
         case "finish":
             guard let ended = userInfo["endedAt"] as? Double,
                   let count = userInfo["segmentCount"] as? Int else { return }
             let endedAt = Date(timeIntervalSince1970: ended)
             Task { @MainActor in
                 Library.shared.watchFinished(id, startedAt: started, endedAt: endedAt, segmentCount: count)
+                if AppConfig.shared.processesLocally {
+                    Pipeline.shared.finished(id, startedAt: started, endedAt: endedAt, segmentCount: count)
+                    return
+                }
                 Uploader.shared.enqueue(.init(
                     session: id,
                     sessionStartedAt: started,
