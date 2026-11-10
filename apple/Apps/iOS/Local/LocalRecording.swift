@@ -37,6 +37,11 @@ struct LocalRecording: Codable, Identifiable, Hashable {
     }
 
     var isEnded: Bool { endedAt != nil }
+
+    var highlights: [Highlight] {
+        (marks.map(Highlight.moment(at:)) + (sections ?? []).map { Highlight.section(from: $0.start, to: $0.end) })
+            .sorted { $0.at < $1.at }
+    }
     var transcribed: [LocalSegment] { segments.values.filter { $0.phrases != nil }.sorted { $0.index < $1.index } }
 
     var status: String {

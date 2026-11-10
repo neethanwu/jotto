@@ -15,9 +15,11 @@ struct SessionSummary: Decodable, Identifiable, Hashable {
     let segmentsReceived: Int?
     /// Latest line of transcript while recording.
     let lastLine: String?
+    /// Moments and sections marked on the watch.
+    var highlights: Int? = nil
 }
 
-struct SessionDetail: Decodable {
+struct SessionDetail: Decodable, Identifiable {
     struct Segment: Decodable {
         let index: Int
         let status: String
@@ -38,6 +40,35 @@ struct SessionDetail: Decodable {
     let missingSegments: Int?
     let segments: [Segment]
     let blocks: [TranscriptBlock]
+    var highlights: [Highlight]? = nil
+}
+
+/// A moment (the star) or a section ([ ]) marked on the watch, as the
+/// stretch of the recording it covers, in seconds from the start.
+struct Highlight: Codable, Hashable, Identifiable {
+    /// Where the star was pressed, or where the section began.
+    let at: Double
+    let start: Double
+    let end: Double
+    let isSection: Bool
+
+    var id: String { "\(isSection ? "s" : "m")\(at)" }
+
+    /// People mark after they hear it, so a moment reaches further back.
+    static let before: Double = 30
+    static let after: Double = 10
+
+    static func moment(at t: Double) -> Highlight {
+        Highlight(at: t, start: max(0, t - before), end: t + after, isSection: false)
+    }
+
+    static func section(from start: Double, to end: Double) -> Highlight {
+        Highlight(at: start, start: start, end: end, isSection: true)
+    }
+
+    func covers(_ block: TranscriptBlock) -> Bool {
+        block.start < end && block.end > start
+    }
 }
 
 struct TranscriptBlock: Codable, Identifiable, Hashable {

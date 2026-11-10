@@ -30,7 +30,15 @@ final class RecordingPlayer {
     /// A periodic tick landing mid-seek would flash the old position.
     private var seeking = false
 
+    /// Bars across the pill when the whole recording fits.
     nonisolated static let barCount = 56
+    /// Longer recordings get a bar every two seconds and a waveform that
+    /// scrolls, so a finger can still land on a sentence.
+    nonisolated static let secondsPerBar: Double = 2
+
+    nonisolated static func bars(for duration: Double) -> Int {
+        max(barCount, Int((duration / secondsPerBar).rounded(.up)))
+    }
     static let rates: [Float] = [1, 1.25, 1.5, 2]
 
     /// What the screen shows: the finger while scrubbing, else playback.
@@ -77,7 +85,7 @@ final class RecordingPlayer {
         observe(player, item: item)
         availability = .ready
 
-        let total = duration, bars = Self.barCount
+        let total = duration, bars = Self.bars(for: duration)
         levels = await Task.detached(priority: .utility) {
             Self.waveform(files: files, total: total, bars: bars)
         }.value

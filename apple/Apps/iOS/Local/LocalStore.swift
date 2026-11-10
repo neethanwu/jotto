@@ -45,7 +45,8 @@ final class LocalStore {
                 id: r.id, startedAt: r.startedAt, endedAt: r.endedAt, status: r.status,
                 title: r.title, summary: r.summary, segmentCount: r.segmentCount, missingSegments: r.missing,
                 segmentsDone: r.transcribed.count, segmentsReceived: r.segments.count,
-                lastLine: Self.transcript(r).last { $0.backchannel != true }?.text
+                lastLine: Self.transcript(r).last { $0.backchannel != true }?.text,
+                highlights: r.marks.count + (r.sections?.count ?? 0)
             )
         }
     }
@@ -65,7 +66,7 @@ final class LocalStore {
             id: r.id, status: r.status, startedAt: r.startedAt, endedAt: r.endedAt,
             title: r.title, titleByUser: r.titleByUser, titleSuggestions: r.titleSuggestions,
             summary: r.summary, segmentCount: r.segmentCount, missingSegments: r.missing,
-            segments: segments, blocks: blocks
+            segments: segments, blocks: blocks, highlights: r.highlights
         )
     }
 

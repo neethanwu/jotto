@@ -54,6 +54,8 @@ extension Color {
     static let jSheetHairline = pair(Ink.i200, Ink.i800)
     static let jSheetWell = pair(Ink.i50, Ink.i950)
     static let jToggleOff = pair(Ink.i200, Ink.i800)
+    /// Delete in swipe actions; the same red the system uses for destructive.
+    static let jDestructive = Color(UIColor(hex: 0xE5484D))
     static let jLive = Color(Orange.o500)
     static let jLiveHalo = pair(Orange.o100, Orange.o950)
 
@@ -122,7 +124,7 @@ extension View {
 /// weight so they match each other (SF Symbols vary in weight and sit
 /// off-centre in a circle).
 enum Glyph {
-    case back, down, close, more, share, search
+    case back, down, close, more, share, search, trash, star, brackets
 }
 
 struct GlyphView: View {
@@ -157,6 +159,32 @@ struct GlyphView: View {
                 p.addLine(to: CGPoint(x: 17, y: 20.5))
                 p.addArc(tangent1End: CGPoint(x: 19, y: 20.5), tangent2End: CGPoint(x: 19, y: 18.5), radius: 2)
                 p.addLine(to: CGPoint(x: 19, y: 12.5))
+            case .trash:
+                p.move(to: CGPoint(x: 4.5, y: 7)); p.addLine(to: CGPoint(x: 19.5, y: 7))
+                p.move(to: CGPoint(x: 10, y: 11)); p.addLine(to: CGPoint(x: 10, y: 17))
+                p.move(to: CGPoint(x: 14, y: 11)); p.addLine(to: CGPoint(x: 14, y: 17))
+                p.move(to: CGPoint(x: 6.5, y: 7)); p.addLine(to: CGPoint(x: 7.4, y: 18.6))
+                p.addQuadCurve(to: CGPoint(x: 9.4, y: 20.5), control: CGPoint(x: 7.5, y: 20.5))
+                p.addLine(to: CGPoint(x: 14.6, y: 20.5))
+                p.addQuadCurve(to: CGPoint(x: 16.6, y: 18.6), control: CGPoint(x: 16.5, y: 20.5))
+                p.addLine(to: CGPoint(x: 17.5, y: 7))
+                p.move(to: CGPoint(x: 9.5, y: 7)); p.addLine(to: CGPoint(x: 9.5, y: 4.5))
+                p.addLine(to: CGPoint(x: 14.5, y: 4.5)); p.addLine(to: CGPoint(x: 14.5, y: 7))
+            case .star:
+                let points: [(Double, Double)] = [(12, 3.2), (14.6, 8.7), (20.6, 9.5), (16.2, 13.7), (17.3, 19.7),
+                                                  (12, 16.8), (6.7, 19.7), (7.8, 13.7), (3.4, 9.5), (9.4, 8.7)]
+                p.addLines(points.map { CGPoint(x: $0.0, y: $0.1) })
+                p.closeSubpath()
+                context.fill(p, with: .color(color))
+                context.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: 1.2, lineJoin: .round))
+                return
+            case .brackets:
+                p.move(to: CGPoint(x: 9, y: 4.5)); p.addLine(to: CGPoint(x: 5.5, y: 4.5))
+                p.addLine(to: CGPoint(x: 5.5, y: 19.5)); p.addLine(to: CGPoint(x: 9, y: 19.5))
+                p.move(to: CGPoint(x: 15, y: 4.5)); p.addLine(to: CGPoint(x: 18.5, y: 4.5))
+                p.addLine(to: CGPoint(x: 18.5, y: 19.5)); p.addLine(to: CGPoint(x: 15, y: 19.5))
+                context.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: 2.6, lineCap: .round, lineJoin: .round))
+                return
             case .search:
                 p.addEllipse(in: CGRect(x: 4, y: 4, width: 14, height: 14))
                 p.move(to: CGPoint(x: 20, y: 20)); p.addLine(to: CGPoint(x: 16.5, y: 16.5))

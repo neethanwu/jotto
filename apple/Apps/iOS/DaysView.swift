@@ -10,6 +10,12 @@ struct DaysView: View {
     /// The week strip has reached the top and is pinned there.
     @State private var stripPinned = false
     @State private var picking = false
+    /// The row swiped open, if any; one at a time.
+    @State private var swiped: String?
+    @State private var sharing: SessionDetail?
+    @State private var renaming: SessionDetail?
+    @State private var deleting: TimelineEntry?
+    @State private var actionError: String?
     private var library: Library { .shared }
     private var config: AppConfig { .shared }
 
@@ -55,10 +61,31 @@ struct DaysView: View {
             .padding(.bottom, 140)
         }
         .scrollPosition($scroll)
+        .onScrollPhaseChange { _, phase in
+            if phase == .interacting, swiped != nil { withAnimation(.spring(duration: 0.3)) { swiped = nil } }
+        }
         .scrollIndicators(.hidden)
         .statusBarCover()
         .background(Color.jBg)
         .onChange(of: router.daysReselected) { goToToday() }
+        .sheet(item: $sharing) { detail in
+            ShareSheet(detail: detail, title: detail.title ?? Format.provisionalTitle(detail.startedAt))
+        }
+        .sheet(item: $renaming) { detail in
+            RenameSheet(detail: detail, current: detail.title ?? Format.provisionalTitle(detail.startedAt)) { title in
+                Task { await rename(detail.id, to: title) }
+            }
+        }
+        .confirmationDialog("Delete this recording?", isPresented: Binding(
+            get: { deleting != nil }, set: { if !$0 { deleting = nil } }
+        ), titleVisibility: .visible, presenting: deleting) { entry in
+            Button("Delete recording and audio", role: .destructive) { Task { await delete(entry.id) } }
+        } message: { _ in
+            Text(config.processesLocally ? "The text and audio are removed from your iPhone" : "The text and audio are removed from your iPhone and the server")
+        }
+        .alert("Couldn't do that", isPresented: Binding(
+            get: { actionError != nil }, set: { if !$0 { actionError = nil } }
+        )) {} message: { Text(actionError ?? "") }
         .sheet(isPresented: $picking) {
             DayPicker(selection: $day, marked: library.daysWithRecordings, earliest: library.earliest)
         }
@@ -74,6 +101,35 @@ struct DaysView: View {
     }
 
     private var entries: [TimelineEntry] { library.entries(on: day) }
+
+    // MARK: - Row actions
+
+    private func share(_ id: String) async {
+        do { sharing = try await API.session(id) } catch { actionError = error.localizedDescription }
+    }
+
+    private func startRename(_ id: String) async {
+        do { renaming = try await API.session(id) } catch { actionError = error.localizedDescription }
+    }
+
+    private func rename(_ id: String, to title: String) async {
+        do {
+            try await API.rename(id, to: title)
+            library.applyRename(id, title: title)
+        } catch {
+            actionError = error.localizedDescription
+        }
+    }
+
+    private func delete(_ id: String) async {
+        do {
+            try await API.delete(id)
+            withAnimation(.spring(duration: 0.35)) { library.remove(id) }
+            try? FileManager.default.removeItem(at: Uploader.sessionsDirectory.appending(path: id))
+        } catch {
+            actionError = error.localizedDescription
+        }
+    }
 
     private var isToday: Bool { Calendar.current.isDateInToday(day) }
 
@@ -144,7 +200,11 @@ struct DaysView: View {
                 EmptyDay(title: "No recordings", detail: library.loadError)
             }
         } else {
-            Timeline(entries: entries) { entry in
+            Timeline(entries: entries, swiped: $swiped, actions: .init(
+                share: { entry in Task { await share(entry.id) } },
+                rename: { entry in Task { await startRename(entry.id) } },
+                delete: { entry in deleting = entry }
+            )) { entry in
                 if entry.state == .live {
                     router.live = Router.Live(id: entry.id)
                 } else {
@@ -304,19 +364,155 @@ struct WeekStrip: View {
 // MARK: - Timeline
 
 struct Timeline: View {
+    struct Actions {
+        let share: (TimelineEntry) -> Void
+        let rename: (TimelineEntry) -> Void
+        let delete: (TimelineEntry) -> Void
+    }
+
     let entries: [TimelineEntry]
+    @Binding var swiped: String?
+    let actions: Actions
     let open: (TimelineEntry) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             ForEach(Array(entries.enumerated()), id: \.element.id) { i, entry in
-                Button { open(entry) } label: {
-                    TimelineRow(entry: entry, isLast: i == entries.count - 1)
+                let finished = entry.state == .done
+                SwipeRow(id: entry.id, swiped: $swiped, enabled: finished,
+                         share: { actions.share(entry) }, delete: { actions.delete(entry) }) {
+                    Button {
+                        // A tap on an open row just closes it.
+                        if swiped != nil {
+                            withAnimation(.spring(duration: 0.3)) { swiped = nil }
+                        } else {
+                            open(entry)
+                        }
+                    } label: {
+                        TimelineRow(entry: entry, isLast: i == entries.count - 1)
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        if finished {
+                            Button("Share", systemImage: "square.and.arrow.up") { actions.share(entry) }
+                            Button("Rename", systemImage: "pencil") { actions.rename(entry) }
+                            Button("Delete", systemImage: "trash", role: .destructive) { actions.delete(entry) }
+                        }
+                    }
                 }
-                .buttonStyle(.plain)
+                .accessibilityAction(named: "Share") { if finished { actions.share(entry) } }
+                .accessibilityAction(named: "Delete") { if finished { actions.delete(entry) } }
             }
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.9), value: entries)
+    }
+}
+
+/// Swipe a row left to show Share and Delete behind it. The whole row
+/// slides, like a system list. Only horizontal drags count, so the page
+/// still scrolls.
+struct SwipeRow<Content: View>: View {
+    let id: String
+    @Binding var swiped: String?
+    let enabled: Bool
+    let share: () -> Void
+    let delete: () -> Void
+    @ViewBuilder let content: Content
+
+    @State private var drag: CGFloat = 0
+    private static var reveal: CGFloat { 116 }
+
+    private var offset: CGFloat {
+        let base: CGFloat = swiped == id ? -Self.reveal : 0
+        let raw = base + drag
+        // Resists past the actions, and never opens to the right.
+        if raw < -Self.reveal { return -Self.reveal + (raw + Self.reveal) * 0.3 }
+        return min(0, raw)
+    }
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            content.offset(x: offset)
+            // Only there while the row is moved, so hidden ones can't be hit.
+            if enabled, offset < 0 {
+                HStack(spacing: 12) {
+                    action("Share", glyph: .share, fill: .jText, ink: .jBg, run: share)
+                    action("Delete", glyph: .trash, fill: .jDestructive, ink: .white, run: delete)
+                }
+                .padding(.trailing, 4)
+                // Centred on the title line, so it fits rows without a summary.
+                .offset(y: -9)
+                .opacity(min(1, Double(-offset / Self.reveal) * 1.4))
+            }
+        }
+        .gesture(HorizontalPan(
+            enabled: enabled,
+            changed: { dx in
+                if swiped != nil, swiped != id { withAnimation(.spring(duration: 0.3)) { swiped = nil } }
+                drag = dx
+            },
+            ended: { dx, velocity in
+                let final = (swiped == id ? -Self.reveal : 0) + dx
+                let open = final < -Self.reveal / 2 || velocity < -600
+                withAnimation(.spring(duration: 0.3, bounce: 0.1)) {
+                    swiped = open ? id : (swiped == id ? nil : swiped)
+                    drag = 0
+                }
+            }
+        ))
+        .sensoryFeedback(.selection, trigger: swiped == id)
+    }
+
+    private func action(_ label: String, glyph: Glyph, fill: Color, ink: Color, run: @escaping () -> Void) -> some View {
+        Button {
+            withAnimation(.spring(duration: 0.3)) { swiped = nil }
+            run()
+        } label: {
+            GlyphView(glyph: glyph, color: ink)
+                .frame(width: 18, height: 18)
+                .frame(width: 44, height: 44)
+                .background(fill, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+}
+
+/// A pan that only starts when the finger moves sideways, so it never
+/// takes a vertical scroll from the page.
+struct HorizontalPan: UIGestureRecognizerRepresentable {
+    var enabled = true
+    let changed: (CGFloat) -> Void
+    let ended: (_ translation: CGFloat, _ velocity: CGFloat) -> Void
+
+    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator { Coordinator() }
+
+    func makeUIGestureRecognizer(context: Context) -> UIPanGestureRecognizer {
+        let pan = UIPanGestureRecognizer()
+        pan.delegate = context.coordinator
+        pan.isEnabled = enabled
+        return pan
+    }
+
+    func updateUIGestureRecognizer(_ pan: UIPanGestureRecognizer, context: Context) {
+        pan.isEnabled = enabled
+    }
+
+    func handleUIGestureRecognizerAction(_ pan: UIPanGestureRecognizer, context: Context) {
+        let dx = pan.translation(in: pan.view).x
+        switch pan.state {
+        case .changed: changed(dx)
+        case .ended, .cancelled, .failed: ended(dx, pan.velocity(in: pan.view).x)
+        default: break
+        }
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+            guard let pan = recognizer as? UIPanGestureRecognizer else { return false }
+            let v = pan.velocity(in: pan.view)
+            return abs(v.x) > abs(v.y) * 1.2
+        }
     }
 }
 
@@ -386,7 +582,15 @@ struct TimelineRow: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Color.jText3)
             } else if let length = entry.length {
-                Text(Format.length(length)).font(.metaSmall).foregroundStyle(Color.jText3)
+                HStack(spacing: 4) {
+                    if entry.highlights > 0 {
+                        GlyphView(glyph: .star).frame(width: 11, height: 11)
+                        Text("\(entry.highlights)").foregroundStyle(Color.jText)
+                        Text("·").foregroundStyle(Color.jText3)
+                    }
+                    Text(Format.length(length)).foregroundStyle(Color.jText3)
+                }
+                .font(.metaSmall)
             }
         }
     }

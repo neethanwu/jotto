@@ -1,8 +1,11 @@
 import SwiftUI
 
 /// One recording: title Jotto wrote (tap to rename), the transcript in its
-/// Clean or Original form, and a player at the bottom.
+/// Clean or Original form with marked stretches drawn in, a Highlights tab
+/// when there are any, and a player at the bottom.
 struct TranscriptView: View {
+    enum Tab { case clean, original, highlights }
+
     let id: String
     /// Open scrolled to this moment (from search).
     var startAt: Double?
@@ -10,7 +13,9 @@ struct TranscriptView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var detail: SessionDetail?
     @State private var error: String?
-    @State private var showOriginal = AppConfig.shared.opensOriginal
+    @State private var tab: Tab = AppConfig.shared.opensOriginal ? .original : .clean
+    /// A highlight was tapped in the Highlights tab: scroll here in Clean.
+    @State private var jumpTarget: Int?
     @State private var player = RecordingPlayer()
     @State private var sharing = false
     @State private var renaming = false
@@ -35,8 +40,21 @@ struct TranscriptView: View {
                 .onChange(of: detail?.blocks.count) { _, _ in scrollToStart(proxy) }
                 .onChange(of: currentBlock) { _, block in
                     let scrubbing = player.scrubTime != nil
-                    guard player.isPlaying || scrubbing, let block else { return }
-                    withAnimation(.easeInOut(duration: scrubbing ? 0.15 : 0.3)) { proxy.scrollTo(block, anchor: .center) }
+                    guard tab != .highlights, player.isPlaying || scrubbing, let block, let detail else { return }
+                    withAnimation(.easeInOut(duration: scrubbing ? 0.15 : 0.3)) {
+                        proxy.scrollTo(groupID(of: block, in: detail), anchor: .center)
+                    }
+                }
+                .onChange(of: jumpTarget) { _, target in
+                    guard let target, let detail else { return }
+                    Task {
+                        // Let Clean lay out first.
+                        try? await Task.sleep(for: .milliseconds(150))
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            proxy.scrollTo(groupID(of: target, in: detail), anchor: .top)
+                        }
+                        jumpTarget = nil
+                    }
                 }
                 .sensoryFeedback(.selection, trigger: currentBlock) { _, _ in player.scrubTime != nil }
             }
@@ -132,12 +150,16 @@ struct TranscriptView: View {
         let fillers = detail.blocks.reduce(0) { n, b in
             n + (b.clean.map { Fillers.diff(raw: b.text, clean: $0).removedRuns } ?? 0)
         }
+        let marked = detail.highlights?.count ?? 0
         return VStack(spacing: 0) {
             HStack(spacing: 20) {
-                tabButton("Clean", selected: !showOriginal) { showOriginal = false }
-                tabButton("Original", selected: showOriginal) { showOriginal = true }
-                Spacer()
-                if fillers > 0 {
+                tabButton("Clean", selected: tab == .clean) { tab = .clean }
+                tabButton("Original", selected: tab == .original) { tab = .original }
+                if marked > 0 {
+                    tabButton("Highlights", count: marked, selected: tab == .highlights) { tab = .highlights }
+                }
+                Spacer(minLength: 8)
+                if fillers > 0, tab != .highlights {
                     Text("\(fillers) \(fillers == 1 ? "filler" : "fillers") gone")
                         .font(.metaSmall)
                         .foregroundStyle(Color.jText3)
@@ -147,10 +169,11 @@ struct TranscriptView: View {
         }
     }
 
-    private func tabButton(_ label: String, selected: Bool, action: @escaping () -> Void) -> some View {
+    private func tabButton(_ label: String, count: Int? = nil, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(label)
+            (Text(label) + Text(count.map { " \($0)" } ?? "").fontWeight(.medium))
                 .font(.label)
+                .lineLimit(1)
                 .foregroundStyle(selected ? Color.jText : Color.jText3)
                 .padding(.bottom, 10)
                 .overlay(alignment: .bottom) {
@@ -182,19 +205,93 @@ struct TranscriptView: View {
         }
     }
 
+    @ViewBuilder
     private func paragraphs(_ detail: SessionDetail) -> some View {
-        LazyVStack(alignment: .leading, spacing: 22) {
-            ForEach(rows(detail)) { row in
-                ParagraphView(
-                    row: row,
-                    showOriginal: showOriginal,
-                    isCurrent: currentBlock == row.block.id
-                ) {
-                    player.seek(to: row.block.start)
+        if tab == .highlights {
+            highlightList(detail)
+        } else {
+            LazyVStack(alignment: .leading, spacing: 22) {
+                ForEach(groups(detail)) { group in
+                    Group {
+                        if group.highlights.isEmpty {
+                            paragraph(group.rows[0])
+                        } else {
+                            VStack(alignment: .leading, spacing: 0) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    ForEach(group.highlights) { HighlightLabel(highlight: $0) }
+                                }
+                                .padding(.bottom, 8)
+                                VStack(alignment: .leading, spacing: 22) {
+                                    ForEach(group.rows) { paragraph($0) }
+                                }
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.top, 12)
+                            .padding(.bottom, 14)
+                            .background(Color.jSurface, in: RoundedRectangle(cornerRadius: 16))
+                            .padding(.horizontal, -8)
+                        }
+                    }
+                    .id(group.id)
                 }
-                .id(row.block.id)
             }
         }
+    }
+
+    private func paragraph(_ row: Row) -> some View {
+        ParagraphView(row: row, showOriginal: showOriginal, isCurrent: currentBlock == row.block.id) {
+            player.seek(to: row.block.start)
+        }
+    }
+
+    /// Each highlight with what was said in it, in order. Tapping one
+    /// shows it in place in Clean, ready to play from there.
+    private func highlightList(_ detail: SessionDetail) -> some View {
+        let highlights = detail.highlights ?? []
+        let spoken = detail.blocks.filter { $0.backchannel != true }
+        return VStack(alignment: .leading, spacing: 12) {
+            Text(highlightSummary(highlights))
+                .font(.metaSmall)
+                .foregroundStyle(Color.jText3)
+            ForEach(highlights) { h in
+                let said = spoken.filter(h.covers)
+                Button {
+                    tab = .clean
+                    player.seek(to: h.start, play: false)
+                    jumpTarget = said.first?.id
+                } label: {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HighlightLabel(highlight: h)
+                        if said.isEmpty {
+                            Text("Nothing was said here").font(.summary).foregroundStyle(Color.jText3)
+                        }
+                        ForEach(said) { block in
+                            (Text(block.speaker == nil ? "" : Format.speaker(block.speaker) + "  ").font(.speaker)
+                                + Text(block.clean ?? block.text).font(.reading))
+                                .foregroundStyle(Color.jText)
+                                .lineSpacing(8)
+                                .multilineTextAlignment(.leading)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 14)
+                    .padding(.bottom, 16)
+                    .background(Color.jSurface, in: RoundedRectangle(cornerRadius: 16))
+                    .contentShape(RoundedRectangle(cornerRadius: 16))
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Shows it in the transcript")
+            }
+        }
+    }
+
+    private func highlightSummary(_ highlights: [Highlight]) -> String {
+        let sections = highlights.filter(\.isSection).count
+        let moments = highlights.count - sections
+        let parts = [moments > 0 ? Format.plural(moments, "moment") : nil,
+                     sections > 0 ? Format.plural(sections, "section") : nil].compactMap { $0 }
+        return parts.joined(separator: " and ") + ", in order"
     }
 
     // MARK: - Data
@@ -205,6 +302,49 @@ struct TranscriptView: View {
         let newSection: Bool
         var id: Int { block.id }
     }
+
+    /// Consecutive paragraphs under the same highlights share one block;
+    /// everything else is a paragraph of its own.
+    struct ParagraphGroup: Identifiable {
+        let rows: [Row]
+        let highlights: [Highlight]
+        var id: Int { rows[0].id }
+    }
+
+    private func groups(_ detail: SessionDetail) -> [ParagraphGroup] {
+        let highlights = detail.highlights ?? []
+        var out: [ParagraphGroup] = []
+        var rows: [Row] = []
+        var marks: [Highlight] = []
+        func flush() {
+            if !rows.isEmpty { out.append(ParagraphGroup(rows: rows, highlights: marks)) }
+            rows = []
+            marks = []
+        }
+        for row in self.rows(detail) {
+            let hits = highlights.filter { $0.covers(row.block) }
+            if hits.isEmpty {
+                flush()
+                out.append(ParagraphGroup(rows: [row], highlights: []))
+            } else if !rows.isEmpty, !Set(hits).isDisjoint(with: marks) {
+                rows.append(row)
+                marks += hits.filter { !marks.contains($0) }
+            } else {
+                flush()
+                rows = [row]
+                marks = hits
+            }
+        }
+        flush()
+        return out
+    }
+
+    /// The scroll target for a paragraph: the block it sits in.
+    private func groupID(of block: Int, in detail: SessionDetail) -> Int {
+        groups(detail).first { $0.rows.contains { $0.id == block } }?.id ?? block
+    }
+
+    private var showOriginal: Bool { tab == .original }
 
     private func rows(_ detail: SessionDetail) -> [Row] {
         let visible = detail.blocks.filter { showOriginal || $0.backchannel != true }
@@ -322,7 +462,7 @@ struct ParagraphView: View {
             .padding(.leading, isCurrent ? 0 : 0)
             .overlay(alignment: .leading) {
                 if isCurrent {
-                    Rectangle().fill(Color.jText).frame(width: 1.5).offset(x: -10)
+                    Rectangle().fill(Color.jText).frame(width: 1.5).offset(x: -7)
                 }
             }
         }
@@ -351,6 +491,27 @@ struct ParagraphView: View {
             out += part
         }
         return Text(out)
+    }
+}
+
+/// "★ 0:52 · moment" or "[ ] 0:14 – 0:40 · section".
+struct HighlightLabel: View {
+    let highlight: Highlight
+
+    var body: some View {
+        HStack(spacing: 6) {
+            GlyphView(glyph: highlight.isSection ? .brackets : .star)
+                .frame(width: 12, height: 12)
+            Text(highlight.isSection
+                 ? "\(Format.clock(highlight.start)) – \(Format.clock(highlight.end))"
+                 : Format.clock(highlight.at))
+                .font(.scaled(12, .semibold, relativeTo: .caption1).monospacedDigit())
+                .foregroundStyle(Color.jText)
+            Text(highlight.isSection ? "· section" : "· moment")
+                .font(.metaSmall)
+                .foregroundStyle(Color.jText3)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -390,9 +551,9 @@ struct PlayerBar: View {
                         .frame(minWidth: 36, alignment: .trailing)
                     Button(action: player.cycleRate) {
                         Text(rateLabel)
-                            .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                            .font(.system(size: 13, weight: .semibold).monospacedDigit())
                             .foregroundStyle(Color.ink50)
-                            .frame(width: 38, height: 30)
+                            .frame(width: 46, height: 36)
                             .background(Color.ink800, in: Capsule())
                     }
                     .buttonStyle(.plain)
@@ -434,54 +595,105 @@ struct PlayerBar: View {
     }
 }
 
-/// Peaks across the recording. Drag anywhere in the pill's height: the
-/// position and the transcript follow the finger, the audio moves on release.
+/// Peaks across the recording, with the play position as a line.
+///
+/// Short recordings fit the pill: drag anywhere to scrub, tap to jump.
+/// Longer ones draw a bar every two seconds and scroll: drag the track
+/// to look around, drag the line to scrub, tap a spot to jump there.
+/// While playing, the track pages along to keep the line in view.
 struct Waveform: View {
     let player: RecordingPlayer
 
-    private let barArea: CGFloat = 28
+    private static let barArea: CGFloat = 28
+    /// Spacing between bars when the track scrolls.
+    private static let step: CGFloat = 3.6
+    /// How close to the line a touch counts as grabbing it.
+    private static let grab: CGFloat = 22
+
+    /// Seconds at the left edge, when the track scrolls.
+    @State private var left: Double = 0
+    @State private var following = true
+    @State private var drag: DragKind?
+    @State private var refollow: Task<Void, Never>?
+
+    private enum DragKind {
+        case undecided(left: Double)
+        case scrub
+        case scroll(left: Double)
+    }
+
+    private struct Layout {
+        let width: CGFloat
+        let count: Int
+        let duration: Double
+        var secondsPerBar: Double { duration / Double(count) }
+        var scrolls: Bool { CGFloat(count) * Waveform.step > width }
+        var step: CGFloat { scrolls ? Waveform.step : width / CGFloat(count) }
+        /// Points per second.
+        var scale: Double { Double(step) / secondsPerBar }
+        var window: Double { Double(width) / scale }
+        func clampLeft(_ value: Double) -> Double { scrolls ? min(max(0, value), duration - window) : 0 }
+    }
 
     var body: some View {
         GeometryReader { geo in
-            let levels = player.levels
-            let bars = max(levels.count, RecordingPlayer.barCount)
-            let step = geo.size.width / CGFloat(bars)
             let duration = max(player.duration, 0.001)
-            let progress = min(1, player.shownTime / duration)
+            let count = max(player.levels.count, RecordingPlayer.bars(for: duration))
+            let layout = Layout(width: geo.size.width, count: count, duration: duration)
+            let shown = min(player.shownTime, duration)
             let scrubbing = player.scrubTime != nil
+            let left = layout.clampLeft(self.left)
+            let headX = CGFloat((shown - left) * layout.scale)
 
-            ZStack(alignment: .leading) {
-                HStack(alignment: .center, spacing: 0) {
-                    ForEach(0..<bars, id: \.self) { i in
+            ZStack(alignment: .topLeading) {
+                Canvas { context, size in
+                    let levels = player.levels
+                    let first = max(0, Int(left / layout.secondsPerBar) - 1)
+                    let last = min(count - 1, Int((left + layout.window) / layout.secondsPerBar) + 1)
+                    guard first <= last else { return }
+                    let barWidth = max(1.5, layout.step * 0.5)
+                    for i in first...last {
                         let level = i < levels.count ? CGFloat(levels[i]) : 0.1
-                        Capsule()
-                            .fill(Double(i) / Double(bars) < progress ? Color.ink50 : Color.ink600)
-                            .frame(width: max(1.5, step * 0.5), height: max(2, level * barArea))
-                            .frame(width: step)
+                        let height = max(2, level * Self.barArea)
+                        let x = CGFloat((Double(i) * layout.secondsPerBar - left) * layout.scale) + (layout.step - barWidth) / 2
+                        let rect = CGRect(x: x, y: (size.height - height) / 2, width: barWidth, height: height)
+                        let played = Double(i) * layout.secondsPerBar < shown
+                        context.fill(Capsule().path(in: rect), with: .color(played ? .ink50 : .ink600))
                     }
                 }
                 .scaleEffect(y: scrubbing ? 1.25 : 1)
+                .mask {
+                    // Bars fade at the edges when there is more to scroll to.
+                    LinearGradient(stops: [
+                        .init(color: .black.opacity(layout.scrolls && left > 0 ? 0 : 1), location: 0),
+                        .init(color: .black, location: 0.06),
+                        .init(color: .black, location: 0.94),
+                        .init(color: .black.opacity(layout.scrolls && left < duration - layout.window ? 0 : 1), location: 1),
+                    ], startPoint: .leading, endPoint: .trailing)
+                }
 
-                Capsule()
-                    .fill(Color.ink50)
-                    .frame(width: 2, height: scrubbing ? 44 : 34)
-                    .offset(x: max(0, progress * geo.size.width - 1))
+                // The line, with a knob that says it can be dragged.
+                VStack(spacing: 0) {
+                    Circle().fill(Color.ink50).frame(width: 8, height: 8)
+                    Capsule().fill(Color.ink50).frame(width: 2, height: scrubbing ? 40 : 32)
+                }
+                .offset(x: headX - 4, y: scrubbing ? 3 : 7)
+                .opacity(headX < -2 || headX > geo.size.width + 2 ? 0 : 1)
             }
-            .frame(maxHeight: .infinity)
+            .frame(width: geo.size.width, height: geo.size.height)
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    let fraction = min(1, max(0, value.location.x / geo.size.width))
-                    player.scrub(to: fraction * player.duration)
-                }
-                .onEnded { _ in player.endScrub() }
+                .onChanged { value in changed(value, layout: layout, headX: headX) }
+                .onEnded { value in ended(value, layout: layout) }
             )
             .overlay(alignment: .topLeading) {
                 if scrubbing {
-                    bubble.position(x: bubbleX(progress: progress, in: geo), y: -28)
+                    bubble.position(x: bubbleX(headX, in: geo), y: -28)
                 }
             }
             .animation(.spring(duration: 0.25), value: scrubbing)
+            .onChange(of: player.time) { _, time in follow(time, layout: layout) }
+            .onAppear { self.left = layout.clampLeft(player.time - layout.window * 0.15) }
         }
         .frame(maxWidth: .infinity)
         .frame(height: 62)
@@ -492,6 +704,75 @@ struct Waveform: View {
             player.seek(to: player.time + (direction == .increment ? 15 : -15), play: player.isPlaying)
         }
     }
+
+    // MARK: Gestures
+
+    private func time(atX x: CGFloat, layout: Layout) -> Double {
+        min(max(0, layout.clampLeft(left) + Double(x) / layout.scale), layout.duration)
+    }
+
+    private func changed(_ value: DragGesture.Value, layout: Layout, headX: CGFloat) {
+        switch drag {
+        case nil:
+            refollow?.cancel()
+            if !layout.scrolls || abs(value.startLocation.x - headX) < Self.grab {
+                drag = .scrub
+                player.scrub(to: time(atX: value.location.x, layout: layout))
+            } else {
+                drag = .undecided(left: layout.clampLeft(left))
+            }
+        case let .undecided(start):
+            // A tap until it moves; then it scrolls the track.
+            if abs(value.translation.width) > 6 {
+                following = false
+                drag = .scroll(left: start)
+            }
+        case let .scroll(start):
+            left = layout.clampLeft(start - Double(value.translation.width) / layout.scale)
+        case .scrub:
+            // Near an edge, the track moves along with the finger.
+            if layout.scrolls {
+                let edge: CGFloat = 16
+                if value.location.x > layout.width - edge { left = layout.clampLeft(left + layout.window * 0.02) }
+                if value.location.x < edge { left = layout.clampLeft(left - layout.window * 0.02) }
+            }
+            player.scrub(to: time(atX: value.location.x, layout: layout))
+        }
+    }
+
+    private func ended(_ value: DragGesture.Value, layout: Layout) {
+        switch drag {
+        case .undecided:
+            player.seek(to: time(atX: value.location.x, layout: layout), play: player.isPlaying)
+            following = true
+        case .scrub:
+            player.endScrub()
+            following = true
+        case .scroll:
+            // Back to following the line a moment after looking around.
+            refollow = Task {
+                try? await Task.sleep(for: .seconds(3))
+                guard !Task.isCancelled else { return }
+                following = true
+                follow(player.time, layout: layout, force: true)
+            }
+        case nil:
+            break
+        }
+        left = layout.clampLeft(left)
+        drag = nil
+    }
+
+    /// Pages the track so the line stays between 15% and 85% of the width.
+    private func follow(_ time: Double, layout: Layout, force: Bool = false) {
+        guard layout.scrolls, following, player.scrubTime == nil else { return }
+        let x = (time - layout.clampLeft(left)) * layout.scale
+        if force || x < 0 || x > Double(layout.width) * 0.85 {
+            withAnimation(.easeInOut(duration: 0.35)) { left = layout.clampLeft(time - layout.window * 0.15) }
+        }
+    }
+
+    // MARK: Bubble
 
     private var bubble: some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
@@ -509,11 +790,10 @@ struct Waveform: View {
         .allowsHitTesting(false)
     }
 
-    /// Over the finger. The pill's right side leaves room; only the very
+    /// Over the line. The pill's right side leaves room; only the very
     /// start of the wave needs holding back from the screen edge.
-    private func bubbleX(progress: Double, in geo: GeometryProxy) -> CGFloat {
+    private func bubbleX(_ x: CGFloat, in geo: GeometryProxy) -> CGFloat {
         let halfBubble: CGFloat = player.duration >= 3600 ? 85 : 66
-        let x = progress * geo.size.width
         return max(x, 16 + halfBubble - geo.frame(in: .global).minX)
     }
 }
