@@ -29,11 +29,20 @@ struct TranscriptView: View {
     var body: some View {
         VStack(spacing: 0) {
             topBar
+            if let detail {
+                head(detail)
+                    .padding(.horizontal, 20)
+            }
             ScrollViewReader { proxy in
                 ScrollView {
                     if let detail {
-                        content(detail)
+                        paragraphs(detail)
+                            .padding(.horizontal, 20)
+                            .padding(.top, 20)
                             .padding(.bottom, 140)
+                            .opacity(renaming ? 0.3 : 1)
+                            .allowsHitTesting(!renaming)
+                            .animation(.easeOut(duration: 0.2), value: renaming)
                     } else if let error {
                         Text(error).font(.summary).foregroundStyle(Color.jText3).padding(20)
                     } else {
@@ -68,7 +77,7 @@ struct TranscriptView: View {
             if let detail { PlayerBar(player: player, hasAudio: !detail.segments.isEmpty) }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .sheet(isPresented: $sharing) {
+        .drawer(isPresented: $sharing) {
             if let detail { SendPanel(detail: detail, title: title(detail)) }
         }
         .onChange(of: renaming) { _, editing in
@@ -110,7 +119,7 @@ struct TranscriptView: View {
     }
 
     private var browsingBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             CircleIconButton(glyph: .back, label: "Back") { dismiss() }
             Spacer()
             Menu {
@@ -129,7 +138,8 @@ struct TranscriptView: View {
 
     // MARK: - Content
 
-    private func content(_ detail: SessionDetail) -> some View {
+    /// Meta, title and the view switch stay put; the transcript scrolls under them.
+    private func head(_ detail: SessionDetail) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(meta(detail))
                 .font(.meta)
@@ -168,16 +178,12 @@ struct TranscriptView: View {
                     .padding(.top, 24)
 
                 status(detail)
-
-                paragraphs(detail)
-                    .padding(.top, 20)
             }
             // While the title is being edited, the rest steps back.
             .opacity(renaming ? 0.3 : 1)
             .allowsHitTesting(!renaming)
             .animation(.easeOut(duration: 0.2), value: renaming)
         }
-        .padding(.horizontal, 20)
     }
 
     /// The title becomes a field in place, with Jotto's suggestions under it.
@@ -186,16 +192,33 @@ struct TranscriptView: View {
             .compactMap { $0 }
             .reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
         return VStack(alignment: .leading, spacing: 0) {
-            TextField("Title", text: $draftTitle, axis: .vertical)
-                .font(.transcriptTitle)
-                .tracking(-0.68)
-                .foregroundStyle(Color.jText)
-                .tint(Color.jLive)
-                .focused($titleFocused)
-                .submitLabel(.done)
-                .onSubmit { finishRenaming(save: true) }
-                .padding(.top, 8)
-                .padding(.bottom, 8)
+            HStack(alignment: .center, spacing: 10) {
+                TextField("Title", text: $draftTitle, axis: .vertical)
+                    .font(.transcriptTitle)
+                    .tracking(-0.68)
+                    .foregroundStyle(Color.jText)
+                    .tint(Color.jLive)
+                    .focused($titleFocused)
+                    .submitLabel(.done)
+                    // Wraps like a paragraph, but Return means Done.
+                    .onChange(of: draftTitle) { _, text in
+                        if text.contains("\n") {
+                            draftTitle = text.replacingOccurrences(of: "\n", with: "")
+                            finishRenaming(save: true)
+                        }
+                    }
+                if !draftTitle.isEmpty {
+                    Button { draftTitle = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundStyle(Color.jText4)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear title")
+                }
+            }
+            .padding(.top, 8)
+            .padding(.bottom, 8)
             Rectangle().fill(Color.jText).frame(height: 1.5)
             if !suggestions.isEmpty {
                 Text("Jotto suggests")

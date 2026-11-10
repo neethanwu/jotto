@@ -13,6 +13,7 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                BrandBar()
                 Text("Settings")
                     .dayTitleStyle()
                     .padding(.top, 20)

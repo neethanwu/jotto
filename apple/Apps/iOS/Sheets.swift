@@ -12,6 +12,7 @@ struct SendPanel: View {
     let title: String
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.closeDrawer) private var closeDrawer
     private var templates: SendTemplates { .shared }
     @State private var selectedID = SendTemplates.shared.preferred.id
     @State private var withAudio = false
@@ -40,12 +41,15 @@ struct SendPanel: View {
                         .lineLimit(1)
                 }
                 Spacer()
-                CircleIconButton(glyph: .close, label: "Close", fill: .jSheet) { dismiss() }
+                CircleIconButton(glyph: .close, label: "Close", fill: .jSheet) {
+                    if let closeDrawer { closeDrawer() } else { dismiss() }
+                }
             }
 
             ScrollView {
                 VStack(spacing: 0) {
                     ForEach(templates.all) { row($0) }
+                        .animation(.spring(duration: 0.38, bounce: 0.08), value: selectedID)
                     Button {
                         editing = SendTemplate(name: "", instruction: "", content: .clean, format: .markdown)
                     } label: {
@@ -109,13 +113,7 @@ struct SendPanel: View {
             .padding(.top, 8)
         }
         .padding(.horizontal, 20)
-        .padding(.top, 24)
         .padding(.bottom, 12)
-        .background(Color.jSheet)
-        .presentationDetents([.fraction(0.8), .large])
-        .presentationDragIndicator(.visible)
-        .presentationCornerRadius(32)
-        .presentationBackground(Color.jSheet)
         .sensoryFeedback(.selection, trigger: selectedID)
         .task(id: withAudio) { if withAudio { await exportAudio() } }
         .task(id: copied) {
@@ -139,7 +137,8 @@ struct SendPanel: View {
     }
 
     private func select(_ id: UUID) {
-        withAnimation(.spring(duration: 0.3)) { selectedID = id }
+        guard id != selectedID else { return }
+        withAnimation(.spring(duration: 0.38, bounce: 0.08)) { selectedID = id }
         templates.lastUsed = id
     }
 
@@ -176,11 +175,15 @@ struct SendPanel: View {
                         .background(Color.jSheetWell, in: RoundedRectangle(cornerRadius: 12))
                         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.jSheetHairline, lineWidth: 1))
                         .padding(.leading, 34)
-                        .transition(.opacity)
+                        .transition(.asymmetric(
+                            insertion: .opacity.combined(with: .offset(y: -8)).animation(.easeOut(duration: 0.25).delay(0.06)),
+                            removal: .opacity.animation(.easeOut(duration: 0.12))
+                        ))
                 }
             }
             .padding(.vertical, 12)
             .contentShape(Rectangle())
+            .clipped()
             .overlay(alignment: .bottom) { Rectangle().fill(Color.jSheetHairline).frame(height: 1) }
         }
         .buttonStyle(.plain)

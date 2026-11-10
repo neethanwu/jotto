@@ -194,10 +194,12 @@ struct GlyphView: View {
                 p.addEllipse(in: CGRect(x: 4.5, y: 4.5, width: 13, height: 13))
                 p.move(to: CGPoint(x: 19.5, y: 19.5)); p.addLine(to: CGPoint(x: 15.9, y: 15.9))
             case .send:
-                // A paper plane, on the 20-unit drawing scaled to 24.
-                p.move(to: CGPoint(x: 21, y: 3)); p.addLine(to: CGPoint(x: 3, y: 10.3))
-                p.addLine(to: CGPoint(x: 10.2, y: 13.8)); p.addLine(to: CGPoint(x: 13.7, y: 21)); p.closeSubpath()
-                p.move(to: CGPoint(x: 10.2, y: 13.8)); p.addLine(to: CGPoint(x: 15, y: 9))
+                // A paper plane, symmetric about its diagonal and the same
+                // size as the other glyphs. It sits between its bounding box
+                // and its centre of mass so it reads as centred in a ring.
+                p.move(to: CGPoint(x: 18.8, y: 5.2)); p.addLine(to: CGPoint(x: 3.8, y: 11))
+                p.addLine(to: CGPoint(x: 9.8, y: 14.2)); p.addLine(to: CGPoint(x: 13, y: 20.2)); p.closeSubpath()
+                p.move(to: CGPoint(x: 9.8, y: 14.2)); p.addLine(to: CGPoint(x: 14.4, y: 9.6))
             case .plus:
                 p.move(to: CGPoint(x: 12, y: 5)); p.addLine(to: CGPoint(x: 12, y: 19))
                 p.move(to: CGPoint(x: 5, y: 12)); p.addLine(to: CGPoint(x: 19, y: 12))
@@ -208,7 +210,7 @@ struct GlyphView: View {
     }
 }
 
-/// The 36-pt ring every top-bar button sits in, with an 18-pt glyph:
+/// The 40-pt ring every top-bar button sits in, with an 18-pt glyph:
 /// the page colour inside a 1-pt ring, like the rings on the timeline.
 struct CircleGlyph: View {
     let glyph: Glyph
@@ -216,15 +218,17 @@ struct CircleGlyph: View {
     var fill: Color = .jBg
     var color: Color = .jText
     var ring: Color = .jRing
+    /// 40 in top bars; 32 beside a section title.
+    var size: CGFloat = 40
 
     var body: some View {
         GlyphView(glyph: glyph, color: color)
-            .frame(width: 18, height: 18)
-            .frame(width: 36, height: 36)
+            .frame(width: size * 0.475, height: size * 0.475)
+            .frame(width: size, height: size)
             .background(fill, in: Circle())
             .overlay(Circle().strokeBorder(ring, lineWidth: 1))
             // 44 to touch, without taking more room.
-            .contentShape(Circle().inset(by: -4))
+            .contentShape(Circle().inset(by: -(44 - min(size, 44)) / 2))
     }
 }
 
@@ -241,18 +245,19 @@ struct PressStyle: ButtonStyle {
     }
 }
 
-/// 36pt ring button, used in top bars.
+/// 40pt ring button, used in top bars.
 struct CircleIconButton: View {
     let glyph: Glyph
     let label: String
     var fill: Color = .jBg
     var color: Color = .jText
     var ring: Color = .jRing
+    var size: CGFloat = 40
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            CircleGlyph(glyph: glyph, fill: fill, color: color, ring: ring)
+            CircleGlyph(glyph: glyph, fill: fill, color: color, ring: ring, size: size)
         }
         .buttonStyle(PressStyle())
         .accessibilityLabel(label)

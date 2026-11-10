@@ -96,7 +96,7 @@ struct DaysView: View {
         .statusBarCover()
         .background(Color.jBg)
         .onChange(of: router.daysReselected) { goToToday() }
-        .sheet(item: $sharing) { detail in
+        .drawer(item: $sharing) { detail in
             SendPanel(detail: detail, title: detail.title ?? Format.provisionalTitle(detail.startedAt))
         }
         .task(id: query) { await search() }
@@ -401,9 +401,8 @@ struct DaysView: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityHint("Pick another day")
-        .popover(isPresented: $picking, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
-            MonthPopover(selection: $day, marked: library.daysWithRecordings, earliest: library.earliest)
-                .presentationCompactAdaptation(.popover)
+        .sheet(isPresented: $picking) {
+            DayPicker(selection: $day, marked: library.daysWithRecordings, earliest: library.earliest)
         }
     }
 
@@ -517,8 +516,9 @@ struct WeekStrip: View {
             HStack(spacing: 0) {
                 ForEach(weeks) { week in
                     HStack(spacing: 0) {
-                        ForEach(week.days, id: \.date) { day in
+                        ForEach(Array(week.days.enumerated()), id: \.element.date) { i, day in
                             cell(day, now: now)
+                            if i < week.days.count - 1 { Spacer(minLength: 0) }
                         }
                     }
                     .padding(.horizontal, 20)
@@ -583,7 +583,6 @@ struct WeekStrip: View {
                     .matchedGeometryEffect(id: "selected", in: highlight)
             }
         }
-        .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         .onTapGesture {
             // Future days hold nothing yet, so they can't be picked.
@@ -678,7 +677,9 @@ struct SwipeRow<Content: View>: View {
                 }
                 // Centred on the row's text: the row ends in 28 of space.
                 .padding(.bottom, 28)
-                .opacity(min(1, Double(-offset / Self.reveal) * 1.4))
+                // They come in from the edge with the row, not appear in place.
+                .offset(x: max(0, Self.reveal + offset))
+                .opacity(min(1, Double(-offset / Self.reveal) * 1.6))
             }
         }
         .gesture(HorizontalPan(

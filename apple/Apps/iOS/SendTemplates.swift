@@ -187,55 +187,39 @@ struct SendView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                BrandBar()
+
                 Text("Send")
                     .dayTitleStyle()
                     .padding(.top, 20)
                     .accessibilityAddTraits(.isHeader)
-                Text("What goes out with a recording, and where it can go by itself.")
-                    .font(.summary)
-                    .foregroundStyle(Color.jText2)
-                    .padding(.top, 8)
 
-                sectionLabel("By itself").padding(.top, 32)
+                sectionTitle("Automations", top: 28)
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("When a transcript is ready").font(.rowTitle).foregroundStyle(Color.jText)
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("When a transcript is ready").font(.rowTitle).foregroundStyle(Color.jText)
+                        Spacer(minLength: 8)
+                        Text("Coming soon")
+                            .font(.scaled(12, .semibold, relativeTo: .caption1))
+                            .foregroundStyle(Color.jText2)
+                            .padding(.horizontal, 10)
+                            .frame(height: 24)
+                            .background(Color.jFill, in: Capsule())
+                    }
                     Text("Jotto posts a notice. A Shortcuts automation can pick it up and send the transcript to ChatGPT, Notes, Things or a webhook, with any template.")
                         .font(.summary)
                         .foregroundStyle(Color.jText2)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text("Coming in a later build")
-                        .font(.label)
-                        .foregroundStyle(Color.jText3)
-                        .padding(.top, 2)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(16)
                 .card()
 
-                HStack {
-                    sectionLabel("Templates")
-                    Spacer()
-                    Button {
+                sectionTitle("Templates", count: templates.all.count) {
+                    CircleIconButton(glyph: .plus, label: "New template", size: 32) {
                         editing = SendTemplate(name: "", instruction: "", content: .clean, format: .markdown)
-                    } label: {
-                        HStack(spacing: 6) {
-                            GlyphView(glyph: .plus).frame(width: 14, height: 14)
-                            Text("New").font(.scaled(14, .semibold, relativeTo: .subheadline))
-                        }
-                        .foregroundStyle(Color.jText)
-                        .padding(.leading, 10)
-                        .padding(.trailing, 14)
-                        .frame(height: 32)
-                        .background(Color.jBg, in: Capsule())
-                        .overlay(Capsule().strokeBorder(Color.jRing, lineWidth: 1))
-                        .contentShape(Capsule().inset(by: -6))
                     }
-                    .buttonStyle(PressStyle())
-                    .accessibilityLabel("New template")
                 }
-                .padding(.top, 32)
-                .padding(.bottom, 2)
-
                 VStack(spacing: 10) {
                     ForEach(templates.all) { template in
                         Button { editing = template } label: { card(template) }
@@ -252,13 +236,29 @@ struct SendView: View {
         .sheet(item: $editing) { TemplateEditor(template: $0) }
     }
 
-    private func sectionLabel(_ text: String) -> some View {
-        Text(text)
-            .font(.scaled(11, .medium, relativeTo: .caption2))
-            .foregroundStyle(Color.jText3)
-            .padding(.bottom, 10)
+    /// Section titles here are headings, not labels: the page is two lists.
+    /// The add button sits on the list it adds to.
+    private func sectionTitle<Trailing: View>(_ text: String, count: Int? = nil, top: CGFloat = 36,
+                                              @ViewBuilder trailing: () -> Trailing = { EmptyView() }) -> some View {
+        HStack(spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(text)
+                    .font(.scaled(20, .semibold, relativeTo: .title3))
+                    .tracking(-0.3)
+                    .foregroundStyle(Color.jText)
+                if let count {
+                    Text("\(count)").font(.meta).foregroundStyle(Color.jText3)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 8)
+            trailing()
+        }
+        .frame(minHeight: 32)
+        .padding(.top, top)
+        .padding(.bottom, 12)
     }
-
     private func card(_ t: SendTemplate) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
@@ -306,6 +306,7 @@ struct TemplateEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft: SendTemplate
     @State private var confirmDelete = false
+    @FocusState private var nameFocused: Bool
     private let isNew: Bool
 
     init(template: SendTemplate) {
@@ -316,30 +317,61 @@ struct TemplateEditor: View {
     private var canSave: Bool { !draft.name.trimmingCharacters(in: .whitespaces).isEmpty }
 
     var body: some View {
+        VStack(spacing: 0) {
+            Capsule().fill(Color.jText5).frame(width: 36, height: 5).padding(.top, 10)
+            HStack {
+                Button("Cancel") { dismiss() }
+                    .font(.label)
+                    .foregroundStyle(Color.jText2)
+                Spacer()
+                Button("Done") {
+                    draft.name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    SendTemplates.shared.save(draft)
+                    dismiss()
+                }
+                .buttonStyle(PrimaryPillStyle(height: 36))
+                .disabled(!canSave)
+                .opacity(canSave ? 1 : 0.4)
+            }
+            .padding(.horizontal, 20)
+            .frame(height: 52)
+            .padding(.top, 6)
+            editorBody
+        }
+        .background(Color.jSheet)
+        .presentationDetents([.large])
+        .presentationDragIndicator(.hidden)
+        .presentationCornerRadius(32)
+        .presentationBackground(Color.jSheet)
+        .sensoryFeedback(.selection, trigger: draft.content)
+        .sensoryFeedback(.selection, trigger: draft.format)
+        .confirmationDialog("Delete \(draft.name)?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Delete template", role: .destructive) {
+                SendTemplates.shared.delete(draft.id)
+                dismiss()
+            }
+        }
+        .onAppear { if isNew { nameFocused = true } }
+    }
+
+    private var editorBody: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Button("Cancel") { dismiss() }
-                        .font(.label)
-                        .foregroundStyle(Color.jText2)
-                    Spacer()
-                    Button("Done") {
-                        draft.name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
-                        SendTemplates.shared.save(draft)
-                        dismiss()
-                    }
-                    .buttonStyle(PrimaryPillStyle())
-                    .disabled(!canSave)
-                    .opacity(canSave ? 1 : 0.4)
-                }
-                .frame(height: 52)
-
                 TextField("Name", text: $draft.name, axis: .vertical)
                     .font(.transcriptTitle)
                     .tracking(-0.68)
                     .foregroundStyle(Color.jText)
+                    .tint(Color.jLive)
+                    .focused($nameFocused)
                     .submitLabel(.done)
-                    .padding(.top, 28)
+                    // Wraps when long, but Return means done with the name.
+                    .onChange(of: draft.name) { _, text in
+                        if text.contains("\n") {
+                            draft.name = text.replacingOccurrences(of: "\n", with: "")
+                            nameFocused = false
+                        }
+                    }
+                    .padding(.top, 20)
                     .padding(.bottom, 10)
                 Rectangle().fill(Color.jText).frame(height: 1.5)
 
@@ -390,18 +422,6 @@ struct TemplateEditor: View {
             .padding(.bottom, 40)
         }
         .scrollDismissesKeyboard(.interactively)
-        .background(Color.jSheet)
-        .presentationDetents([.large])
-        .presentationCornerRadius(32)
-        .presentationBackground(Color.jSheet)
-        .sensoryFeedback(.selection, trigger: draft.content)
-        .sensoryFeedback(.selection, trigger: draft.format)
-        .confirmationDialog("Delete \(draft.name)?", isPresented: $confirmDelete, titleVisibility: .visible) {
-            Button("Delete template", role: .destructive) {
-                SendTemplates.shared.delete(draft.id)
-                dismiss()
-            }
-        }
     }
 
     private func label(_ text: String) -> some View {
