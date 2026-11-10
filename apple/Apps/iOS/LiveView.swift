@@ -16,13 +16,13 @@ struct LiveView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                CircleIconButton(glyph: .down, label: "Close", fill: .ink900, color: .ink50) { dismiss() }
+                CircleIconButton(glyph: .down, label: "Close", fill: .ink950, color: .ink50, ring: .ink800) { dismiss() }
                 Spacer()
                 Text("Recording")
                     .font(.label)
                     .foregroundStyle(Color.jLive)
                 Spacer()
-                Color.clear.frame(width: 40, height: 40)
+                Color.clear.frame(width: 36, height: 36)
             }
             .padding(.horizontal, 16)
             .frame(height: 52)

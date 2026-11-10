@@ -352,8 +352,7 @@ struct MonthCard: View {
             .accessibilityHidden(true)
         }
         .padding(18)
-        .background(Color.jSurface, in: RoundedRectangle(cornerRadius: 24))
-        .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(Color.jHairline, lineWidth: 1))
+        .card(radius: 24)
         .accessibilityElement(children: .combine)
     }
 

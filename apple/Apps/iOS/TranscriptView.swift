@@ -9,6 +9,8 @@ struct TranscriptView: View {
     let id: String
     /// Open scrolled to this moment (from search).
     var startAt: Double?
+    /// Open with the title ready to edit (Rename from the Days menu).
+    var startsRenaming = false
 
     @Environment(\.dismiss) private var dismiss
     @State private var detail: SessionDetail?
@@ -19,6 +21,8 @@ struct TranscriptView: View {
     @State private var player = RecordingPlayer()
     @State private var sharing = false
     @State private var renaming = false
+    @State private var draftTitle = ""
+    @FocusState private var titleFocused: Bool
     @State private var confirmDelete = false
     @State private var scrolledToStart = false
 
@@ -65,14 +69,16 @@ struct TranscriptView: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $sharing) {
-            if let detail { ShareSheet(detail: detail, title: title(detail)) }
+            if let detail { SendPanel(detail: detail, title: title(detail)) }
         }
-        .sheet(isPresented: $renaming) {
-            if let detail {
-                RenameSheet(detail: detail, current: title(detail)) { newTitle in
-                    Task { await rename(to: newTitle) }
-                }
+        .onChange(of: renaming) { _, editing in
+            if editing, let detail {
+                draftTitle = title(detail)
+                titleFocused = true
             }
+        }
+        .onChange(of: detail == nil) { _, missing in
+            if !missing, startsRenaming, !renaming { renaming = true }
         }
         .confirmationDialog("Delete this recording?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete recording and audio", role: .destructive) { Task { await delete() } }
@@ -85,8 +91,26 @@ struct TranscriptView: View {
 
     // MARK: - Top bar
 
+    @ViewBuilder
     private var topBar: some View {
-        HStack {
+        if renaming {
+            HStack {
+                Button("Cancel") { finishRenaming(save: false) }
+                    .font(.label)
+                    .foregroundStyle(Color.jText2)
+                Spacer()
+                Button("Done") { finishRenaming(save: true) }
+                    .buttonStyle(PrimaryPillStyle(height: 36))
+            }
+            .padding(.horizontal, 20)
+            .frame(height: 52)
+        } else {
+            browsingBar
+        }
+    }
+
+    private var browsingBar: some View {
+        HStack(spacing: 8) {
             CircleIconButton(glyph: .back, label: "Back") { dismiss() }
             Spacer()
             Menu {
@@ -96,10 +120,10 @@ struct TranscriptView: View {
                 CircleGlyph(glyph: .more)
             }
             .accessibilityLabel("More")
-            CircleIconButton(glyph: .share, label: "Share") { sharing = true }
+            CircleIconButton(glyph: .send, label: "Send") { sharing = true }
                 .disabled(detail == nil)
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 20)
         .frame(height: 52)
     }
 
@@ -112,19 +136,23 @@ struct TranscriptView: View {
                 .foregroundStyle(Color.jText3)
                 .padding(.top, 12)
 
-            Button { renaming = true } label: {
-                Text(title(detail))
-                    .font(.transcriptTitle)
-                    .tracking(-0.68)
-                    .foregroundStyle(Color.jText)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
+            if renaming {
+                titleEditor(detail)
+            } else {
+                Button { renaming = true } label: {
+                    Text(title(detail))
+                        .font(.transcriptTitle)
+                        .tracking(-0.68)
+                        .foregroundStyle(Color.jText)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 8)
+                .accessibilityHint("Rename")
             }
-            .buttonStyle(.plain)
-            .padding(.top, 8)
-            .accessibilityHint("Rename")
 
-            if detail.titleByUser != true {
+            if detail.titleByUser != true, !renaming {
                 Button { renaming = true } label: {
                     Label(detail.title == nil ? "Jotto names it once there is enough to go on" : "Title by Jotto · tap to rename",
                           systemImage: "pencil")
@@ -135,15 +163,72 @@ struct TranscriptView: View {
                 .padding(.top, 10)
             }
 
-            viewSwitch(detail)
-                .padding(.top, 24)
+            Group {
+                viewSwitch(detail)
+                    .padding(.top, 24)
 
-            status(detail)
+                status(detail)
 
-            paragraphs(detail)
-                .padding(.top, 20)
+                paragraphs(detail)
+                    .padding(.top, 20)
+            }
+            // While the title is being edited, the rest steps back.
+            .opacity(renaming ? 0.3 : 1)
+            .allowsHitTesting(!renaming)
+            .animation(.easeOut(duration: 0.2), value: renaming)
         }
         .padding(.horizontal, 20)
+    }
+
+    /// The title becomes a field in place, with Jotto's suggestions under it.
+    private func titleEditor(_ detail: SessionDetail) -> some View {
+        let suggestions = ([detail.titleByUser == true ? nil : detail.title] + (detail.titleSuggestions ?? []).map { $0 })
+            .compactMap { $0 }
+            .reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+        return VStack(alignment: .leading, spacing: 0) {
+            TextField("Title", text: $draftTitle, axis: .vertical)
+                .font(.transcriptTitle)
+                .tracking(-0.68)
+                .foregroundStyle(Color.jText)
+                .tint(Color.jLive)
+                .focused($titleFocused)
+                .submitLabel(.done)
+                .onSubmit { finishRenaming(save: true) }
+                .padding(.top, 8)
+                .padding(.bottom, 8)
+            Rectangle().fill(Color.jText).frame(height: 1.5)
+            if !suggestions.isEmpty {
+                Text("Jotto suggests")
+                    .font(.metaSmall)
+                    .foregroundStyle(Color.jText3)
+                    .padding(.top, 14)
+                FlowLayout(spacing: 8) {
+                    ForEach(suggestions, id: \.self) { s in
+                        let on = s == draftTitle
+                        Button { draftTitle = s } label: {
+                            Text(s)
+                                .font(.summary)
+                                .foregroundStyle(on ? Color.jBg : Color.jText)
+                                .padding(.horizontal, 14)
+                                .frame(height: 34)
+                                .background(on ? Color.jText : Color.jFill, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.top, 10)
+            }
+        }
+        .transition(.opacity)
+    }
+
+    private func finishRenaming(save: Bool) {
+        let newTitle = draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if save, let detail, !newTitle.isEmpty, newTitle != title(detail) {
+            Task { await rename(to: newTitle) }
+        }
+        titleFocused = false
+        withAnimation(.easeOut(duration: 0.2)) { renaming = false }
     }
 
     private func viewSwitch(_ detail: SessionDetail) -> some View {
@@ -228,7 +313,7 @@ struct TranscriptView: View {
                             .padding(.horizontal, 8)
                             .padding(.top, 12)
                             .padding(.bottom, 14)
-                            .background(Color.jSurface, in: RoundedRectangle(cornerRadius: 16))
+                            .card(radius: 16)
                             .padding(.horizontal, -8)
                         }
                     }
@@ -277,7 +362,7 @@ struct TranscriptView: View {
                     .padding(.horizontal, 16)
                     .padding(.top, 14)
                     .padding(.bottom, 16)
-                    .background(Color.jSurface, in: RoundedRectangle(cornerRadius: 16))
+                    .card(radius: 16)
                     .contentShape(RoundedRectangle(cornerRadius: 16))
                 }
                 .buttonStyle(.plain)

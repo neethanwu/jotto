@@ -2,59 +2,83 @@ import AVFoundation
 import SwiftUI
 import UIKit
 
-// MARK: - Share
+// MARK: - Send
 
-/// The Markdown that gets shared, previewed in a well. Follows the theme
-/// like every other sheet.
-struct ShareSheet: View {
+/// The drawer every Send opens (swipe on Days, the transcript, the long
+/// press menu): pick a template, see how it starts, then copy it or hand
+/// it to the system share sheet to choose the app.
+struct SendPanel: View {
     let detail: SessionDetail
     let title: String
 
-    enum Version { case clean, original }
-
     @Environment(\.dismiss) private var dismiss
-    @State private var version = Version.clean
+    private var templates: SendTemplates { .shared }
+    @State private var selectedID = SendTemplates.shared.preferred.id
     @State private var withAudio = false
     @State private var audioFile: URL?
     @State private var exporting = false
     @State private var copied = false
     @State private var presenting = false
+    @State private var editing: SendTemplate?
+
+    private var template: SendTemplate {
+        templates.all.first { $0.id == selectedID } ?? templates.preferred
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("Send it anywhere")
-                    .font(.sheetTitle)
-                    .tracking(-0.48)
-                    .foregroundStyle(Color.jText)
-                    .accessibilityAddTraits(.isHeader)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Send")
+                        .font(.sheetTitle)
+                        .tracking(-0.48)
+                        .foregroundStyle(Color.jText)
+                        .accessibilityAddTraits(.isHeader)
+                    Text(subtitle)
+                        .font(.meta)
+                        .foregroundStyle(Color.jText3)
+                        .lineLimit(1)
+                }
                 Spacer()
-                CircleIconButton(glyph: .close, label: "Close", fill: .jSheetFill) { dismiss() }
-            }
-
-            HStack(spacing: 8) {
-                option("Clean", on: version == .clean) { version = .clean }
-                option("Original", on: version == .original) { version = .original }
-                Spacer(minLength: 8)
-                // A toggle, not a third version, so it stands apart.
-                option("Audio", icon: "waveform", on: withAudio) { withAudio.toggle() }
+                CircleIconButton(glyph: .close, label: "Close", fill: .jSheet) { dismiss() }
             }
 
             ScrollView {
-                Text(markdown)
-                    .font(.system(size: 13, design: .monospaced))
-                    .foregroundStyle(Color.jText)
-                    .lineSpacing(4)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(18)
-                    .textSelection(.enabled)
+                VStack(spacing: 0) {
+                    ForEach(templates.all) { row($0) }
+                    Button {
+                        editing = SendTemplate(name: "", instruction: "", content: .clean, format: .markdown)
+                    } label: {
+                        HStack(spacing: 12) {
+                            GlyphView(glyph: .plus).frame(width: 16, height: 16).frame(width: 22)
+                            Text("New template").font(.reading).foregroundStyle(Color.jText)
+                            Spacer()
+                        }
+                        .padding(.vertical, 14)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            .background(Color.jSheetWell, in: RoundedRectangle(cornerRadius: 16))
-            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.jSheetHairline, lineWidth: 1))
+            .scrollBounceBehavior(.basedOnSize)
+            .padding(.top, 8)
+
+            if !detail.segments.isEmpty {
+                Rectangle().fill(Color.jSheetHairline).frame(height: 1)
+                Toggle(isOn: $withAudio) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Attach the audio").font(.rowTitle).foregroundStyle(Color.jText)
+                        Text(audioDetail).font(.metaSmall).foregroundStyle(Color.jText3)
+                    }
+                }
+                .toggleStyle(JottoToggleStyle())
+                .padding(.vertical, 12)
+            }
 
             HStack(spacing: 10) {
                 Button {
                     UIPasteboard.general.string = markdown
+                    templates.recordUse(template.id)
                     copied = true
                 } label: {
                     Text(copied ? "Copied" : "Copy")
@@ -64,51 +88,115 @@ struct ShareSheet: View {
                         .background(Color.jSheetFill, in: Capsule())
                 }
                 .buttonStyle(.plain)
-                .frame(width: 148)
+                .frame(width: 140)
 
-                Button { presenting = true } label: {
-                    Text(exporting ? "Preparing audio" : "Share…")
-                        .font(.label)
-                        .foregroundStyle(Color.jBg)
-                        .frame(maxWidth: .infinity, minHeight: 52)
-                        .background(Color.jText, in: Capsule())
+                Button {
+                    templates.recordUse(template.id)
+                    presenting = true
+                } label: {
+                    HStack(spacing: 8) {
+                        GlyphView(glyph: .send, color: .jBg).frame(width: 18, height: 18)
+                        Text(exporting ? "Preparing audio" : "Send…")
+                    }
+                    .font(.label)
+                    .foregroundStyle(Color.jBg)
+                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .background(Color.jText, in: Capsule())
                 }
                 .buttonStyle(.plain)
                 .disabled(exporting)
             }
+            .padding(.top, 8)
         }
         .padding(.horizontal, 20)
         .padding(.top, 24)
         .padding(.bottom, 12)
         .background(Color.jSheet)
-        .presentationDetents([.fraction(0.62), .large])
+        .presentationDetents([.fraction(0.8), .large])
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(32)
         .presentationBackground(Color.jSheet)
+        .sensoryFeedback(.selection, trigger: selectedID)
         .task(id: withAudio) { if withAudio { await exportAudio() } }
         .task(id: copied) {
             guard copied else { return }
             try? await Task.sleep(for: .seconds(1.5))
             copied = false
         }
+        .onChange(of: templates.all.count) { old, new in
+            // A template made from here is the one to send with.
+            if new > old, let made = templates.all.last { select(made.id) }
+        }
         .sheet(isPresented: $presenting) {
             ActivityView(items: shareItems).presentationDetents([.medium, .large])
         }
+        .sheet(item: $editing) { TemplateEditor(template: $0) }
     }
 
-    private func option(_ label: String, icon: String? = nil, on: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                if let icon { Image(systemName: icon).font(.system(size: 13, weight: .semibold)) }
-                Text(label).font(.label)
+    private var subtitle: String {
+        let length = detail.endedAt.map { Format.length($0.timeIntervalSince(detail.startedAt)) }
+        return [title, length].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    private func select(_ id: UUID) {
+        withAnimation(.spring(duration: 0.3)) { selectedID = id }
+        templates.lastUsed = id
+    }
+
+    private func row(_ t: SendTemplate) -> some View {
+        let on = t.id == selectedID
+        return Button { select(t.id) } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 12) {
+                    ZStack {
+                        Circle().strokeBorder(Color.jText5, lineWidth: 1.5).opacity(on ? 0 : 1)
+                        Circle().fill(Color.jText).opacity(on ? 1 : 0)
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 10, weight: .heavy))
+                            .foregroundStyle(Color.jBg)
+                            .opacity(on ? 1 : 0)
+                    }
+                    .frame(width: 22, height: 22)
+                    Text(t.name)
+                        .font(.scaled(17, on ? .semibold : .regular, relativeTo: .body))
+                        .foregroundStyle(Color.jText)
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text(t.summary).font(.metaSmall).foregroundStyle(Color.jText3)
+                }
+                if on {
+                    Text(preview)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(Color.jText2)
+                        .lineSpacing(2)
+                        .lineLimit(7)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(Color.jSheetWell, in: RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.jSheetHairline, lineWidth: 1))
+                        .padding(.leading, 34)
+                        .transition(.opacity)
+                }
             }
-            .foregroundStyle(on ? Color.jBg : Color.jText2)
-            .padding(.horizontal, 16)
-            .frame(height: 36)
-            .background(on ? Color.jText : Color.jSheetFill, in: Capsule())
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+            .overlay(alignment: .bottom) { Rectangle().fill(Color.jSheetHairline).frame(height: 1) }
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    /// The first lines of what goes out with the chosen template.
+    private var preview: String {
+        let lines = markdown.split(separator: "\n", omittingEmptySubsequences: true)
+        return lines.prefix(7).joined(separator: "\n")
+    }
+
+    private var audioDetail: String {
+        if exporting { return "Preparing the file" }
+        let length = detail.endedAt.map { Format.length($0.timeIntervalSince(detail.startedAt)) }
+        return [length, "as one m4a file"].compactMap { $0 }.joined(separator: ", ")
     }
 
     private var shareItems: [Any] {
@@ -118,23 +206,7 @@ struct ShareSheet: View {
     }
 
     var markdown: String {
-        var out = "# \(title)\n\n"
-        var meta = [Format.weekdayDayMonth(detail.startedAt), Format.time(detail.startedAt)]
-        if let end = detail.endedAt { meta.append(Format.length(end.timeIntervalSince(detail.startedAt))) }
-        out += "_\(meta.joined(separator: " · "))_\n\n"
-        if version == .clean, let summary = detail.summary { out += "> \(summary)\n\n" }
-        var previous: TranscriptBlock?
-        for block in detail.blocks where version == .original || block.backchannel != true {
-            let text = version == .clean ? (block.clean ?? block.text) : block.text
-            if block.speaker != previous?.speaker || previous == nil {
-                let who = block.speaker == nil ? "" : "**\(Format.speaker(block.speaker))** · "
-                out += "\(who)\(Format.clock(block.start))\n"
-            }
-            out += "\(text)\n\n"
-            previous = block
-        }
-        out += "—\nRecorded with Jotto\n"
-        return out
+        Composer.compose(detail, title: title, with: template)
     }
 
     /// One m4a of the whole recording, built from its segments.
@@ -175,85 +247,6 @@ struct ActivityView: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
-}
-
-// MARK: - Rename
-
-struct RenameSheet: View {
-    let detail: SessionDetail
-    let current: String
-    let save: (String) -> Void
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var text = ""
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Button("Cancel") { dismiss() }
-                    .font(.label)
-                    .foregroundStyle(Color.jText2)
-                Spacer()
-                Button("Done") {
-                    let title = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !title.isEmpty, title != current { save(title) }
-                    dismiss()
-                }
-                .buttonStyle(PrimaryPillStyle())
-            }
-            .frame(height: 52)
-
-            TextField("Title", text: $text, axis: .vertical)
-                .font(.transcriptTitle)
-                .tracking(-0.68)
-                .foregroundStyle(Color.jText)
-                .focused($focused)
-                .submitLabel(.done)
-                .padding(.top, 28)
-                .padding(.bottom, 10)
-            Rectangle().fill(Color.jText).frame(height: 1.5)
-
-            let suggestions = ([detail.titleByUser == true ? nil : detail.title] + (detail.titleSuggestions ?? []).map { $0 })
-                .compactMap { $0 }
-            if !suggestions.isEmpty {
-                Text("Jotto suggests")
-                    .font(.speaker)
-                    .foregroundStyle(Color.jText3)
-                    .padding(.top, 32)
-                FlowLayout(spacing: 8) {
-                    ForEach(suggestions, id: \.self) { s in
-                        let on = s == text
-                        Button { text = s } label: {
-                            Text(s)
-                                .font(.summary)
-                                .foregroundStyle(on ? Color.jBg : Color.jText)
-                                .padding(.horizontal, 14)
-                                .frame(height: 36)
-                                .background(on ? Color.jText : Color.jSheetFill, in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.top, 12)
-            }
-
-            Text("Written while the text was cleaned up, from what was said. Yours wins")
-                .font(.summary)
-                .foregroundStyle(Color.jText3)
-                .padding(.top, 24)
-            Spacer()
-        }
-        .padding(.horizontal, 20)
-        .background(Color.jSheet)
-        .presentationDetents([.large])
-        .presentationCornerRadius(32)
-        .presentationBackground(Color.jSheet)
-        .onAppear {
-            text = current
-            focused = true
-        }
-    }
 }
 
 /// Wraps chips onto as many lines as they need.

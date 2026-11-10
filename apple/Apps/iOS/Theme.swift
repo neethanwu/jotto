@@ -32,8 +32,13 @@ extension Color {
     }
 
     static let jBg = pair(Ink.i0, Ink.i950)
-    static let jSurface = pair(Ink.i50, Ink.i900)
-    static let jFill = pair(Ink.i100, Ink.i900)
+    /// Cards: the page colour inside a hairline (see `card`), not a tint.
+    static let jSurface = pair(Ink.i0, Ink.i950)
+    static let jCardLine = pair(Ink.i200, Ink.darkHairline)
+    /// Fields and unselected chips: a neutral grey, not a warm one.
+    static let jFill = pair(UIColor(hex: 0xF4F4F4), Ink.i900)
+    /// The 1 pt ring around top-bar buttons.
+    static let jRing = pair(UIColor(hex: 0xE3E1DE), Ink.i800)
     static let jHairline = pair(Ink.i200, Ink.darkHairline)
     /// The timeline spine is a step brighter than other hairlines in dark.
     static let jSpine = pair(Ink.i200, Ink.i800)
@@ -50,9 +55,9 @@ extension Color {
     // Sheets sit one step above the page in dark, so their own fills and
     // hairlines go up a step too. The well is the recessed preview in Share.
     static let jSheet = pair(Ink.i0, Ink.i900)
-    static let jSheetFill = pair(Ink.i100, Ink.i800)
+    static let jSheetFill = pair(UIColor(hex: 0xF4F4F4), Ink.i800)
     static let jSheetHairline = pair(Ink.i200, Ink.i800)
-    static let jSheetWell = pair(Ink.i50, Ink.i950)
+    static let jSheetWell = pair(Ink.i0, Ink.i950)
     static let jToggleOff = pair(Ink.i200, Ink.i800)
     /// Delete in swipe actions; the same red the system uses for destructive.
     static let jDestructive = Color(UIColor(hex: 0xE5484D))
@@ -124,7 +129,7 @@ extension View {
 /// weight so they match each other (SF Symbols vary in weight and sit
 /// off-centre in a circle).
 enum Glyph {
-    case back, down, close, more, share, search, trash, star, brackets
+    case back, down, close, more, share, search, trash, star, brackets, send, plus
 }
 
 struct GlyphView: View {
@@ -135,7 +140,7 @@ struct GlyphView: View {
         Canvas { context, size in
             let k = min(size.width, size.height) / 24
             context.scaleBy(x: k, y: k)
-            let style = StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round)
+            let style = StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round)
             var p = Path()
             switch glyph {
             case .back:
@@ -146,8 +151,8 @@ struct GlyphView: View {
                 p.move(to: CGPoint(x: 6.5, y: 6.5)); p.addLine(to: CGPoint(x: 17.5, y: 17.5))
                 p.move(to: CGPoint(x: 17.5, y: 6.5)); p.addLine(to: CGPoint(x: 6.5, y: 17.5))
             case .more:
-                for x in [5.0, 12, 19] {
-                    context.fill(Path(ellipseIn: CGRect(x: x - 2, y: 10, width: 4, height: 4)), with: .color(color))
+                for x in [5.5, 12, 18.5] {
+                    context.fill(Path(ellipseIn: CGRect(x: x - 1.8, y: 10.2, width: 3.6, height: 3.6)), with: .color(color))
                 }
                 return
             case .share:
@@ -186,8 +191,16 @@ struct GlyphView: View {
                 context.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: 2.6, lineCap: .round, lineJoin: .round))
                 return
             case .search:
-                p.addEllipse(in: CGRect(x: 4, y: 4, width: 14, height: 14))
-                p.move(to: CGPoint(x: 20, y: 20)); p.addLine(to: CGPoint(x: 16.5, y: 16.5))
+                p.addEllipse(in: CGRect(x: 4.5, y: 4.5, width: 13, height: 13))
+                p.move(to: CGPoint(x: 19.5, y: 19.5)); p.addLine(to: CGPoint(x: 15.9, y: 15.9))
+            case .send:
+                // A paper plane, on the 20-unit drawing scaled to 24.
+                p.move(to: CGPoint(x: 21, y: 3)); p.addLine(to: CGPoint(x: 3, y: 10.3))
+                p.addLine(to: CGPoint(x: 10.2, y: 13.8)); p.addLine(to: CGPoint(x: 13.7, y: 21)); p.closeSubpath()
+                p.move(to: CGPoint(x: 10.2, y: 13.8)); p.addLine(to: CGPoint(x: 15, y: 9))
+            case .plus:
+                p.move(to: CGPoint(x: 12, y: 5)); p.addLine(to: CGPoint(x: 12, y: 19))
+                p.move(to: CGPoint(x: 5, y: 12)); p.addLine(to: CGPoint(x: 19, y: 12))
             }
             context.stroke(p, with: .color(color), style: style)
         }
@@ -195,35 +208,62 @@ struct GlyphView: View {
     }
 }
 
-/// The 40-pt circle every top-bar button sits in, with an 18-pt glyph.
+/// The 36-pt ring every top-bar button sits in, with an 18-pt glyph:
+/// the page colour inside a 1-pt ring, like the rings on the timeline.
 struct CircleGlyph: View {
     let glyph: Glyph
-    var fill: Color = .jFill
+    /// The background the button sits on (the page, or a sheet).
+    var fill: Color = .jBg
     var color: Color = .jText
+    var ring: Color = .jRing
 
     var body: some View {
         GlyphView(glyph: glyph, color: color)
             .frame(width: 18, height: 18)
-            .frame(width: 40, height: 40)
+            .frame(width: 36, height: 36)
             .background(fill, in: Circle())
-            .contentShape(Circle())
+            .overlay(Circle().strokeBorder(ring, lineWidth: 1))
+            // 44 to touch, without taking more room.
+            .contentShape(Circle().inset(by: -4))
     }
 }
 
-/// 40pt round icon button on `fill`, used in top bars.
+/// Pressed: a step darker and a touch smaller, with a light tap.
+struct PressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .overlay {
+                Capsule().fill(Color.jText.opacity(configuration.isPressed ? 0.07 : 0)).allowsHitTesting(false)
+            }
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .animation(.spring(duration: 0.2), value: configuration.isPressed)
+            .sensoryFeedback(.impact(weight: .light), trigger: configuration.isPressed) { _, pressed in pressed }
+    }
+}
+
+/// 36pt ring button, used in top bars.
 struct CircleIconButton: View {
     let glyph: Glyph
     let label: String
-    var fill: Color = .jFill
+    var fill: Color = .jBg
     var color: Color = .jText
+    var ring: Color = .jRing
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            CircleGlyph(glyph: glyph, fill: fill, color: color)
+            CircleGlyph(glyph: glyph, fill: fill, color: color, ring: ring)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressStyle())
         .accessibilityLabel(label)
+    }
+}
+
+extension View {
+    /// A content card: the page colour inside a hairline.
+    func card(radius: CGFloat = 20) -> some View {
+        background(Color.jSurface, in: RoundedRectangle(cornerRadius: radius))
+            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(Color.jCardLine, lineWidth: 1))
     }
 }
 
@@ -291,13 +331,14 @@ extension View {
 struct PrimaryPillStyle: ButtonStyle {
     @Environment(\.colorScheme) private var scheme
     var onDark = false
+    var height: CGFloat = 44
 
     func makeBody(configuration: Configuration) -> some View {
         let light = onDark || scheme == .dark
         configuration.label
             .font(.label)
-            .padding(.horizontal, 20)
-            .frame(height: 44)
+            .padding(.horizontal, height < 44 ? 16 : 20)
+            .frame(height: height)
             .foregroundStyle(light ? Color.ink950 : Color.ink50)
             .background(light ? Color.ink50 : Color.ink950, in: Capsule())
             .opacity(configuration.isPressed ? 0.8 : 1)

@@ -23,15 +23,20 @@ struct BrandBar<Trailing: View>: View {
     }
 }
 
-/// Small `fill` capsule for secondary actions in the top bar, such as "Today".
+/// A ring capsule the height of the ring buttons, for "Today".
 struct BarPillStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.scaled(15, .medium, relativeTo: .subheadline))
             .foregroundStyle(Color.jText)
-            .padding(.horizontal, 16)
-            .frame(height: 40)
-            .background(Color.jFill, in: Capsule())
-            .opacity(configuration.isPressed ? 0.6 : 1)
+            .padding(.horizontal, 14)
+            .frame(height: 36)
+            .background(Color.jBg, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.jRing, lineWidth: 1))
+            .overlay { Capsule().fill(Color.jText.opacity(configuration.isPressed ? 0.07 : 0)) }
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .animation(.spring(duration: 0.2), value: configuration.isPressed)
+            .contentShape(Capsule().inset(by: -4))
+            .sensoryFeedback(.impact(weight: .light), trigger: configuration.isPressed) { _, pressed in pressed }
     }
 }

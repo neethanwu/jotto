@@ -1,15 +1,14 @@
 import SwiftUI
 import UIKit
 
-/// The two tabs. Search is a button on Days, not a tab.
+/// Days, Send, Settings. Search lives on Days.
 enum AppTab: Hashable {
-    case days, settings
+    case days, send, settings
 }
 
 /// Where a tab's stack can go.
 enum Route: Hashable {
-    case transcript(id: String, at: Double? = nil)
-    case search
+    case transcript(id: String, at: Double? = nil, rename: Bool = false)
     case processing
     case language
     case keepAudio
@@ -28,12 +27,14 @@ final class Router {
     /// Bumped when Days is tapped while already showing: back to today.
     var daysReselected = 0
     var days: [Route] = []
+    var send: [Route] = []
     var settings: [Route] = []
 
     /// The floating tab bar shows only on a tab's root screen.
     var showsTabBar: Bool {
         switch tab {
         case .days: days.isEmpty
+        case .send: send.isEmpty
         case .settings: settings.isEmpty
         }
     }
@@ -46,6 +47,7 @@ struct RootView: View {
         ZStack(alignment: .bottom) {
             // Keep both alive so each keeps its scroll position and stack.
             tab(.days) { DaysView(router: router) }
+            tab(.send) { SendView(router: router) }
             tab(.settings) { SettingsView(router: router) }
 
             if router.showsTabBar {
@@ -67,8 +69,7 @@ struct RootView: View {
             content()
                 .navigationDestination(for: Route.self) { route in
                     switch route {
-                    case let .transcript(id, at): TranscriptView(id: id, startAt: at)
-                    case .search: SearchView(router: router)
+                    case let .transcript(id, at, rename): TranscriptView(id: id, startAt: at, startsRenaming: rename)
                     case .processing: ProcessingView()
                     case .language: LanguageView()
                     case .keepAudio: KeepAudioView()
@@ -86,6 +87,7 @@ struct RootView: View {
     private func path(_ which: AppTab) -> Binding<[Route]> {
         switch which {
         case .days: $router.days
+        case .send: $router.send
         case .settings: $router.settings
         }
     }
@@ -131,6 +133,7 @@ struct TabBar: View {
     var body: some View {
         HStack(spacing: 4) {
             item(.days, "Days") { DaysIcon(selected: $0) }
+            item(.send, "Send") { GlyphView(glyph: .send, color: $0 ? .jOnChromeOn : .ink400) }
             item(.settings, "Settings") { SlidersIcon(color: $0 ? .jOnChromeOn : .ink400, knob: $0 ? .jChromeOn : .jChrome) }
         }
         .background {

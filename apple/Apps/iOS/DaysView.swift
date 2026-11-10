@@ -2,7 +2,9 @@ import SwiftUI
 
 /// Home: one day at a time. Wordmark and Search, the day's
 /// name (tap for a month calendar), a week strip to move between days,
-/// and the day's recordings on a timeline.
+/// and the day's recordings on a timeline. Search opens right here: the
+/// title folds away, the strip shows which days match, results replace
+/// the timeline.
 struct DaysView: View {
     let router: Router
     @State private var day = Calendar.current.startOfDay(for: .now)
@@ -13,8 +15,14 @@ struct DaysView: View {
     /// The row swiped open, if any; one at a time.
     @State private var swiped: String?
     @State private var sharing: SessionDetail?
-    @State private var renaming: SessionDetail?
     @State private var deleting: TimelineEntry?
+    @State private var searching = false
+    @State private var query = ""
+    @State private var results: SearchResults?
+    @State private var searchError: String?
+    /// A day picked in the strip while searching; nil is every day.
+    @State private var searchDay: Date?
+    @FocusState private var searchFocused: Bool
     @State private var actionError: String?
     private var library: Library { .shared }
     private var config: AppConfig { .shared }
@@ -22,32 +30,52 @@ struct DaysView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: .sectionHeaders) {
-                BrandBar {
-                    HStack(spacing: 8) {
-                        if !isToday {
-                            Button("Today", action: goToToday)
-                                .buttonStyle(BarPillStyle())
-                                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                Group {
+                    if searching {
+                        searchBar
+                    } else {
+                        BrandBar {
+                            HStack(spacing: 8) {
+                                if !isToday {
+                                    Button("Today", action: goToToday)
+                                        .buttonStyle(BarPillStyle())
+                                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                                }
+                                CircleIconButton(glyph: .search, label: "Search") { startSearching() }
+                            }
                         }
-                        CircleIconButton(glyph: .search, label: "Search") { router.days.append(.search) }
+                        .animation(.easeOut(duration: 0.2), value: isToday)
                     }
                 }
-                // Wordmark on the title's edge; buttons on the same 16 as every top bar.
-                .padding(.leading, 20)
-                .padding(.trailing, 16)
-                .animation(.easeOut(duration: 0.2), value: isToday)
+                .padding(.horizontal, 20)
 
-                header
-                    .padding(.horizontal, 20)
-                    .padding(.top, 20)
-                    .padding(.bottom, 12)
+                if searching {
+                    searchMeta
+                        .padding(.horizontal, 20)
+                        .padding(.top, 16)
+                        .padding(.bottom, 4)
+                } else {
+                    header
+                        .padding(.horizontal, 20)
+                        .padding(.top, 20)
+                        .padding(.bottom, 12)
+                }
 
                 Section {
-                    content
-                        .padding(.top, 28)
+                    Group {
+                        if searching { searchContent } else { content }
+                    }
+                    .padding(.top, searching ? 12 : 28)
                 } header: {
                     // Stays at the top while the day scrolls under it.
-                    WeekStrip(selection: $day, marked: library.daysWithRecordings, liveDay: liveDay, earliest: library.earliest)
+                    WeekStrip(
+                        selection: searching ? searchStripBinding : $day,
+                        marked: searching && results != nil ? matchedDays : library.daysWithRecordings,
+                        liveDay: searching ? nil : liveDay,
+                        earliest: library.earliest,
+                        showsSelection: !searching || searchDay != nil,
+                        fadesUnmarked: searching && results != nil
+                    )
                         .padding(.vertical, 8)
                         .background(Color.jBg)
                         .overlay(alignment: .bottom) {
@@ -69,13 +97,9 @@ struct DaysView: View {
         .background(Color.jBg)
         .onChange(of: router.daysReselected) { goToToday() }
         .sheet(item: $sharing) { detail in
-            ShareSheet(detail: detail, title: detail.title ?? Format.provisionalTitle(detail.startedAt))
+            SendPanel(detail: detail, title: detail.title ?? Format.provisionalTitle(detail.startedAt))
         }
-        .sheet(item: $renaming) { detail in
-            RenameSheet(detail: detail, current: detail.title ?? Format.provisionalTitle(detail.startedAt)) { title in
-                Task { await rename(detail.id, to: title) }
-            }
-        }
+        .task(id: query) { await search() }
         .confirmationDialog("Delete this recording?", isPresented: Binding(
             get: { deleting != nil }, set: { if !$0 { deleting = nil } }
         ), titleVisibility: .visible, presenting: deleting) { entry in
@@ -86,9 +110,6 @@ struct DaysView: View {
         .alert("Couldn't do that", isPresented: Binding(
             get: { actionError != nil }, set: { if !$0 { actionError = nil } }
         )) {} message: { Text(actionError ?? "") }
-        .sheet(isPresented: $picking) {
-            DayPicker(selection: $day, marked: library.daysWithRecordings, earliest: library.earliest)
-        }
         .toolbar(.hidden, for: .navigationBar)
         .refreshable { await library.refresh() }
         .task {
@@ -102,24 +123,237 @@ struct DaysView: View {
 
     private var entries: [TimelineEntry] { library.entries(on: day) }
 
+    // MARK: - Search
+
+    private var trimmed: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    private func startSearching() {
+        swiped = nil
+        withAnimation(.spring(duration: 0.35, bounce: 0.1)) {
+            searching = true
+            scroll.scrollTo(edge: .top)
+        }
+        searchFocused = true
+    }
+
+    private func stopSearching() {
+        searchFocused = false
+        withAnimation(.spring(duration: 0.35, bounce: 0.1)) {
+            searching = false
+            query = ""
+            results = nil
+            searchDay = nil
+        }
+    }
+
+    private var searchBar: some View {
+        HStack(spacing: 12) {
+            HStack(spacing: 8) {
+                GlyphView(glyph: .search, color: .jText3).frame(width: 16, height: 16)
+                TextField("Search every recording", text: $query)
+                    .font(.rowTitle)
+                    .foregroundStyle(Color.jText)
+                    .tint(Color.jLive)
+                    .focused($searchFocused)
+                    .submitLabel(.search)
+                    .autocorrectionDisabled()
+                    .onSubmit { RecentSearches.add(trimmed) }
+                if !query.isEmpty {
+                    Button { query = ""; searchDay = nil } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 17))
+                            .foregroundStyle(Color.jText4)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear")
+                }
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 40)
+            .background(Color.jFill, in: Capsule())
+
+            Button("Cancel", action: stopSearching)
+                .font(.label)
+                .foregroundStyle(Color.jText2)
+        }
+        .frame(height: 52)
+        .transition(.opacity)
+    }
+
+    @ViewBuilder
+    private var searchMeta: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(searchSummary)
+                .font(.meta)
+                .foregroundStyle(Color.jText3)
+            Spacer()
+            if searchDay != nil {
+                Button("All days") { withAnimation(.spring(duration: 0.3)) { searchDay = nil } }
+                    .font(.scaled(13, .semibold, relativeTo: .footnote))
+                    .foregroundStyle(Color.jText)
+            }
+        }
+    }
+
+    private var searchSummary: String {
+        if trimmed.count < 2 { return "Words, names, anything someone said" }
+        if let searchError { return searchError }
+        guard let results else { return "Searching" }
+        let shown = visibleSessions(results)
+        let matches = shown.reduce(0) { $0 + max(1, $1.hits.count) }
+        if matches == 0 { return "No matches" }
+        let noun = matches == 1 ? "match" : "matches"
+        if let searchDay {
+            return "\(matches) \(noun) on \(searchDay.formatted(.dateTime.weekday(.wide)))"
+        }
+        return "\(matches) \(noun) in \(Format.plural(shown.count, "recording"))"
+    }
+
+    private var matchedDays: Set<Date> {
+        Set((results?.sessions ?? []).map { Calendar.current.startOfDay(for: $0.startedAt) })
+    }
+
+    /// In search, the strip picks a day to narrow to, and tapping it again
+    /// lets go. With no day picked it shows the week of the newest match.
+    private var searchStripBinding: Binding<Date> {
+        Binding(
+            get: { searchDay ?? matchedDays.max() ?? day },
+            set: { picked in
+                withAnimation(.spring(duration: 0.3)) {
+                    searchDay = searchDay.map { Calendar.current.isDate($0, inSameDayAs: picked) } == true ? nil : picked
+                }
+            }
+        )
+    }
+
+    private func visibleSessions(_ results: SearchResults) -> [SearchResults.Session] {
+        guard let searchDay else { return results.sessions }
+        return results.sessions.filter { Calendar.current.isDate($0.startedAt, inSameDayAs: searchDay) }
+    }
+
+    @ViewBuilder
+    private var searchContent: some View {
+        if trimmed.count < 2 {
+            let recent = RecentSearches.all
+            if !recent.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Recent")
+                        .font(.scaled(11, .medium, relativeTo: .caption2))
+                        .foregroundStyle(Color.jText3)
+                    FlowLayout(spacing: 8) {
+                        ForEach(recent, id: \.self) { q in
+                            Button { query = q } label: {
+                                Text(q)
+                                    .font(.summary)
+                                    .foregroundStyle(Color.jText)
+                                    .padding(.horizontal, 14)
+                                    .frame(height: 36)
+                                    .background(Color.jFill, in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+            }
+        } else if let results {
+            let byDay = Dictionary(grouping: visibleSessions(results)) { Calendar.current.startOfDay(for: $0.startedAt) }
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(byDay.keys.sorted(by: >), id: \.self) { date in
+                    Text(date.formatted(.dateTime.weekday(.wide).day().month(.wide)))
+                        .font(.speaker)
+                        .foregroundStyle(Color.jText)
+                        .padding(.top, 20)
+                        .padding(.bottom, 6)
+                    ForEach(byDay[date] ?? []) { session in
+                        result(session)
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+        }
+    }
+
+    private func result(_ session: SearchResults.Session) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                RecentSearches.add(trimmed)
+                router.days.append(.transcript(id: session.id))
+            } label: {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(session.title ?? Format.provisionalTitle(session.startedAt))
+                        .font(.rowTitle)
+                        .foregroundStyle(Color.jText)
+                    Spacer()
+                    Text(Format.time(session.startedAt))
+                        .font(.meta)
+                        .foregroundStyle(Color.jText3)
+                }
+            }
+            .buttonStyle(.plain)
+            ForEach(session.hits, id: \.self) { hit in
+                Button {
+                    RecentSearches.add(trimmed)
+                    router.days.append(.transcript(id: session.id, at: hit.start))
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 0) {
+                        Text(Format.clock(hit.start))
+                            .font(.metaSmall)
+                            .foregroundStyle(Color.jText3)
+                            .frame(width: 48, alignment: .leading)
+                        highlighted(hit.text)
+                            .font(.summary)
+                            .lineSpacing(3)
+                            .lineLimit(3)
+                            .multilineTextAlignment(.leading)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 8)
+    }
+
+    /// The query in `text` Semibold, the rest in `text-2`.
+    private func highlighted(_ text: String) -> Text {
+        var out = AttributedString(text)
+        out.foregroundColor = Color.jText2
+        var range = out.startIndex..<out.endIndex
+        while let hit = out[range].range(of: trimmed, options: [.caseInsensitive, .diacriticInsensitive]) {
+            out[hit].foregroundColor = Color.jText
+            out[hit].font = .system(size: 15, weight: .semibold)
+            range = hit.upperBound..<out.endIndex
+        }
+        return Text(out)
+    }
+
+    private func search() async {
+        guard searching, trimmed.count >= 2 else {
+            results = nil
+            searchError = nil
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(250))
+        guard !Task.isCancelled else { return }
+        do {
+            let found = try await API.search(trimmed)
+            withAnimation(.easeOut(duration: 0.2)) { results = found }
+            searchError = nil
+            if let searchDay, !matchedDays.contains(searchDay) { self.searchDay = nil }
+        } catch {
+            if !Task.isCancelled { searchError = error.localizedDescription }
+        }
+    }
+
     // MARK: - Row actions
 
     private func share(_ id: String) async {
         do { sharing = try await API.session(id) } catch { actionError = error.localizedDescription }
     }
 
-    private func startRename(_ id: String) async {
-        do { renaming = try await API.session(id) } catch { actionError = error.localizedDescription }
-    }
-
-    private func rename(_ id: String, to title: String) async {
-        do {
-            try await API.rename(id, to: title)
-            library.applyRename(id, title: title)
-        } catch {
-            actionError = error.localizedDescription
-        }
-    }
 
     private func delete(_ id: String) async {
         do {
@@ -167,6 +401,10 @@ struct DaysView: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityHint("Pick another day")
+        .popover(isPresented: $picking, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
+            MonthPopover(selection: $day, marked: library.daysWithRecordings, earliest: library.earliest)
+                .presentationCompactAdaptation(.popover)
+        }
     }
 
     private var meta: String {
@@ -201,8 +439,8 @@ struct DaysView: View {
             }
         } else {
             Timeline(entries: entries, swiped: $swiped, actions: .init(
-                share: { entry in Task { await share(entry.id) } },
-                rename: { entry in Task { await startRename(entry.id) } },
+                send: { entry in Task { await share(entry.id) } },
+                rename: { entry in router.days.append(.transcript(id: entry.id, rename: true)) },
                 delete: { entry in deleting = entry }
             )) { entry in
                 if entry.state == .live {
@@ -211,8 +449,7 @@ struct DaysView: View {
                     router.days.append(.transcript(id: entry.id))
                 }
             }
-            .padding(.leading, 16)
-            .padding(.trailing, 20)
+            .padding(.horizontal, 20)
             if let error = library.loadError {
                 Text(error).font(.summary).foregroundStyle(Color.jText3).padding(.horizontal, 20)
             }
@@ -222,19 +459,21 @@ struct DaysView: View {
 
 // MARK: - Week strip
 
-/// Seven days per page, paging by week. Cells 50×64; neighbouring weeks
-/// peek in at both edges so it reads as scrollable.
+/// Seven days per page, on the same 20 pt edges as the title, paging by
+/// week. In search, days without a match fade and nothing need be picked.
 struct WeekStrip: View {
     @Binding var selection: Date
     let marked: Set<Date>
     let liveDay: Date?
     /// The first recording, so the strip reaches back at least that far.
     let earliest: Date?
+    var showsSelection = true
+    var fadesUnmarked = false
     @State private var week: Date?
     @State private var weeks: [Week] = []
     @Namespace private var highlight
 
-    private static let cell = CGSize(width: 50, height: 64)
+    private static let height: CGFloat = 64
 
     /// One cell's fixed text, worked out once rather than on every render.
     struct Day: Hashable {
@@ -282,20 +521,17 @@ struct WeekStrip: View {
                             cell(day, now: now)
                         }
                     }
+                    .padding(.horizontal, 20)
+                    .containerRelativeFrame(.horizontal)
                     .id(week.id)
                 }
             }
             .scrollTargetLayout()
         }
-        .contentMargins(.horizontal, sideMargin, for: .scrollContent)
-        .scrollTargetBehavior(.viewAligned(limitBehavior: .always))
-        .scrollPosition(id: $week, anchor: .center)
+        .scrollTargetBehavior(.paging)
+        .scrollPosition(id: $week)
         .scrollIndicators(.hidden)
-        .scrollClipDisabled()
-        .frame(height: Self.cell.height)
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
-            sideMargin = max(0, (width - Self.cell.width * 7) / 2)
-        }
+        .frame(height: Self.height)
         .onAppear {
             // Rebuild after a week boundary, or if the app sat in the background for days.
             if weeks.last?.id != weekStart(.now) || weeks.isEmpty {
@@ -314,23 +550,23 @@ struct WeekStrip: View {
         .sensoryFeedback(.selection, trigger: selection)
     }
 
-    @State private var sideMargin: CGFloat = 0
 
     private func weekStart(_ day: Date) -> Date {
         Calendar.current.dateInterval(of: .weekOfYear, for: day)?.start ?? day
     }
 
     private func cell(_ day: Day, now: Date) -> some View {
-        let selected = Calendar.current.isDate(day.date, inSameDayAs: selection)
+        let selected = showsSelection && Calendar.current.isDate(day.date, inSameDayAs: selection)
         let hasRecordings = marked.contains(day.date)
         let future = day.date > now
+        let faded = future || (fadesUnmarked && !hasRecordings)
         let live = liveDay == day.date
-        let dayColor: Color = selected ? .jBg : hasRecordings ? .jText : future ? .jText5 : .jText4
+        let dayColor: Color = selected ? .jBg : faded ? .jText5 : hasRecordings ? .jText : .jText4
 
         return VStack(spacing: 4) {
             Text(day.letter)
                 .font(.weekday)
-                .foregroundStyle(selected ? Color.jBg.opacity(0.6) : future ? Color.jText5 : Color.jText4)
+                .foregroundStyle(selected ? Color.jBg.opacity(0.6) : faded ? Color.jText5 : Color.jText4)
             Text(day.number)
                 .font(.system(size: 16, weight: selected ? .semibold : .medium).monospacedDigit())
                 .foregroundStyle(dayColor)
@@ -339,7 +575,7 @@ struct WeekStrip: View {
                 .frame(width: 4, height: 4)
                 .opacity(hasRecordings || live ? 1 : 0)
         }
-        .frame(width: Self.cell.width, height: Self.cell.height)
+        .frame(width: 46, height: Self.height)
         .background {
             if selected {
                 RoundedRectangle(cornerRadius: 22)
@@ -347,6 +583,7 @@ struct WeekStrip: View {
                     .matchedGeometryEffect(id: "selected", in: highlight)
             }
         }
+        .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         .onTapGesture {
             // Future days hold nothing yet, so they can't be picked.
@@ -365,7 +602,7 @@ struct WeekStrip: View {
 
 struct Timeline: View {
     struct Actions {
-        let share: (TimelineEntry) -> Void
+        let send: (TimelineEntry) -> Void
         let rename: (TimelineEntry) -> Void
         let delete: (TimelineEntry) -> Void
     }
@@ -380,7 +617,7 @@ struct Timeline: View {
             ForEach(Array(entries.enumerated()), id: \.element.id) { i, entry in
                 let finished = entry.state == .done
                 SwipeRow(id: entry.id, swiped: $swiped, enabled: finished,
-                         share: { actions.share(entry) }, delete: { actions.delete(entry) }) {
+                         send: { actions.send(entry) }, delete: { actions.delete(entry) }) {
                     Button {
                         // A tap on an open row just closes it.
                         if swiped != nil {
@@ -394,13 +631,13 @@ struct Timeline: View {
                     .buttonStyle(.plain)
                     .contextMenu {
                         if finished {
-                            Button("Share", systemImage: "square.and.arrow.up") { actions.share(entry) }
+                            Button("Send", systemImage: "paperplane") { actions.send(entry) }
                             Button("Rename", systemImage: "pencil") { actions.rename(entry) }
                             Button("Delete", systemImage: "trash", role: .destructive) { actions.delete(entry) }
                         }
                     }
                 }
-                .accessibilityAction(named: "Share") { if finished { actions.share(entry) } }
+                .accessibilityAction(named: "Send") { if finished { actions.send(entry) } }
                 .accessibilityAction(named: "Delete") { if finished { actions.delete(entry) } }
             }
         }
@@ -408,14 +645,14 @@ struct Timeline: View {
     }
 }
 
-/// Swipe a row left to show Share and Delete behind it. The whole row
+/// Swipe a row left to show Send and Delete behind it. The whole row
 /// slides, like a system list. Only horizontal drags count, so the page
 /// still scrolls.
 struct SwipeRow<Content: View>: View {
     let id: String
     @Binding var swiped: String?
     let enabled: Bool
-    let share: () -> Void
+    let send: () -> Void
     let delete: () -> Void
     @ViewBuilder let content: Content
 
@@ -431,17 +668,16 @@ struct SwipeRow<Content: View>: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
+        ZStack(alignment: .trailing) {
             content.offset(x: offset)
             // Only there while the row is moved, so hidden ones can't be hit.
             if enabled, offset < 0 {
                 HStack(spacing: 12) {
-                    action("Share", glyph: .share, fill: .jText, ink: .jBg, run: share)
+                    action("Send", glyph: .send, fill: .jText, ink: .jBg, run: send)
                     action("Delete", glyph: .trash, fill: .jDestructive, ink: .white, run: delete)
                 }
-                .padding(.trailing, 4)
-                // Centred on the title line, so it fits rows without a summary.
-                .offset(y: -9)
+                // Centred on the row's text: the row ends in 28 of space.
+                .padding(.bottom, 28)
                 .opacity(min(1, Double(-offset / Self.reveal) * 1.4))
             }
         }
@@ -470,10 +706,10 @@ struct SwipeRow<Content: View>: View {
         } label: {
             GlyphView(glyph: glyph, color: ink)
                 .frame(width: 18, height: 18)
-                .frame(width: 44, height: 44)
+                .frame(width: 40, height: 40)
                 .background(fill, in: Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressStyle())
         .accessibilityLabel(label)
     }
 }
@@ -636,7 +872,7 @@ struct TimelineRow: View {
                 .lineLimit(3)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(14)
-                .background(Color.jSurface, in: RoundedRectangle(cornerRadius: 16))
+                .card(radius: 16)
         }
     }
 
