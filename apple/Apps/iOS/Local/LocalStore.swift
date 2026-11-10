@@ -41,12 +41,11 @@ final class LocalStore {
 
     func sessions() -> [SessionSummary] {
         recordings.values.sorted { $0.startedAt > $1.startedAt }.map { r in
-            let blocks = Self.blocks(r)
-            return SessionSummary(
+            SessionSummary(
                 id: r.id, startedAt: r.startedAt, endedAt: r.endedAt, status: r.status,
                 title: r.title, summary: r.summary, segmentCount: r.segmentCount, missingSegments: r.missing,
                 segmentsDone: r.transcribed.count, segmentsReceived: r.segments.count,
-                lastLine: blocks.last { !$0.backchannel }?.text
+                lastLine: Self.transcript(r).last { $0.backchannel != true }?.text
             )
         }
     }
@@ -61,12 +60,7 @@ final class LocalStore {
                 hasAudio: FileManager.default.fileExists(atPath: Uploader.audioURL(session: id, index: s.index).path)
             )
         }
-        let blocks = Self.blocks(r).map { b in
-            TranscriptBlock(
-                id: b.id, section: b.section, speaker: nil, start: b.start, end: b.end, text: b.text,
-                clean: b.backchannel ? b.text : r.clean[b.text], backchannel: b.backchannel
-            )
-        }
+        let blocks = Self.transcript(r)
         return SessionDetail(
             id: r.id, status: r.status, startedAt: r.startedAt, endedAt: r.endedAt,
             title: r.title, titleByUser: r.titleByUser, titleSuggestions: r.titleSuggestions,
@@ -105,8 +99,8 @@ final class LocalStore {
         var matches = 0
         for r in recordings.values.sorted(by: { $0.startedAt > $1.startedAt }) {
             var hits: [SearchResults.Hit] = []
-            for b in Self.blocks(r) where !b.backchannel {
-                let text = r.clean[b.text] ?? b.text
+            for b in Self.transcript(r) where b.backchannel != true {
+                let text = b.clean ?? b.text
                 if text.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil {
                     hits.append(.init(start: b.start, text: text))
                 }
@@ -135,5 +129,17 @@ final class LocalStore {
 
     static func blocks(_ r: LocalRecording) -> [Paragraphs.Block] {
         Paragraphs.blocks(Paragraphs.stitch(r.transcribed))
+    }
+
+    /// What the screens show: the server's transcript for an imported
+    /// recording, else the phone's own paragraphs with their clean text.
+    static func transcript(_ r: LocalRecording) -> [TranscriptBlock] {
+        if let imported = r.imported { return imported }
+        return blocks(r).map { b in
+            TranscriptBlock(
+                id: b.id, section: b.section, speaker: nil, start: b.start, end: b.end, text: b.text,
+                clean: b.backchannel ? b.text : r.clean[b.text], backchannel: b.backchannel
+            )
+        }
     }
 }

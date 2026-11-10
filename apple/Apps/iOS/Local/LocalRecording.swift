@@ -27,6 +27,9 @@ struct LocalRecording: Codable, Identifiable, Hashable {
     var describedAt: Date?
     /// Segments given up on after the recording ended (see `Pipeline`).
     var missing: Int = 0
+    /// The transcript as the test server made it, for recordings imported
+    /// from it (speakers and its polish included). Nil for the phone's own.
+    var imported: [TranscriptBlock]?
 
     struct MarkedSection: Codable, Hashable {
         let start: Double

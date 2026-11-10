@@ -49,6 +49,8 @@ struct ProcessingView: View {
                         }
                     }
                     .padding(.top, 24)
+                } else if config.isReady {
+                    ImportSection()
                 }
             }
             .padding(.horizontal, 20)
@@ -93,6 +95,52 @@ struct ProcessingView: View {
             check = "Connected · \(Format.plural(sessions.count, "recording"))"
         } catch {
             check = error.localizedDescription
+        }
+    }
+}
+
+/// Shown on this iPhone while a test server is still set up: brings its
+/// recordings over, so nothing is lost when the server goes away.
+private struct ImportSection: View {
+    let importer = ServerImport.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Recordings on the test server")
+                .font(.scaled(11, .medium, relativeTo: .caption2))
+                .foregroundStyle(Color.jText3)
+            Text("Copies finished recordings with their text, speakers and titles. Audio comes too if it is newer than your Keep audio setting. The server keeps its copy.")
+                .font(.scaled(14, .regular, relativeTo: .subheadline))
+                .foregroundStyle(Color.jText2)
+                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 10) {
+                Button(importer.isRunning ? "Importing" : "Import to this iPhone") { importer.start() }
+                    .buttonStyle(PrimaryPillStyle())
+                    .fixedSize()
+                    .disabled(importer.isRunning)
+                if let status {
+                    Text(status)
+                        .font(.summary)
+                        .foregroundStyle(Color.jText2)
+                        .contentTransition(.numericText())
+                }
+            }
+            .padding(.top, 8)
+        }
+        .padding(.top, 32)
+        .animation(.easeOut(duration: 0.2), value: importer.state)
+    }
+
+    private var status: String? {
+        switch importer.state {
+        case .idle: nil
+        case let .running(done, total): total == 0 ? "Looking" : "\(done) of \(total)"
+        case let .finished(imported, unfinished, failed):
+            [imported == 0 ? "Nothing new" : "\(Format.plural(imported, "recording")) imported",
+             unfinished > 0 ? "\(unfinished) still processing" : nil,
+             failed > 0 ? "\(failed) failed, try again" : nil]
+                .compactMap { $0 }.joined(separator: " · ")
+        case let .failed(message): message
         }
     }
 }

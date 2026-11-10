@@ -40,7 +40,7 @@ struct SessionDetail: Decodable {
     let blocks: [TranscriptBlock]
 }
 
-struct TranscriptBlock: Decodable, Identifiable, Hashable {
+struct TranscriptBlock: Codable, Identifiable, Hashable {
     let id: Int
     let section: Int
     let speaker: String?
@@ -153,6 +153,24 @@ enum API {
     static func session(_ id: String) async throws -> SessionDetail {
         if AppConfig.shared.processesLocally { return try LocalStore.shared.session(id) }
         return try await send(request(id), as: SessionDetail.self)
+    }
+
+    // The server itself, whatever the processing setting: for the import.
+
+    @MainActor
+    static func serverSessions() async throws -> [SessionSummary] {
+        struct List: Decodable { let sessions: [SessionSummary] }
+        return try await send(request(""), as: List.self).sessions
+    }
+
+    @MainActor
+    static func serverSession(_ id: String) async throws -> SessionDetail {
+        try await send(request(id), as: SessionDetail.self)
+    }
+
+    @MainActor
+    static func serverAudio(session: String, index: Int) async throws -> Data {
+        try await data(request("\(session)/audio/\(index)"))
     }
 
     @MainActor
