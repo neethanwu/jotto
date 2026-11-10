@@ -4,7 +4,8 @@ import UIKit
 
 // MARK: - Share
 
-/// Dark sheet with a light paper preview of the Markdown that gets shared.
+/// The Markdown that gets shared, previewed in a well. Follows the theme
+/// like every other sheet.
 struct ShareSheet: View {
     let detail: SessionDetail
     let title: String
@@ -20,80 +21,91 @@ struct ShareSheet: View {
     @State private var presenting = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("Share").font(.sheetTitle).tracking(-0.48).foregroundStyle(Color.ink50)
+                Text("Send it anywhere")
+                    .font(.sheetTitle)
+                    .tracking(-0.48)
+                    .foregroundStyle(Color.jText)
+                    .accessibilityAddTraits(.isHeader)
                 Spacer()
-                Button { dismiss() } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Color.ink50)
-                        .frame(width: 36, height: 36)
-                        .background(Color.ink700.opacity(0.6), in: Circle())
-                }
-                .accessibilityLabel("Close")
+                CircleIconButton(systemName: "xmark", label: "Close", fill: .jSheetFill) { dismiss() }
             }
 
             HStack(spacing: 8) {
                 option("Clean", on: version == .clean) { version = .clean }
                 option("Original", on: version == .original) { version = .original }
-                option("+ Audio", on: withAudio) { withAudio.toggle() }
+                Spacer(minLength: 8)
+                // A toggle, not a third version, so it stands apart.
+                option("Audio", icon: "waveform", on: withAudio) { withAudio.toggle() }
             }
 
             ScrollView {
                 Text(markdown)
                     .font(.system(size: 13, design: .monospaced))
-                    .foregroundStyle(Color.inkPaperText)
+                    .foregroundStyle(Color.jText)
                     .lineSpacing(4)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(18)
+                    .textSelection(.enabled)
             }
-            .background(Color.inkPaper, in: RoundedRectangle(cornerRadius: 16))
+            .background(Color.jSheetWell, in: RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.jSheetHairline, lineWidth: 1))
 
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 Button {
                     UIPasteboard.general.string = markdown
                     copied = true
                 } label: {
                     Text(copied ? "Copied" : "Copy")
                         .font(.label)
-                        .foregroundStyle(Color.ink50)
-                        .frame(maxWidth: .infinity, minHeight: 50)
-                        .background(Color.ink700.opacity(0.6), in: Capsule())
+                        .foregroundStyle(Color.jText)
+                        .frame(maxWidth: .infinity, minHeight: 52)
+                        .background(Color.jSheetFill, in: Capsule())
                 }
                 .buttonStyle(.plain)
+                .frame(width: 148)
 
                 Button { presenting = true } label: {
                     Text(exporting ? "Preparing audio" : "Share…")
                         .font(.label)
-                        .foregroundStyle(Color.ink950)
-                        .frame(maxWidth: .infinity, minHeight: 50)
-                        .background(Color.ink50, in: Capsule())
+                        .foregroundStyle(Color.jBg)
+                        .frame(maxWidth: .infinity, minHeight: 52)
+                        .background(Color.jText, in: Capsule())
                 }
                 .buttonStyle(.plain)
                 .disabled(exporting)
             }
         }
-        .padding(24)
-        .presentationDetents([.large])
-        .presentationCornerRadius(40)
-        .presentationBackground(Color.ink950)
-        .preferredColorScheme(.dark)
+        .padding(.horizontal, 20)
+        .padding(.top, 24)
+        .padding(.bottom, 12)
+        .background(Color.jSheet)
+        .presentationDetents([.fraction(0.62), .large])
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(32)
+        .presentationBackground(Color.jSheet)
         .task(id: withAudio) { if withAudio { await exportAudio() } }
+        .task(id: copied) {
+            guard copied else { return }
+            try? await Task.sleep(for: .seconds(1.5))
+            copied = false
+        }
         .sheet(isPresented: $presenting) {
             ActivityView(items: shareItems).presentationDetents([.medium, .large])
         }
     }
 
-    private func option(_ label: String, on: Bool, action: @escaping () -> Void) -> some View {
+    private func option(_ label: String, icon: String? = nil, on: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(label)
-                .font(.label)
-                .foregroundStyle(on ? Color.ink950 : Color.ink400)
-                .padding(.horizontal, 16)
-                .frame(height: 36)
-                .background(on ? Color.ink50 : Color.ink900, in: Capsule())
-                .overlay(Capsule().strokeBorder(on ? .clear : Color.ink700, lineWidth: 1))
+            HStack(spacing: 6) {
+                if let icon { Image(systemName: icon).font(.system(size: 13, weight: .semibold)) }
+                Text(label).font(.label)
+            }
+            .foregroundStyle(on ? Color.jBg : Color.jText2)
+            .padding(.horizontal, 16)
+            .frame(height: 36)
+            .background(on ? Color.jText : Color.jSheetFill, in: Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(on ? .isSelected : [])
@@ -218,7 +230,7 @@ struct RenameSheet: View {
                                 .foregroundStyle(on ? Color.jBg : Color.jText)
                                 .padding(.horizontal, 14)
                                 .frame(height: 36)
-                                .background(on ? Color.jText : Color.jFill, in: Capsule())
+                                .background(on ? Color.jText : Color.jSheetFill, in: Capsule())
                         }
                         .buttonStyle(.plain)
                     }
@@ -233,8 +245,10 @@ struct RenameSheet: View {
             Spacer()
         }
         .padding(.horizontal, 20)
-        .background(Color.jBg)
+        .background(Color.jSheet)
         .presentationDetents([.large])
+        .presentationCornerRadius(32)
+        .presentationBackground(Color.jSheet)
         .onAppear {
             text = current
             focused = true

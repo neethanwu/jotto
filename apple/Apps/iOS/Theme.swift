@@ -47,19 +47,24 @@ extension Color {
     static let jChromeStroke = pair(.clear, Ink.darkStroke)
     static let jChromeOn = Color(Ink.i50)
     static let jOnChromeOn = Color(Ink.i950)
+    // Sheets sit one step above the page in dark, so their own fills and
+    // hairlines go up a step too. The well is the recessed preview in Share.
+    static let jSheet = pair(Ink.i0, Ink.i900)
+    static let jSheetFill = pair(Ink.i100, Ink.i800)
+    static let jSheetHairline = pair(Ink.i200, Ink.i800)
+    static let jSheetWell = pair(Ink.i50, Ink.i950)
     static let jLive = Color(Orange.o500)
     static let jLiveHalo = pair(Orange.o100, Orange.o950)
 
-    // Fixed tones for surfaces that are dark in both modes (Live, share sheet).
+    // Fixed tones for surfaces that are dark in both modes (Live, the player).
     static let ink50 = Color(Ink.i50)
     static let ink400 = Color(Ink.i400)
     static let ink500 = Color(Ink.i500)
     static let ink600 = Color(Ink.i600)
     static let ink700 = Color(Ink.i700)
+    static let ink800 = Color(Ink.i800)
     static let ink900 = Color(Ink.i900)
     static let ink950 = Color(Ink.i950)
-    static let inkPaper = Color(Ink.i50)
-    static let inkPaperText = Color(Ink.i950)
 }
 
 extension UIColor {
@@ -116,6 +121,7 @@ extension View {
 struct CircleIconButton: View {
     let systemName: String
     let label: String
+    var fill: Color = .jFill
     let action: () -> Void
 
     var body: some View {
@@ -124,7 +130,7 @@ struct CircleIconButton: View {
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(Color.jText)
                 .frame(width: 40, height: 40)
-                .background(Color.jFill, in: Circle())
+                .background(fill, in: Circle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
@@ -145,6 +151,22 @@ struct ChromePill: ViewModifier {
 
 extension View {
     func chromePill() -> some View { modifier(ChromePill()) }
+}
+
+extension View {
+    /// Content scrolling up under the status bar disappears into the page
+    /// colour instead of showing behind the clock.
+    func statusBarCover() -> some View {
+        overlay(alignment: .top) {
+            GeometryReader { geo in
+                Color.jBg
+                    .frame(height: geo.safeAreaInsets.top)
+                    .ignoresSafeArea(edges: .top)
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+    }
 }
 
 /// Primary action: ink-50 pill with ink-950 text in dark, inverted in light.

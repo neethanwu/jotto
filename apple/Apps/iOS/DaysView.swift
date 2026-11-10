@@ -1,13 +1,15 @@
 import SwiftUI
 
-/// Home: one day at a time. Wordmark, the day's name, a week strip to move
-/// between days, and the day's recordings on a timeline.
+/// Home: one day at a time. Wordmark and Search, the day's
+/// name (tap for a month calendar), a week strip to move between days,
+/// and the day's recordings on a timeline.
 struct DaysView: View {
     let router: Router
     @State private var day = Calendar.current.startOfDay(for: .now)
     @State private var scroll = ScrollPosition(edge: .top)
     /// The week strip has reached the top and is pinned there.
     @State private var stripPinned = false
+    @State private var picking = false
     private var library: Library { .shared }
     private var config: AppConfig { .shared }
 
@@ -15,10 +17,13 @@ struct DaysView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: .sectionHeaders) {
                 BrandBar {
-                    if !isToday {
-                        Button("Today", action: goToToday)
-                            .buttonStyle(BarPillStyle())
-                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    HStack(spacing: 8) {
+                        if !isToday {
+                            Button("Today", action: goToToday)
+                                .buttonStyle(BarPillStyle())
+                                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                        }
+                        CircleButton(label: "Search") { router.days.append(.search) } icon: { SearchIcon() }
                     }
                 }
                 .padding(.horizontal, 20)
@@ -49,12 +54,12 @@ struct DaysView: View {
         }
         .scrollPosition($scroll)
         .scrollIndicators(.hidden)
-        // Content scrolling up under the status bar disappears into the page colour.
-        .overlay(alignment: .top) {
-            Color.jBg.frame(height: 0).ignoresSafeArea(edges: .top)
-        }
+        .statusBarCover()
         .background(Color.jBg)
         .onChange(of: router.daysReselected) { goToToday() }
+        .sheet(isPresented: $picking) {
+            DayPicker(selection: $day, marked: library.daysWithRecordings, earliest: library.earliest)
+        }
         .toolbar(.hidden, for: .navigationBar)
         .refreshable { await library.refresh() }
         .task {
@@ -82,17 +87,29 @@ struct DaysView: View {
         library.liveEntry.map { Calendar.current.startOfDay(for: $0.startedAt) }
     }
 
+    /// The day's name; tapping it opens the month calendar.
     private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(day.formatted(.dateTime.weekday(.wide)))
-                .dayTitleStyle()
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            Text(meta)
-                .font(.meta)
-                .foregroundStyle(Color.jText3)
+        Button { picking = true } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Text(day.formatted(.dateTime.weekday(.wide)))
+                        .dayTitleStyle()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(Color.jText4)
+                        .padding(.top, 6)
+                }
+                Text(meta)
+                    .font(.meta)
+                    .foregroundStyle(Color.jText3)
+            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
+        .accessibilityHint("Pick another day")
     }
 
     private var meta: String {
@@ -112,9 +129,9 @@ struct DaysView: View {
         if !config.isReady && !config.processesLocally {
             EmptyDay(
                 title: "Connect to a server",
-                detail: "Add the server address and token in Account, then record on your watch"
+                detail: "Add the server address and token in Settings, then record on your watch"
             ) {
-                Button("Open Account") { router.tab = .account }
+                Button("Open Settings") { router.tab = .settings; router.settings = [.processing] }
                     .buttonStyle(PrimaryPillStyle())
             }
         } else if entries.isEmpty {
@@ -127,7 +144,11 @@ struct DaysView: View {
             }
         } else {
             Timeline(entries: entries) { entry in
-                router.days.append(entry.state == .live ? .live(id: entry.id) : .transcript(id: entry.id))
+                if entry.state == .live {
+                    router.live = Router.Live(id: entry.id)
+                } else {
+                    router.days.append(.transcript(id: entry.id))
+                }
             }
             .padding(.leading, 16)
             .padding(.trailing, 20)

@@ -17,6 +17,9 @@ final class RecordingPlayer {
     private(set) var isPlaying = false
     private(set) var time: Double = 0
     private(set) var duration: Double = 0
+    /// Where the finger is on the waveform, until it lets go.
+    private(set) var scrubTime: Double?
+    private(set) var rate: Float = 1
     /// Peak level per bar, 0…1, for the waveform.
     private(set) var levels: [Float] = []
 
@@ -24,8 +27,14 @@ final class RecordingPlayer {
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var loadedFor: String?
+    /// A periodic tick landing mid-seek would flash the old position.
+    private var seeking = false
 
     nonisolated static let barCount = 56
+    static let rates: [Float] = [1, 1.25, 1.5, 2]
+
+    /// What the screen shows: the finger while scrubbing, else playback.
+    var shownTime: Double { scrubTime ?? time }
 
     func load(_ detail: SessionDetail) async {
         guard loadedFor != detail.id || availability != .ready else { return }
@@ -35,7 +44,7 @@ final class RecordingPlayer {
             FileManager.default.fileExists(atPath: Uploader.audioURL(session: detail.id, index: $0.index).path)
         }
         guard !segments.isEmpty || !local.isEmpty else {
-            availability = .unavailable(detail.segments.isEmpty ? "No audio yet" : "Audio kept for 30 days")
+            availability = .unavailable(detail.segments.isEmpty ? "No audio yet" : "Audio no longer kept")
             return
         }
 
@@ -56,11 +65,12 @@ final class RecordingPlayer {
             files.append((url, info.offset))
         }
         guard !files.isEmpty else {
-            availability = .unavailable("Audio kept for 30 days")
+            availability = .unavailable("Audio no longer kept")
             return
         }
 
         let item = AVPlayerItem(asset: composition)
+        item.audioTimePitchAlgorithm = .timeDomain
         let player = AVPlayer(playerItem: item)
         self.player = player
         duration = composition.duration.seconds
@@ -89,8 +99,30 @@ final class RecordingPlayer {
     func seek(to seconds: Double, play: Bool = true) {
         guard let player else { return }
         time = min(max(0, seconds), duration)
-        player.seek(to: CMTime(seconds: time, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        seeking = true
+        player.seek(to: CMTime(seconds: time, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            Task { @MainActor in self?.seeking = false }
+        }
         if play && !isPlaying { toggle() }
+    }
+
+    /// The position follows the finger; the audio moves on release.
+    func scrub(to seconds: Double) {
+        scrubTime = min(max(0, seconds), duration)
+    }
+
+    func endScrub() {
+        guard let scrubTime else { return }
+        self.scrubTime = nil
+        seek(to: scrubTime, play: isPlaying)
+    }
+
+    /// 1× → 1.25× → 1.5× → 2× and round again.
+    func cycleRate() {
+        let next = Self.rates.firstIndex(of: rate).map { ($0 + 1) % Self.rates.count } ?? 0
+        rate = Self.rates[next]
+        player?.defaultRate = rate
+        if isPlaying { player?.rate = rate }
     }
 
     func stop() {
@@ -102,7 +134,10 @@ final class RecordingPlayer {
         timeObserver = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main
         ) { [weak self] t in
-            MainActor.assumeIsolated { self?.time = t.seconds }
+            MainActor.assumeIsolated {
+                guard let self, !self.seeking else { return }
+                self.time = t.seconds
+            }
         }
         endObserver = NotificationCenter.default.addObserver(
             forName: AVPlayerItem.didPlayToEndTimeNotification, object: item, queue: .main

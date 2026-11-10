@@ -86,6 +86,20 @@ final class LocalStore {
         try? FileManager.default.removeItem(at: Uploader.sessionsDirectory.appending(path: id))
     }
 
+    /// Deletes the audio of recordings that were transcribed more than
+    /// `days` ago. The text stays. 0 keeps everything.
+    func purgeAudio(keepingDays days: Int) {
+        guard days > 0 else { return }
+        let cutoff = Date.now.addingTimeInterval(-Double(days) * 86_400)
+        for r in recordings.values {
+            guard let done = r.polishedAt, done < cutoff else { continue }
+            let dir = Uploader.sessionsDirectory.appending(path: r.id)
+            if FileManager.default.fileExists(atPath: dir.path) {
+                try? FileManager.default.removeItem(at: dir)
+            }
+        }
+    }
+
     func search(_ query: String) -> SearchResults {
         var sessions: [SearchResults.Session] = []
         var matches = 0
@@ -113,7 +127,7 @@ final class LocalStore {
             recordings: recordings.count,
             seconds: Int(lengths.map(\.1).reduce(0, +)),
             lastSevenDays: .init(recordings: recent.count, seconds: Int(recent.map(\.1).reduce(0, +))),
-            audioRetentionDays: 30
+            audioRetentionDays: AppConfig.shared.keepAudioDays
         )
     }
 

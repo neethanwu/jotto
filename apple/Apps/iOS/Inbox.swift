@@ -121,6 +121,11 @@ extension Inbox: WCSessionDelegate {
             Task { @MainActor in
                 if AppConfig.shared.processesLocally { Pipeline.shared.marked(id, startedAt: started, offset: offset) }
             }
+        case "section":
+            guard let start = userInfo["offset"] as? Double, let end = userInfo["end"] as? Double else { return }
+            Task { @MainActor in
+                if AppConfig.shared.processesLocally { Pipeline.shared.markedSection(id, startedAt: started, start: start, end: end) }
+            }
         case "finish":
             guard let ended = userInfo["endedAt"] as? Double,
                   let count = userInfo["segmentCount"] as? Int else { return }

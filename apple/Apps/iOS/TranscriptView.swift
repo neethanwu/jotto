@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// One recording: title Jotto wrote (tap to rename), the transcript in its
-/// Clean or Original form, and a player in the tab bar's place.
+/// Clean or Original form, and a player at the bottom.
 struct TranscriptView: View {
     let id: String
     /// Open scrolled to this moment (from search).
@@ -10,7 +10,7 @@ struct TranscriptView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var detail: SessionDetail?
     @State private var error: String?
-    @State private var showOriginal = false
+    @State private var showOriginal = AppConfig.shared.opensOriginal
     @State private var player = RecordingPlayer()
     @State private var sharing = false
     @State private var renaming = false
@@ -34,9 +34,11 @@ struct TranscriptView: View {
                 .scrollIndicators(.hidden)
                 .onChange(of: detail?.blocks.count) { _, _ in scrollToStart(proxy) }
                 .onChange(of: currentBlock) { _, block in
-                    guard player.isPlaying, let block else { return }
-                    withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo(block, anchor: .center) }
+                    let scrubbing = player.scrubTime != nil
+                    guard player.isPlaying || scrubbing, let block else { return }
+                    withAnimation(.easeInOut(duration: scrubbing ? 0.15 : 0.3)) { proxy.scrollTo(block, anchor: .center) }
                 }
+                .sensoryFeedback(.selection, trigger: currentBlock) { _, _ in player.scrubTime != nil }
             }
         }
         .background(Color.jBg)
@@ -222,8 +224,8 @@ struct TranscriptView: View {
     }
 
     private var currentBlock: Int? {
-        guard let detail, player.time > 0 else { return nil }
-        return detail.blocks.last { $0.start <= player.time + 0.1 }?.id
+        guard let detail, player.shownTime > 0 else { return nil }
+        return detail.blocks.last { $0.start <= player.shownTime + 0.1 }?.id
     }
 
     private func title(_ detail: SessionDetail) -> String {
@@ -364,6 +366,8 @@ struct PlayerBar: View {
     let hasAudio: Bool
 
     var body: some View {
+        let scrubbing = player.scrubTime != nil
+
         HStack(spacing: 12) {
             Button(action: player.toggle) {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
@@ -379,14 +383,29 @@ struct PlayerBar: View {
 
             switch player.availability {
             case .ready:
-                Waveform(levels: player.levels, progress: player.duration > 0 ? player.time / player.duration : 0) { fraction in
-                    player.seek(to: fraction * player.duration, play: player.isPlaying)
+                Waveform(player: player)
+
+                // Both step aside while scrubbing: the bubble has the time.
+                HStack(spacing: 8) {
+                    Text(Format.clock(player.time))
+                        .font(.metaSmall)
+                        .foregroundStyle(Color.ink400)
+                        .fixedSize()
+                        .frame(minWidth: 36, alignment: .trailing)
+                    Button(action: player.cycleRate) {
+                        Text(rateLabel)
+                            .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                            .foregroundStyle(Color.ink50)
+                            .frame(width: 38, height: 30)
+                            .background(Color.ink800, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Playback speed")
+                    .accessibilityValue(rateLabel)
                 }
-                Text("\(Format.clock(player.time)) / \(Format.clock(player.duration))")
-                    .font(.metaSmall)
-                    .foregroundStyle(Color.ink400)
-                    .fixedSize()
-                    .padding(.trailing, 10)
+                .opacity(scrubbing ? 0 : 1)
+                .animation(.easeOut(duration: 0.15), value: scrubbing)
+                .sensoryFeedback(.selection, trigger: player.rate)
             case .loading:
                 Text(hasAudio ? "Loading audio" : "No audio yet")
                     .font(.metaSmall).foregroundStyle(Color.ink400)
@@ -396,7 +415,8 @@ struct PlayerBar: View {
                 Spacer()
             }
         }
-        .padding(7)
+        .padding(.leading, 7)
+        .padding(.trailing, 10)
         .frame(height: 62)
         .chromePill()
         .padding(.horizontal, 16)
@@ -412,35 +432,92 @@ struct PlayerBar: View {
         }
         .ignoresSafeArea(edges: .bottom)
     }
+
+    private var rateLabel: String {
+        player.rate == 1.25 ? "1.25×" : player.rate.rounded() == player.rate ? "\(Int(player.rate))×" : "\(player.rate)×"
+    }
 }
 
+/// Peaks across the recording. Drag anywhere in the pill's height: the
+/// position and the transcript follow the finger, the audio moves on release.
 struct Waveform: View {
-    let levels: [Float]
-    let progress: Double
-    let seek: (Double) -> Void
+    let player: RecordingPlayer
+
+    private let barArea: CGFloat = 28
 
     var body: some View {
         GeometryReader { geo in
+            let levels = player.levels
             let bars = max(levels.count, RecordingPlayer.barCount)
             let step = geo.size.width / CGFloat(bars)
-            HStack(alignment: .center, spacing: 0) {
-                ForEach(0..<bars, id: \.self) { i in
-                    let level = i < levels.count ? CGFloat(levels[i]) : 0.1
-                    Capsule()
-                        .fill(Double(i) / Double(bars) < progress ? Color.ink50 : Color.ink700)
-                        .frame(width: max(1.5, step * 0.5), height: max(2, level * geo.size.height))
-                        .frame(width: step)
+            let duration = max(player.duration, 0.001)
+            let progress = min(1, player.shownTime / duration)
+            let scrubbing = player.scrubTime != nil
+
+            ZStack(alignment: .leading) {
+                HStack(alignment: .center, spacing: 0) {
+                    ForEach(0..<bars, id: \.self) { i in
+                        let level = i < levels.count ? CGFloat(levels[i]) : 0.1
+                        Capsule()
+                            .fill(Double(i) / Double(bars) < progress ? Color.ink50 : Color.ink600)
+                            .frame(width: max(1.5, step * 0.5), height: max(2, level * barArea))
+                            .frame(width: step)
+                    }
                 }
+                .scaleEffect(y: scrubbing ? 1.25 : 1)
+
+                Capsule()
+                    .fill(Color.ink50)
+                    .frame(width: 2, height: scrubbing ? 44 : 34)
+                    .offset(x: max(0, progress * geo.size.width - 1))
             }
             .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0).onEnded { value in
-                seek(min(1, max(0, value.location.x / geo.size.width)))
-            })
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    let fraction = min(1, max(0, value.location.x / geo.size.width))
+                    player.scrub(to: fraction * player.duration)
+                }
+                .onEnded { _ in player.endScrub() }
+            )
+            .overlay(alignment: .topLeading) {
+                if scrubbing {
+                    bubble.position(x: bubbleX(progress: progress, in: geo), y: -28)
+                }
+            }
+            .animation(.spring(duration: 0.25), value: scrubbing)
         }
-        .frame(height: 28)
+        .frame(maxWidth: .infinity)
+        .frame(height: 62)
         .accessibilityElement()
         .accessibilityLabel("Position")
-        .accessibilityValue("\(Int(progress * 100)) percent")
+        .accessibilityValue(Format.clock(player.time))
+        .accessibilityAdjustableAction { direction in
+            player.seek(to: player.time + (direction == .increment ? 15 : -15), play: player.isPlaying)
+        }
+    }
+
+    private var bubble: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(Format.clock(player.shownTime))
+                .font(.system(size: 15, weight: .semibold).monospacedDigit())
+                .foregroundStyle(Color.ink50)
+            Text("/ \(Format.clock(player.duration))")
+                .font(.metaSmall)
+                .foregroundStyle(Color.ink500)
+        }
+        .fixedSize()
+        .padding(.horizontal, 14)
+        .frame(height: 38)
+        .chromePill()
+        .allowsHitTesting(false)
+    }
+
+    /// Over the finger. The pill's right side leaves room; only the very
+    /// start of the wave needs holding back from the screen edge.
+    private func bubbleX(progress: Double, in geo: GeometryProxy) -> CGFloat {
+        let halfBubble: CGFloat = player.duration >= 3600 ? 85 : 66
+        let x = progress * geo.size.width
+        return max(x, 16 + halfBubble - geo.frame(in: .global).minX)
     }
 }

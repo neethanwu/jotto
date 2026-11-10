@@ -26,6 +26,11 @@ final class Recorder {
     /// Highlights marked in this recording, and when the last one was, for feedback.
     private(set) var marks = 0
     private(set) var lastMarkAt: Date?
+    /// When the section being marked began, while one is open.
+    private(set) var sectionStartedAt: Date?
+    private var sectionLimitTask: Task<Void, Never>?
+    /// A forgotten section ends by itself.
+    static let sectionLimit: TimeInterval = 600
 
     static let levelCount = 30
     private let meter = LevelMeter()
@@ -70,6 +75,36 @@ final class Recorder {
         note("mark", "offset=\(Int(offset))s source=\(source)")
     }
 
+    /// The [ ] button: the first press opens a section, the second ends it.
+    func toggleSection() {
+        if sectionStartedAt == nil { beginSection() } else { endSection(reason: "button") }
+    }
+
+    private func beginSection() {
+        guard state != .idle, sessionID != nil else { return }
+        sectionStartedAt = .now
+        WKInterfaceDevice.current().play(.directionUp)
+        note("section_begin")
+        sectionLimitTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.sectionLimit))
+            guard !Task.isCancelled else { return }
+            self?.endSection(reason: "limit")
+        }
+    }
+
+    private func endSection(reason: String) {
+        sectionLimitTask?.cancel()
+        sectionLimitTask = nil
+        guard let begin = sectionStartedAt, let sessionID, let startedAt else { return }
+        sectionStartedAt = nil
+        // Stopping has its own haptic.
+        if reason != "stop" { WKInterfaceDevice.current().play(.directionDown) }
+        let start = begin.timeIntervalSince(startedAt)
+        let end = Date.now.timeIntervalSince(startedAt)
+        WatchTransfer.shared.sendSection(session: sessionID, startedAt: startedAt, start: start, end: end)
+        note("section_end", "start=\(Int(start))s end=\(Int(end))s reason=\(reason)")
+    }
+
     func start() {
         guard state == .idle else { return }
         do {
@@ -111,6 +146,7 @@ final class Recorder {
         segmentsWritten = 0
         marks = 0
         lastMarkAt = nil
+        sectionStartedAt = nil
         justSaved = nil
         // Needed for the "tap to keep recording" notice after a call.
         // (Skipped for simulator screenshots, where the prompt would cover the screen.)
@@ -126,6 +162,7 @@ final class Recorder {
 
     func stop() {
         guard state != .idle else { return }
+        endSection(reason: "stop")
         stopEngine()
         let segmentCount = writer?.finish() ?? 0
         writer = nil

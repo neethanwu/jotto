@@ -1,10 +1,13 @@
 import SwiftUI
+import WatchKit
 
 private extension Color {
     static let live = Color(red: 1, green: 79 / 255, blue: 0)
     static let ink400 = Color(red: 166 / 255, green: 164 / 255, blue: 161 / 255)
     static let ink500 = Color(red: 130 / 255, green: 128 / 255, blue: 125 / 255)
     static let ink700 = Color(red: 76 / 255, green: 74 / 255, blue: 72 / 255)
+    static let ink800 = Color(red: 52 / 255, green: 51 / 255, blue: 49 / 255)
+    static let ink50 = Color(red: 251 / 255, green: 250 / 255, blue: 247 / 255)
     static let ink900 = Color(red: 31 / 255, green: 30 / 255, blue: 28 / 255)
 }
 
@@ -94,77 +97,70 @@ private struct ReadyScreen: View {
 
 // MARK: - W2 Recording
 
+/// Star marks a moment, [ ] opens and closes a section, and the dot only
+/// stops when held: a white ring runs round it for a second, and letting
+/// go before it closes keeps recording.
 private struct RecordingScreen: View {
     let recorder: Recorder
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var dim = false
+    @State private var holding = false
+    @State private var ring: CGFloat = 0
+    @State private var pressedAt: Date?
+    @State private var justMarked = false
+    @State private var hintFlash = false
+
+    private static let holdDuration: TimeInterval = 1
 
     var body: some View {
-        VStack(spacing: 8) {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                Text(clock(context.date))
-                    .font(.system(size: 46, weight: .medium).monospacedDigit())
-                    .tracking(-0.9)
-                    .minimumScaleFactor(0.6)
+        GeometryReader { geo in
+            // Scales from the drawn 208 pt screen down to the 40 mm watch.
+            let scale = min(1, geo.size.width / 208)
+            VStack(spacing: 0) {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text(clock(since: recorder.startedAt, now: context.date))
+                        .font(.system(size: 46 * scale, weight: .medium).monospacedDigit())
+                        .tracking(-0.9)
+                        .minimumScaleFactor(0.6)
+                        .lineLimit(1)
+                }
+
+                LevelBars(levels: recorder.levels)
+                    .frame(height: 22 * scale)
+                    .padding(.horizontal, 8)
+                    .padding(.top, 2)
+
+                Spacer(minLength: 2)
+
+                HStack(spacing: 0) {
+                    starButton(size: 44 * scale)
+                    Spacer(minLength: 0)
+                    dot(size: 80 * scale)
+                    Spacer(minLength: 0)
+                    sectionButton(size: 44 * scale)
+                }
+                .padding(.horizontal, 14 * scale)
+
+                Text(hint)
+                    .font(.system(size: 11, weight: holding ? .semibold : .medium))
+                    .foregroundStyle(holding || hintFlash ? Color.ink50 : Color.ink500)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .padding(.top, 6)
+                    // Clear of the screen's rounded corners.
+                    .padding(.bottom, 6)
             }
-
-            LevelBars(levels: recorder.levels)
-                .frame(height: 22)
-                .padding(.horizontal, 8)
-
-            if recorder.state == .interrupted {
-                Text("Paused by another app")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color.ink400)
-            } else if let at = recorder.lastMarkAt {
-                // Brief confirmation after a highlight; the haptic carries it with the screen off.
-                TimelineView(.periodic(from: at, by: 1)) { context in
-                    if context.date.timeIntervalSince(at) < 2 {
-                        Text("Marked")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(Color.live)
-                    }
-                }
-            }
-
-            HStack(spacing: 10) {
-                Color.clear.frame(width: 36, height: 36)
-                Button(action: recorder.stop) {
-                    ZStack {
-                        Circle().fill(Color.live).frame(width: 84, height: 84)
-                            .opacity(dim ? 0.7 : 1)
-                            .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: dim)
-                        RoundedRectangle(cornerRadius: 6).fill(.white).frame(width: 26, height: 26)
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Stop recording")
-                // Test build: highlight marking; the final design comes from Paper.
-                // Double tap marks rather than stops.
-                Button { recorder.mark(source: "button") } label: {
-                    Image(systemName: "bookmark.fill")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 36, height: 36)
-                        .background(Color.ink900, in: Circle())
-                }
-                .buttonStyle(.plain)
-                .handGestureShortcut(.primaryAction)
-                .accessibilityLabel("Mark this moment")
-            }
-            .padding(.top, 4)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea(edges: .bottom)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                HStack(spacing: 5) {
-                    Circle().fill(Color.live).frame(width: 7, height: 7)
-                    Text(recorder.state == .interrupted ? "Paused" : "Recording")
-                }
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Color.live)
-            }
+            ToolbarItem(placement: .topBarLeading) { status }
+        }
+        .task(id: recorder.marks) {
+            guard recorder.marks > 0 else { return }
+            justMarked = true
+            try? await Task.sleep(for: .seconds(2))
+            if !Task.isCancelled { justMarked = false }
         }
         .onAppear {
             // Scoped to the dot: a repeating withAnimation would leak into the timer.
@@ -172,11 +168,148 @@ private struct RecordingScreen: View {
         }
     }
 
-    private func clock(_ date: Date) -> String {
-        let s = Int(date.timeIntervalSince(recorder.startedAt ?? date))
+    // MARK: Status line
+
+    private var status: some View {
+        HStack(spacing: 5) {
+            Circle().fill(Color.live).frame(width: 7, height: 7)
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                Text(statusText(now: context.date))
+            }
+        }
+        .font(.system(size: 15, weight: .semibold).monospacedDigit())
+        .foregroundStyle(Color.live)
+    }
+
+    private func statusText(now: Date) -> String {
+        if recorder.state == .interrupted { return "Paused" }
+        if justMarked { return "Marked · \(recorder.marks)" }
+        if let begin = recorder.sectionStartedAt { return "Section \(clock(since: begin, now: now))" }
+        return "Recording"
+    }
+
+    private var hint: String {
+        if holding { return "Let go to keep recording" }
+        if hintFlash { return "Hold the dot to stop" }
+        if recorder.state == .interrupted { return "Paused by another app" }
+        if recorder.sectionStartedAt != nil { return "Tap [ ] to end the section" }
+        return "Hold the dot to stop"
+    }
+
+    // MARK: Controls
+
+    private func starButton(size: CGFloat) -> some View {
+        Button { recorder.mark(source: "button") } label: {
+            Image(systemName: "star.fill")
+                .font(.system(size: size * 0.41, weight: .semibold))
+                .foregroundStyle(Color.ink50)
+                .frame(width: size, height: size)
+                .background(justMarked ? Color.live : Color.ink800, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .opacity(holding ? 0.35 : 1)
+        .disabled(holding)
+        // Double tap marks too; stopping stays on the dot.
+        .handGestureShortcut(.primaryAction)
+        .accessibilityLabel("Mark this moment")
+    }
+
+    private func sectionButton(size: CGFloat) -> some View {
+        let open = recorder.sectionStartedAt != nil
+        return Button(action: recorder.toggleSection) {
+            Brackets()
+                .stroke(Color.ink50, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                .frame(width: size * 0.41, height: size * 0.41)
+                .frame(width: size, height: size)
+                .background(open ? Color.live : Color.ink800, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .opacity(holding ? 0.35 : 1)
+        .disabled(holding)
+        .accessibilityLabel(open ? "End section" : "Start section")
+    }
+
+    private func dot(size: CGFloat) -> some View {
+        ZStack {
+            Circle()
+                .fill(Color.live)
+                .frame(width: holding ? size * 0.95 : size, height: holding ? size * 0.95 : size)
+                .opacity(holding ? 1 : dim ? 0.7 : 1)
+                .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: dim)
+            RoundedRectangle(cornerRadius: size * 0.0625)
+                .fill(Color.ink50)
+                .frame(width: size * 0.275, height: size * 0.275)
+                .opacity(holding ? 1 : 0)
+            Group {
+                Circle().stroke(Color.ink50.opacity(0.18), lineWidth: 3).opacity(holding ? 1 : 0)
+                Circle()
+                    .trim(from: 0, to: ring)
+                    .stroke(Color.ink50, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            .frame(width: size * 1.125, height: size * 1.125)
+        }
+        .frame(width: size, height: size)
+        .contentShape(Circle())
+        .onLongPressGesture(minimumDuration: Self.holdDuration, maximumDistance: 40) {
+            recorder.stop()
+        } onPressingChanged: { pressing in
+            pressed(pressing)
+        }
+        .accessibilityElement()
+        .accessibilityLabel("Stop recording")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { recorder.stop() }
+    }
+
+    private func pressed(_ pressing: Bool) {
+        if pressing {
+            pressedAt = .now
+            WKInterfaceDevice.current().play(.click)
+            withAnimation(.easeOut(duration: 0.12)) { holding = true }
+            withAnimation(.linear(duration: Self.holdDuration)) { ring = 1 }
+        } else {
+            let wasTap = pressedAt.map { Date.now.timeIntervalSince($0) < 0.25 } ?? false
+            pressedAt = nil
+            withAnimation(.easeOut(duration: 0.2)) {
+                holding = false
+                ring = 0
+            }
+            if wasTap { flashHint() }
+        }
+    }
+
+    /// A tap on the dot is someone trying to stop: say how.
+    private func flashHint() {
+        hintFlash = true
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            hintFlash = false
+        }
+    }
+
+    private func clock(since start: Date?, now: Date) -> String {
+        let s = max(0, Int(now.timeIntervalSince(start ?? now)))
         return s >= 3600
             ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60)
             : String(format: "%d:%02d", s / 60, s % 60)
+    }
+}
+
+/// The section icon, on the design's 24-unit grid.
+private struct Brackets: Shape {
+    func path(in rect: CGRect) -> Path {
+        let u = rect.width / 24
+        var p = Path()
+        p.move(to: CGPoint(x: 9 * u, y: 4.5 * u))
+        p.addLine(to: CGPoint(x: 5.5 * u, y: 4.5 * u))
+        p.addLine(to: CGPoint(x: 5.5 * u, y: 19.5 * u))
+        p.addLine(to: CGPoint(x: 9 * u, y: 19.5 * u))
+        p.move(to: CGPoint(x: 15 * u, y: 4.5 * u))
+        p.addLine(to: CGPoint(x: 18.5 * u, y: 4.5 * u))
+        p.addLine(to: CGPoint(x: 18.5 * u, y: 19.5 * u))
+        p.addLine(to: CGPoint(x: 15 * u, y: 19.5 * u))
+        return p
     }
 }
 

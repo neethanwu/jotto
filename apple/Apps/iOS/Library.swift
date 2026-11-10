@@ -216,6 +216,13 @@ extension Library {
                 segmentsDone: minutes / 2, segmentsReceived: minutes / 2, lastLine: nil
             )
         }
+        func recording() -> SessionSummary {
+            SessionSummary(
+                id: UUID().uuidString, startedAt: .now.addingTimeInterval(-300), endedAt: nil,
+                status: "recording", title: nil, summary: nil, segmentCount: nil, missingSegments: 0,
+                segmentsDone: 0, segmentsReceived: 0, lastLine: nil
+            )
+        }
         return [
             at(0, 8, 46, "Coffee with Priya", "The pilot runs six weeks. We review after week two and decide then whether to open it up."),
             at(0, 10, 72, "Design review", "Design locks Friday. Engineering starts Monday, and the export screen moves out of the first build."),
@@ -225,7 +232,7 @@ extension Library {
             at(0, 18, 20, "Notes on the walk home", "Write the key guide before the product page."),
             at(-2, 9, 30, "Planning", "Order of work for the open-source release."),
             at(-9, 11, 45, "Kickoff", "Scope, risks and who owns what."),
-        ]
+        ] + (ProcessInfo.processInfo.environment["JOTTO_DEMO_DAYS"] == "live" ? [recording()] : [])
     }()
 }
 #endif

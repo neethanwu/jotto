@@ -14,7 +14,7 @@ struct JottoShortcuts: AppShortcutsProvider {
             intent: MarkInBackgroundIntent(),
             phrases: ["Mark without opening \(.applicationName)"],
             shortTitle: "Mark Without Opening",
-            systemImageName: "bookmark"
+            systemImageName: "star"
         )
     }
 }

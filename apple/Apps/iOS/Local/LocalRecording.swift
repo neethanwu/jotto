@@ -18,6 +18,8 @@ struct LocalRecording: Codable, Identifiable, Hashable {
     var summary: String?
     /// Highlights, as seconds from the start.
     var marks: [Double] = []
+    /// Stretches marked with [ ]. Optional so recordings saved earlier still load.
+    var sections: [MarkedSection]?
     /// Set when clean-up is done; the recording is then ready.
     var polishedAt: Date?
     /// Set once a title and summary have been written (may lag polish:
@@ -25,6 +27,11 @@ struct LocalRecording: Codable, Identifiable, Hashable {
     var describedAt: Date?
     /// Segments given up on after the recording ended (see `Pipeline`).
     var missing: Int = 0
+
+    struct MarkedSection: Codable, Hashable {
+        let start: Double
+        let end: Double
+    }
 
     var isEnded: Bool { endedAt != nil }
     var transcribed: [LocalSegment] { segments.values.filter { $0.phrases != nil }.sorted { $0.index < $1.index } }

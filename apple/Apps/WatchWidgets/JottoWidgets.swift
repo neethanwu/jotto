@@ -27,7 +27,7 @@ struct MarkInBackgroundControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: "com.neethanwu.jotto.mark-background") {
             ControlWidgetButton(action: MarkInBackgroundIntent()) {
-                Label("Mark", systemImage: "bookmark")
+                Label("Mark", systemImage: "star")
             }
         }
         .displayName("Mark Without Opening")

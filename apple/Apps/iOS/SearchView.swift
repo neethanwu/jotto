@@ -1,29 +1,33 @@
 import SwiftUI
 
-/// Search across every recording's clean text and titles.
+/// Search across every recording's clean text and titles. Pushed from
+/// the magnifier on Days, with the keyboard up.
 struct SearchView: View {
     let router: Router
+    @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     @State private var results: SearchResults?
     @State private var error: String?
     @FocusState private var focused: Bool
 
     var body: some View {
-        ScrollView {
+        VStack(spacing: 0) {
+            // Back and the field share one bar that stays put while results scroll.
+            HStack(spacing: 10) {
+                CircleIconButton(systemName: "chevron.left", label: "Back") { dismiss() }
+                field
+            }
+            .padding(.leading, 16)
+            .padding(.trailing, 20)
+            .frame(height: 52)
+
+            ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                BrandBar()
-
-                Text("Search")
-                    .dayTitleStyle()
-                    .padding(.top, 20)
-
-                field.padding(.top, 20)
-
                 if let results, results.query == trimmed {
                     Text(summary(results))
                         .font(.meta)
                         .foregroundStyle(Color.jText3)
-                        .padding(.top, 16)
+                        .padding(.top, 12)
                     LazyVStack(alignment: .leading, spacing: 28) {
                         ForEach(results.sessions) { session in
                             group(session, query: results.query)
@@ -36,16 +40,19 @@ struct SearchView: View {
                     Text("Words, names, anything someone said")
                         .font(.summary)
                         .foregroundStyle(Color.jText3)
-                        .padding(.top, 16)
+                        .padding(.top, 12)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 20)
-            .padding(.bottom, 140)
+            .padding(.bottom, 48)
+            }
+            .scrollDismissesKeyboard(.immediately)
         }
-        .scrollDismissesKeyboard(.immediately)
         .background(Color.jBg)
         .toolbar(.hidden, for: .navigationBar)
         .task(id: trimmed) { await search() }
+        .onAppear { if query.isEmpty { focused = true } }
     }
 
     private var trimmed: String { query.trimmingCharacters(in: .whitespaces) }
@@ -53,7 +60,7 @@ struct SearchView: View {
     private var field: some View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 17, weight: .semibold))
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Color.jText3)
             TextField("Search recordings", text: $query)
                 .font(.rowTitle)
@@ -68,9 +75,10 @@ struct SearchView: View {
                 .accessibilityLabel("Clear")
             }
         }
-        .padding(.horizontal, 18)
-        .frame(height: 52)
-        .background(Color.jFill, in: RoundedRectangle(cornerRadius: 26))
+        .padding(.leading, 14)
+        .padding(.trailing, 12)
+        .frame(height: 44)
+        .background(Color.jFill, in: Capsule())
     }
 
     private func summary(_ r: SearchResults) -> String {
@@ -81,7 +89,7 @@ struct SearchView: View {
 
     private func group(_ session: SearchResults.Session, query: String) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Button { router.search.append(.transcript(id: session.id)) } label: {
+            Button { router.days.append(.transcript(id: session.id)) } label: {
                 HStack(alignment: .firstTextBaseline) {
                     Text(session.title ?? Format.provisionalTitle(session.startedAt))
                         .font(.rowTitle)
@@ -95,7 +103,7 @@ struct SearchView: View {
             .buttonStyle(.plain)
 
             ForEach(session.hits, id: \.self) { hit in
-                Button { router.search.append(.transcript(id: session.id, at: hit.start)) } label: {
+                Button { router.days.append(.transcript(id: session.id, at: hit.start)) } label: {
                     HStack(alignment: .firstTextBaseline, spacing: 0) {
                         Text(Format.clock(hit.start))
                             .font(.metaSmall)

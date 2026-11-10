@@ -1,33 +1,40 @@
 import SwiftUI
 import UIKit
 
+/// The two tabs. Search is a button on Days, not a tab.
 enum AppTab: Hashable {
-    case days, search, account
+    case days, settings
 }
 
-/// Where a tab's navigation stack can go.
+/// Where a tab's stack can go.
 enum Route: Hashable {
     case transcript(id: String, at: Double? = nil)
-    case live(id: String)
-    case server
+    case search
+    case processing
+    case language
+    case keepAudio
+    case openIn
     case inbox
 }
 
 @MainActor @Observable
 final class Router {
+    /// A recording in progress, open over everything. A cover rather than
+    /// a push: forcing dark inside a push turns the whole window dark.
+    struct Live: Identifiable, Hashable { let id: String }
+
     var tab = AppTab.days
+    var live: Live?
     /// Bumped when Days is tapped while already showing: back to today.
     var daysReselected = 0
     var days: [Route] = []
-    var search: [Route] = []
-    var account: [Route] = []
+    var settings: [Route] = []
 
     /// The floating tab bar shows only on a tab's root screen.
     var showsTabBar: Bool {
         switch tab {
         case .days: days.isEmpty
-        case .search: search.isEmpty
-        case .account: account.isEmpty
+        case .settings: settings.isEmpty
         }
     }
 }
@@ -37,49 +44,109 @@ struct RootView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            // Keep all three alive so each keeps its scroll position and stack.
+            // Keep both alive so each keeps its scroll position and stack.
             tab(.days) { DaysView(router: router) }
-            tab(.search) { SearchView(router: router) }
-            tab(.account) { AccountView() }
+            tab(.settings) { SettingsView(router: router) }
 
             if router.showsTabBar {
                 TabBar(selection: $router.tab) { tab in
                     if tab == .days { router.daysReselected += 1 }
                 }
-                    .transition(.opacity)
+                .transition(.opacity)
             }
         }
         .animation(.easeOut(duration: 0.2), value: router.showsTabBar)
         .ignoresSafeArea(.keyboard)
         .background(Color.jBg)
+        .fullScreenCover(item: $router.live) { LiveView(id: $0.id) }
     }
 
     @ViewBuilder
     private func tab<Content: View>(_ which: AppTab, @ViewBuilder _ content: () -> Content) -> some View {
         NavigationStack(path: path(which)) {
             content()
-                // Hidden tabs stay alive but out of VoiceOver's way.
-                .accessibilityHidden(router.tab != which)
                 .navigationDestination(for: Route.self) { route in
                     switch route {
                     case let .transcript(id, at): TranscriptView(id: id, startAt: at)
-                    case let .live(id): LiveView(id: id)
-                    case .server: ServerSettingsView(config: .shared)
+                    case .search: SearchView(router: router)
+                    case .processing: ProcessingView()
+                    case .language: LanguageView()
+                    case .keepAudio: KeepAudioView()
+                    case .openIn: OpenInView()
                     case .inbox: InboxView(inbox: .shared)
                     }
                 }
         }
         .opacity(router.tab == which ? 1 : 0)
         .allowsHitTesting(router.tab == which)
+        // Hidden tabs stay alive but out of VoiceOver's way.
         .accessibilityHidden(router.tab != which)
     }
 
     private func path(_ which: AppTab) -> Binding<[Route]> {
         switch which {
         case .days: $router.days
-        case .search: $router.search
-        case .account: $router.account
+        case .settings: $router.settings
         }
+    }
+}
+
+/// 40-pt round button on `fill` with a drawn icon, for the Days top bar.
+struct CircleButton<Icon: View>: View {
+    let label: String
+    let action: () -> Void
+    @ViewBuilder var icon: Icon
+
+    var body: some View {
+        Button(action: action) {
+            icon
+                .frame(width: 18, height: 18)
+                .frame(width: 40, height: 40)
+                .background(Color.jFill, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+}
+
+/// Magnifier on the design's 24-unit grid.
+struct SearchIcon: View {
+    var color: Color = .jText
+
+    var body: some View {
+        Canvas { context, size in
+            let k = min(size.width, size.height) / 24
+            context.scaleBy(x: k, y: k)
+            var p = Path(ellipseIn: CGRect(x: 4, y: 4, width: 14, height: 14))
+            p.move(to: CGPoint(x: 20, y: 20)); p.addLine(to: CGPoint(x: 16.5, y: 16.5))
+            context.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: 2.2, lineCap: .round))
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// Two sliders on the design's 20-unit grid: settings.
+struct SlidersIcon: View {
+    var color: Color = .jText
+    /// Fill inside the knobs: the background the icon sits on.
+    var knob: Color = .jFill
+
+    var body: some View {
+        Canvas { context, size in
+            let k = min(size.width, size.height) / 20
+            context.scaleBy(x: k, y: k)
+            let style = StrokeStyle(lineWidth: 1.8, lineCap: .round)
+            var lines = Path()
+            lines.move(to: CGPoint(x: 2.5, y: 6.5)); lines.addLine(to: CGPoint(x: 17.5, y: 6.5))
+            lines.move(to: CGPoint(x: 2.5, y: 13.5)); lines.addLine(to: CGPoint(x: 17.5, y: 13.5))
+            context.stroke(lines, with: .color(color), style: style)
+            for center in [CGPoint(x: 7, y: 6.5), CGPoint(x: 13, y: 13.5)] {
+                let ring = Path(ellipseIn: CGRect(x: center.x - 2.4, y: center.y - 2.4, width: 4.8, height: 4.8))
+                context.fill(ring, with: .color(self.knob))
+                context.stroke(ring, with: .color(color), style: style)
+            }
+        }
+        .accessibilityHidden(true)
     }
 }
 
@@ -98,8 +165,7 @@ struct TabBar: View {
     var body: some View {
         HStack(spacing: 4) {
             item(.days, "Days") { DaysIcon(selected: $0) }
-            item(.search, "Search") { SearchIcon(color: $0 ? .jOnChromeOn : .ink400) }
-            item(.account, "Account") { PersonIcon(color: $0 ? .jOnChromeOn : .ink400) }
+            item(.settings, "Settings") { SlidersIcon(color: $0 ? .jOnChromeOn : .ink400, knob: $0 ? .jChromeOn : .jChrome) }
         }
         .background {
             // One capsule that follows the selected tab, so it slides
@@ -149,7 +215,7 @@ struct TabBar: View {
                         ))
                 }
             }
-            .padding(.leading, selected ? (tab == .account ? 14 : 18) : 0)
+            .padding(.leading, selected ? 18 : 0)
             .padding(.trailing, selected ? 20 : 0)
             .frame(minWidth: 56)
             .frame(height: 50)
@@ -201,40 +267,6 @@ struct DaysIcon: View {
             lines.move(to: CGPoint(x: 10, y: 4.5)); lines.addLine(to: CGPoint(x: 16, y: 4.5))
             lines.move(to: CGPoint(x: 10, y: 10.5)); lines.addLine(to: CGPoint(x: 15, y: 10.5))
             context.stroke(lines, with: .color(ink), style: style)
-        }
-        .accessibilityHidden(true)
-    }
-}
-
-/// Magnifier on the design's 24-unit grid.
-struct SearchIcon: View {
-    var color: Color
-
-    var body: some View {
-        Canvas { context, size in
-            let k = min(size.width, size.height) / 24
-            context.scaleBy(x: k, y: k)
-            var p = Path(ellipseIn: CGRect(x: 4, y: 4, width: 14, height: 14))
-            p.move(to: CGPoint(x: 20, y: 20)); p.addLine(to: CGPoint(x: 16.5, y: 16.5))
-            context.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: 2, lineCap: .round))
-        }
-        .accessibilityHidden(true)
-    }
-}
-
-/// Head and shoulders on the design's 20-unit grid.
-struct PersonIcon: View {
-    var color: Color
-
-    var body: some View {
-        Canvas { context, size in
-            let k = min(size.width, size.height) / 20
-            context.scaleBy(x: k, y: k)
-            var p = Path(ellipseIn: CGRect(x: 6.5, y: 3, width: 7, height: 7))
-            p.move(to: CGPoint(x: 3.5, y: 17.5))
-            p.addCurve(to: CGPoint(x: 10, y: 12.5), control1: CGPoint(x: 4.3, y: 14.2), control2: CGPoint(x: 6.8, y: 12.5))
-            p.addCurve(to: CGPoint(x: 16.5, y: 17.5), control1: CGPoint(x: 13.2, y: 12.5), control2: CGPoint(x: 15.7, y: 14.2))
-            context.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: 1.7, lineCap: .round))
         }
         .accessibilityHidden(true)
     }

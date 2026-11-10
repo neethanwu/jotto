@@ -55,6 +55,13 @@ final class Pipeline {
         }
     }
 
+    func markedSection(_ id: String, startedAt: Date, start: Double, end: Double) {
+        store.update(id, startedAt: startedAt) { r in
+            let section = LocalRecording.MarkedSection(start: start, end: end)
+            if !(r.sections ?? []).contains(section) { r.sections = (r.sections ?? []) + [section] }
+        }
+    }
+
     // MARK: - Work
 
     /// Starts working through everything outstanding, unless already running.
@@ -71,6 +78,7 @@ final class Pipeline {
                 describeFailed = []
                 transcriberNotReady = false
                 await prepareIfNeeded()
+                store.purgeAudio(keepingDays: AppConfig.shared.keepAudioDays)
                 while let step = nextStep() {
                     await perform(step)
                 }
@@ -82,6 +90,13 @@ final class Pipeline {
     private var rerun = false
 
     private var prepared = false
+
+    /// The transcription language changed: fetch its model, then retry
+    /// anything that was waiting for it.
+    func languageChanged() {
+        prepared = false
+        run()
+    }
 
     /// The language model download needs the app in front; try once per launch.
     private func prepareIfNeeded() async {
@@ -110,7 +125,7 @@ final class Pipeline {
             if r.allTranscribed || giveUpOnMissing(r) { return .polish(id: r.id) }
         }
         // Titles: the on-device model is rate-limited in the background.
-        if Describer.isAvailable, UIApplication.shared.applicationState != .background {
+        if Describer.isAvailable, AppConfig.shared.writesTitles, UIApplication.shared.applicationState != .background {
             for r in all where r.polishedAt != nil && r.describedAt == nil && !r.titleByUser && !describeFailed.contains(r.id) {
                 return .describe(id: r.id)
             }

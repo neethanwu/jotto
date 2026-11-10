@@ -59,6 +59,18 @@ final class WatchTransfer: NSObject {
         ])
     }
 
+    /// A marked stretch, as seconds from the start of the recording.
+    func sendSection(session: UUID, startedAt: Date, start: TimeInterval, end: TimeInterval) {
+        guard WCSession.default.activationState == .activated else { return }
+        WCSession.default.transferUserInfo([
+            "kind": "section",
+            "session": session.uuidString.lowercased(),
+            "sessionStartedAt": startedAt.timeIntervalSince1970,
+            "offset": start,
+            "end": end,
+        ])
+    }
+
     /// Tells the phone the recording ended. `transferUserInfo` is queued and
     /// guaranteed like file transfers, and may arrive before the last segment.
     func sendFinish(session: UUID, startedAt: Date, endedAt: Date, segmentCount: Int) {
