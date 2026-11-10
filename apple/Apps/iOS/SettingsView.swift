@@ -88,7 +88,7 @@ struct PageHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                CircleIconButton(systemName: "chevron.left", label: "Back", action: back)
+                CircleIconButton(glyph: .back, label: "Back", action: back)
                 Spacer()
             }
             .frame(height: 52)
@@ -196,7 +196,7 @@ struct SettingsToggle: View {
         Toggle(isOn: $isOn) {
             Text(label).font(.reading).foregroundStyle(Color.jText)
         }
-        .tint(Color.jText)
+        .toggleStyle(JottoToggleStyle())
         .frame(minHeight: 52)
     }
 }

@@ -53,6 +53,7 @@ extension Color {
     static let jSheetFill = pair(Ink.i100, Ink.i800)
     static let jSheetHairline = pair(Ink.i200, Ink.i800)
     static let jSheetWell = pair(Ink.i50, Ink.i950)
+    static let jToggleOff = pair(Ink.i200, Ink.i800)
     static let jLive = Color(Orange.o500)
     static let jLiveHalo = pair(Orange.o100, Orange.o950)
 
@@ -117,23 +118,112 @@ extension View {
 
 // MARK: - Shared pieces
 
+/// Top-bar icons, drawn on the design's 24-unit grid with one stroke
+/// weight so they match each other (SF Symbols vary in weight and sit
+/// off-centre in a circle).
+enum Glyph {
+    case back, down, close, more, share, search
+}
+
+struct GlyphView: View {
+    let glyph: Glyph
+    var color: Color = .jText
+
+    var body: some View {
+        Canvas { context, size in
+            let k = min(size.width, size.height) / 24
+            context.scaleBy(x: k, y: k)
+            let style = StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round)
+            var p = Path()
+            switch glyph {
+            case .back:
+                p.move(to: CGPoint(x: 15.5, y: 5)); p.addLine(to: CGPoint(x: 8.5, y: 12)); p.addLine(to: CGPoint(x: 15.5, y: 19))
+            case .down:
+                p.move(to: CGPoint(x: 5, y: 8.5)); p.addLine(to: CGPoint(x: 12, y: 15.5)); p.addLine(to: CGPoint(x: 19, y: 8.5))
+            case .close:
+                p.move(to: CGPoint(x: 6.5, y: 6.5)); p.addLine(to: CGPoint(x: 17.5, y: 17.5))
+                p.move(to: CGPoint(x: 17.5, y: 6.5)); p.addLine(to: CGPoint(x: 6.5, y: 17.5))
+            case .more:
+                for x in [5.0, 12, 19] {
+                    context.fill(Path(ellipseIn: CGRect(x: x - 2, y: 10, width: 4, height: 4)), with: .color(color))
+                }
+                return
+            case .share:
+                p.move(to: CGPoint(x: 12, y: 3.5)); p.addLine(to: CGPoint(x: 12, y: 14.5))
+                p.move(to: CGPoint(x: 7.5, y: 8)); p.addLine(to: CGPoint(x: 12, y: 3.5)); p.addLine(to: CGPoint(x: 16.5, y: 8))
+                p.move(to: CGPoint(x: 5, y: 12.5))
+                p.addLine(to: CGPoint(x: 5, y: 18.5))
+                p.addArc(tangent1End: CGPoint(x: 5, y: 20.5), tangent2End: CGPoint(x: 7, y: 20.5), radius: 2)
+                p.addLine(to: CGPoint(x: 17, y: 20.5))
+                p.addArc(tangent1End: CGPoint(x: 19, y: 20.5), tangent2End: CGPoint(x: 19, y: 18.5), radius: 2)
+                p.addLine(to: CGPoint(x: 19, y: 12.5))
+            case .search:
+                p.addEllipse(in: CGRect(x: 4, y: 4, width: 14, height: 14))
+                p.move(to: CGPoint(x: 20, y: 20)); p.addLine(to: CGPoint(x: 16.5, y: 16.5))
+            }
+            context.stroke(p, with: .color(color), style: style)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// The 40-pt circle every top-bar button sits in, with an 18-pt glyph.
+struct CircleGlyph: View {
+    let glyph: Glyph
+    var fill: Color = .jFill
+    var color: Color = .jText
+
+    var body: some View {
+        GlyphView(glyph: glyph, color: color)
+            .frame(width: 18, height: 18)
+            .frame(width: 40, height: 40)
+            .background(fill, in: Circle())
+            .contentShape(Circle())
+    }
+}
+
 /// 40pt round icon button on `fill`, used in top bars.
 struct CircleIconButton: View {
-    let systemName: String
+    let glyph: Glyph
     let label: String
     var fill: Color = .jFill
+    var color: Color = .jText
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Color.jText)
-                .frame(width: 40, height: 40)
-                .background(fill, in: Circle())
+            CircleGlyph(glyph: glyph, fill: fill, color: color)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
+    }
+}
+
+/// On is the text colour with a page-coloured knob, so it reads in both
+/// modes (the system switch tinted to text is white on white in dark).
+struct JottoToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button {
+            withAnimation(.spring(duration: 0.25, bounce: 0.15)) { configuration.isOn.toggle() }
+        } label: {
+            HStack {
+                configuration.label
+                Spacer(minLength: 12)
+                ZStack(alignment: configuration.isOn ? .trailing : .leading) {
+                    Capsule().fill(configuration.isOn ? Color.jText : Color.jToggleOff)
+                    Circle()
+                        .fill(configuration.isOn ? Color.jBg : Color.white)
+                        .shadow(color: .black.opacity(configuration.isOn ? 0 : 0.15), radius: 2, y: 1)
+                        .padding(2)
+                }
+                .frame(width: 51, height: 31)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(configuration.isOn ? "On" : "Off")
+        .accessibilityAddTraits(.isToggle)
+        .sensoryFeedback(.selection, trigger: configuration.isOn)
     }
 }
 

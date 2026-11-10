@@ -29,8 +29,8 @@ struct BarPillStyle: ButtonStyle {
         configuration.label
             .font(.scaled(15, .medium, relativeTo: .subheadline))
             .foregroundStyle(Color.jText)
-            .padding(.horizontal, 14)
-            .frame(height: 34)
+            .padding(.horizontal, 16)
+            .frame(height: 40)
             .background(Color.jFill, in: Capsule())
             .opacity(configuration.isPressed ? 0.6 : 1)
     }

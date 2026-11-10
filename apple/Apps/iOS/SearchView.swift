@@ -14,7 +14,7 @@ struct SearchView: View {
         VStack(spacing: 0) {
             // Back and the field share one bar that stays put while results scroll.
             HStack(spacing: 10) {
-                CircleIconButton(systemName: "chevron.left", label: "Back") { dismiss() }
+                CircleIconButton(glyph: .back, label: "Back") { dismiss() }
                 field
             }
             .padding(.leading, 16)

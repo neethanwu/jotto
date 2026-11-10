@@ -69,20 +69,16 @@ struct TranscriptView: View {
 
     private var topBar: some View {
         HStack {
-            CircleIconButton(systemName: "chevron.left", label: "Back") { dismiss() }
+            CircleIconButton(glyph: .back, label: "Back") { dismiss() }
             Spacer()
             Menu {
                 Button("Rename", systemImage: "pencil") { renaming = true }
                 Button("Delete", systemImage: "trash", role: .destructive) { confirmDelete = true }
             } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color.jText)
-                    .frame(width: 40, height: 40)
-                    .background(Color.jFill, in: Circle())
+                CircleGlyph(glyph: .more)
             }
             .accessibilityLabel("More")
-            CircleIconButton(systemName: "square.and.arrow.up", label: "Share") { sharing = true }
+            CircleIconButton(glyph: .share, label: "Share") { sharing = true }
                 .disabled(detail == nil)
         }
         .padding(.horizontal, 16)

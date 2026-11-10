@@ -23,10 +23,12 @@ struct DaysView: View {
                                 .buttonStyle(BarPillStyle())
                                 .transition(.opacity.combined(with: .scale(scale: 0.9)))
                         }
-                        CircleButton(label: "Search") { router.days.append(.search) } icon: { SearchIcon() }
+                        CircleIconButton(glyph: .search, label: "Search") { router.days.append(.search) }
                     }
                 }
-                .padding(.horizontal, 20)
+                // Wordmark on the title's edge; buttons on the same 16 as every top bar.
+                .padding(.leading, 20)
+                .padding(.trailing, 16)
                 .animation(.easeOut(duration: 0.2), value: isToday)
 
                 header
@@ -96,9 +98,8 @@ struct DaysView: View {
                         .dayTitleStyle()
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(Color.jText4)
+                    GlyphView(glyph: .down, color: .jText4)
+                        .frame(width: 18, height: 18)
                         .padding(.top, 6)
                 }
                 Text(meta)

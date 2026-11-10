@@ -16,14 +16,7 @@ struct LiveView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Button { dismiss() } label: {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Color.ink50)
-                        .frame(width: 40, height: 40)
-                        .background(Color.ink900, in: Circle())
-                }
-                .accessibilityLabel("Close")
+                CircleIconButton(glyph: .down, label: "Close", fill: .ink900, color: .ink50) { dismiss() }
                 Spacer()
                 Text("Recording")
                     .font(.label)

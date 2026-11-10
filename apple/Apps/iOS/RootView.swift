@@ -91,40 +91,6 @@ struct RootView: View {
     }
 }
 
-/// 40-pt round button on `fill` with a drawn icon, for the Days top bar.
-struct CircleButton<Icon: View>: View {
-    let label: String
-    let action: () -> Void
-    @ViewBuilder var icon: Icon
-
-    var body: some View {
-        Button(action: action) {
-            icon
-                .frame(width: 18, height: 18)
-                .frame(width: 40, height: 40)
-                .background(Color.jFill, in: Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-    }
-}
-
-/// Magnifier on the design's 24-unit grid.
-struct SearchIcon: View {
-    var color: Color = .jText
-
-    var body: some View {
-        Canvas { context, size in
-            let k = min(size.width, size.height) / 24
-            context.scaleBy(x: k, y: k)
-            var p = Path(ellipseIn: CGRect(x: 4, y: 4, width: 14, height: 14))
-            p.move(to: CGPoint(x: 20, y: 20)); p.addLine(to: CGPoint(x: 16.5, y: 16.5))
-            context.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: 2.2, lineCap: .round))
-        }
-        .accessibilityHidden(true)
-    }
-}
-
 /// Two sliders on the design's 20-unit grid: settings.
 struct SlidersIcon: View {
     var color: Color = .jText
@@ -244,28 +210,29 @@ struct TabBar: View {
 
 /// Days icon: the timeline in miniature. A spine with two stops and two
 /// lines of text; the top stop is orange when the tab is selected.
-/// Drawn on the design's 18-unit grid and scaled to fit.
+/// Drawn on the design's 20-unit grid, the same as the settings icon.
 struct DaysIcon: View {
     var selected: Bool
 
     var body: some View {
         Canvas { context, size in
-            let k = min(size.width, size.height) / 18
+            let k = min(size.width, size.height) / 20
             context.scaleBy(x: k, y: k)
             let ink = selected ? Color.jOnChromeOn : Color.ink400
-            let style = StrokeStyle(lineWidth: 1.5, lineCap: .round)
-            // Starts at the dot's centre, so no cap pokes out above the dot.
+            let style = StrokeStyle(lineWidth: 1.8, lineCap: .round)
+            // From the top stop's centre down past the second, as the
+            // timeline carries on.
             var spine = Path()
-            spine.move(to: CGPoint(x: 5, y: 4.5)); spine.addLine(to: CGPoint(x: 5, y: 16.5))
+            spine.move(to: CGPoint(x: 5, y: 5)); spine.addLine(to: CGPoint(x: 5, y: 18))
             context.stroke(spine, with: .color(ink), style: style)
-            context.fill(Path(ellipseIn: CGRect(x: 2.5, y: 2, width: 5, height: 5)),
+            context.fill(Path(ellipseIn: CGRect(x: 2.4, y: 2.4, width: 5.2, height: 5.2)),
                          with: .color(selected ? .jLive : ink))
-            let ring = Path(ellipseIn: CGRect(x: 2.8, y: 8.3, width: 4.4, height: 4.4))
+            let ring = Path(ellipseIn: CGRect(x: 2.6, y: 11.1, width: 4.8, height: 4.8))
             context.fill(ring, with: .color(selected ? .jChromeOn : .jChrome))
             context.stroke(ring, with: .color(ink), style: style)
             var lines = Path()
-            lines.move(to: CGPoint(x: 10, y: 4.5)); lines.addLine(to: CGPoint(x: 16, y: 4.5))
-            lines.move(to: CGPoint(x: 10, y: 10.5)); lines.addLine(to: CGPoint(x: 15, y: 10.5))
+            lines.move(to: CGPoint(x: 10.5, y: 5)); lines.addLine(to: CGPoint(x: 17.5, y: 5))
+            lines.move(to: CGPoint(x: 10.5, y: 13.5)); lines.addLine(to: CGPoint(x: 16, y: 13.5))
             context.stroke(lines, with: .color(ink), style: style)
         }
         .accessibilityHidden(true)
