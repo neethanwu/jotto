@@ -156,8 +156,8 @@ private struct RecordingScreen: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { status }
         }
-        .task(id: recorder.marks) {
-            guard recorder.marks > 0 else { return }
+        .task(id: recorder.lastMarkAt) {
+            guard recorder.lastMarkAt != nil else { return }
             justMarked = true
             try? await Task.sleep(for: .seconds(2))
             if !Task.isCancelled { justMarked = false }
@@ -200,9 +200,11 @@ private struct RecordingScreen: View {
 
     private func starButton(size: CGFloat) -> some View {
         Button { recorder.mark(source: "button") } label: {
-            Image(systemName: "star.fill")
-                .font(.system(size: size * 0.41, weight: .semibold))
-                .foregroundStyle(Color.ink50)
+            // Drawn like the [ ] beside it, so both sit at the same size
+            // and centre; the SF star rode high in its circle.
+            Star()
+                .fill(Color.ink50)
+                .frame(width: size * 0.45, height: size * 0.45)
                 .frame(width: size, height: size)
                 .background(justMarked ? Color.live : Color.ink800, in: Circle())
         }
@@ -293,6 +295,20 @@ private struct RecordingScreen: View {
         return s >= 3600
             ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60)
             : String(format: "%d:%02d", s / 60, s % 60)
+    }
+}
+
+/// The star, on the design's 24-unit grid, moved down so its points
+/// (not just its box) sit in the middle.
+private struct Star: Shape {
+    func path(in rect: CGRect) -> Path {
+        let u = rect.width / 24
+        let points: [(Double, Double)] = [(12, 3.2), (14.6, 8.7), (20.6, 9.5), (16.2, 13.7), (17.3, 19.7),
+                                          (12, 16.8), (6.7, 19.7), (7.8, 13.7), (3.4, 9.5), (9.4, 8.7)]
+        var p = Path()
+        p.addLines(points.map { CGPoint(x: $0.0 * u, y: ($0.1 + 0.55) * u) })
+        p.closeSubpath()
+        return p.strokedPath(StrokeStyle(lineWidth: 1.2 * u, lineJoin: .round)).union(p)
     }
 }
 

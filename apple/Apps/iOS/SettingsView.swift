@@ -25,10 +25,19 @@ struct SettingsView: View {
                                     ? LanguageView.name(config.languages[0])
                                     : config.languages.map(LanguageView.shortName).joined(separator: ", "))
                     }
+                    if Editor.isAvailable {
+                        SettingsToggle("Tidy up the text", isOn: Bindable(config).tidiesText)
+                    }
                     if Describer.isAvailable {
                         SettingsToggle("Titles and summaries", isOn: Bindable(config).writesTitles)
                     }
                     SettingsToggle("Notify when ready", isOn: Bindable(config).notifiesWhenReady)
+                }
+
+                SettingsSection("Highlights") {
+                    NavigationLink(value: Route.moments) {
+                        SettingsRow("A star covers", value: Moments.label(config.momentSeconds))
+                    }
                 }
 
                 SettingsSection("Storage") {
@@ -259,6 +268,40 @@ struct KeepAudioView: View {
     }
 }
 
+/// How far back a moment (the star) reaches.
+enum Moments {
+    static func label(_ seconds: Int) -> String {
+        seconds >= 60 ? "Last \(seconds / 60) min" : "Last \(seconds) s"
+    }
+}
+
+struct MomentsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var config: AppConfig = .shared
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                PageHeader(title: "A star covers", detail: "You mark a moment after you hear it, so a star reaches back from the tap, and \(Int(Highlight.after)) seconds past it. Sections cover exactly what you marked.") { dismiss() }
+                SettingsGroup {
+                    ForEach(Highlight.beforeChoices, id: \.self) { seconds in
+                        ChoiceRow(label: Moments.label(seconds), detail: seconds == Highlight.defaultBefore ? "A sentence or two" : nil,
+                                  selected: config.momentSeconds == seconds) {
+                            config.momentSeconds = seconds
+                        }
+                    }
+                }
+                .padding(.top, 24)
+            }
+            .padding(.horizontal, 20)
+        }
+        .statusBarCover()
+        .background(Color.jBg)
+        .toolbar(.hidden, for: .navigationBar)
+        .sensoryFeedback(.selection, trigger: config.momentSeconds)
+    }
+}
+
 struct OpenInView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var config: AppConfig = .shared
@@ -268,7 +311,7 @@ struct OpenInView: View {
             VStack(alignment: .leading, spacing: 0) {
                 PageHeader(title: "Open transcripts in", detail: "You can always switch between them on the transcript.") { dismiss() }
                 SettingsGroup {
-                    ChoiceRow(label: "Clean", detail: "Fillers and repeats taken out", selected: !config.opensOriginal) { config.opensOriginal = false }
+                    ChoiceRow(label: "Clean", detail: "Tidied into sentences, fillers taken out", selected: !config.opensOriginal) { config.opensOriginal = false }
                     ChoiceRow(label: "Original", detail: "Every word, with the cuts struck through", selected: config.opensOriginal) { config.opensOriginal = true }
                 }
                 .padding(.top, 24)

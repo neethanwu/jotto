@@ -66,7 +66,8 @@ final class LocalStore {
             id: r.id, status: r.status, startedAt: r.startedAt, endedAt: r.endedAt,
             title: r.title, titleByUser: r.titleByUser, titleSuggestions: r.titleSuggestions,
             summary: r.summary, segmentCount: r.segmentCount, missingSegments: r.missing,
-            segments: segments, blocks: blocks, highlights: r.highlights, language: r.locale
+            segments: segments, blocks: blocks, highlights: r.highlights, language: r.locale,
+            tidying: Pipeline.shared.tidyProgress(r)
         )
     }
 
@@ -140,7 +141,8 @@ final class LocalStore {
         return blocks(r).map { b in
             TranscriptBlock(
                 id: b.id, section: b.section, speaker: nil, start: b.start, end: b.end, text: b.text,
-                clean: b.backchannel ? b.text : r.clean[b.text], backchannel: b.backchannel
+                clean: b.backchannel ? b.text : (r.tidy?[b.text] ?? r.clean[b.text]), backchannel: b.backchannel,
+                trimmed: r.clean[b.text]
             )
         }
     }

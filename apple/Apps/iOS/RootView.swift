@@ -13,6 +13,7 @@ enum Route: Hashable {
     case language
     case keepAudio
     case openIn
+    case moments
     case inbox
 }
 
@@ -82,6 +83,7 @@ struct RootView: View {
                     case .language: LanguageView()
                     case .keepAudio: KeepAudioView()
                     case .openIn: OpenInView()
+                    case .moments: MomentsView()
                     case .inbox: InboxView(inbox: .shared)
                     }
                 }

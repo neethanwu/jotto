@@ -128,12 +128,18 @@ extension WatchTransfer: WCSessionDelegate {
         }
     }
 
-    /// The phone asks: "stop" from its Live screen. Live message when the
-    /// watch app is reachable, else queued user info.
+    /// The phone asks: "stop" from its Live screen, or says it marked a
+    /// moment or a section there. Live message when the watch app is
+    /// reachable (with or without a reply wanted), else queued user info.
     nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any], replyHandler: @escaping ([String: Any]) -> Void) {
         let command = (message["kind"] as? String, message["session"] as? String)
         Task { @MainActor in Self.handle(command) }
         replyHandler(["ok": true])
+    }
+
+    nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+        let command = (message["kind"] as? String, message["session"] as? String)
+        Task { @MainActor in Self.handle(command) }
     }
 
     nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
@@ -142,8 +148,12 @@ extension WatchTransfer: WCSessionDelegate {
     }
 
     private static func handle(_ command: (kind: String?, session: String?)) {
-        if command.kind == "stop", let session = command.session {
-            Recorder.shared.stopFromPhone(session: session)
+        guard let session = command.session else { return }
+        switch command.kind {
+        case "stop": Recorder.shared.stopFromPhone(session: session)
+        case "mark": Recorder.shared.markedOnPhone(session: session, section: false)
+        case "section": Recorder.shared.markedOnPhone(session: session, section: true)
+        default: break
         }
     }
 

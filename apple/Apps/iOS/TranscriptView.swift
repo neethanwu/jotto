@@ -34,17 +34,35 @@ struct TranscriptView: View {
     var body: some View {
         VStack(spacing: 0) {
             topBar
-            if let detail {
-                head(detail)
-                    .padding(.horizontal, 20)
-            }
             ScrollViewReader { proxy in
                 ScrollView {
                     if let detail {
-                        paragraphs(detail)
-                            .padding(.horizontal, 20)
-                            .padding(.top, 20)
-                            .padding(.bottom, 140)
+                        // Meta and title scroll away; the view switch stays
+                        // at the top, so more of the screen is the text.
+                        LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                            head(detail)
+                                .padding(.horizontal, 20)
+                                .id(Self.headID)
+                            Section {
+                                paragraphs(detail)
+                                    .padding(.horizontal, 20)
+                                    .padding(.top, 20)
+                                    .padding(.bottom, 140)
+                                    // While the title is being edited the transcript
+                                    // steps back. A veil over it rather than changing
+                                    // the rows themselves: touching the selectable
+                                    // text's modifiers rebuilt it, and it slid into
+                                    // place as the keyboard went.
+                                    .overlay {
+                                        Color.jBg
+                                            .opacity(renaming ? 0.7 : 0)
+                                            .allowsHitTesting(renaming)
+                                            .accessibilityHidden(true)
+                                    }
+                            } header: {
+                                pinnedHeader(detail)
+                            }
+                        }
                     } else if let error {
                         Text(error).font(.summary).foregroundStyle(Color.jText3).padding(20)
                     } else {
@@ -52,16 +70,6 @@ struct TranscriptView: View {
                     }
                 }
                 .scrollIndicators(.hidden)
-                // While the title is being edited the transcript steps back.
-                // A veil over it rather than changing the rows themselves:
-                // touching the selectable text's modifiers rebuilt it, and
-                // it slid into place as the keyboard went.
-                .overlay {
-                    Color.jBg
-                        .opacity(renaming ? 0.7 : 0)
-                        .allowsHitTesting(renaming)
-                        .accessibilityHidden(true)
-                }
                 .onChange(of: detail?.blocks.count) { _, _ in scrollToStart(proxy) }
                 .onChange(of: currentBlock) { _, block in
                     let scrubbing = player.scrubTime != nil
@@ -76,10 +84,15 @@ struct TranscriptView: View {
                         // Let Clean lay out first.
                         try? await Task.sleep(for: .milliseconds(150))
                         withAnimation(.easeInOut(duration: 0.3)) {
-                            proxy.scrollTo(groupID(of: target, in: detail), anchor: .top)
+                            // Clear of the pinned view switch.
+                            proxy.scrollTo(groupID(of: target, in: detail), anchor: UnitPoint(x: 0.5, y: 0.2))
                         }
                         jumpTarget = nil
                     }
+                }
+                .onChange(of: titleFocused) { _, focused in
+                    // Rename from the menu with the title scrolled away.
+                    if focused { withAnimation(Self.editMotion) { proxy.scrollTo(Self.headID, anchor: .top) } }
                 }
                 .sensoryFeedback(.selection, trigger: currentBlock) { _, _ in player.scrubTime != nil }
             }
@@ -196,7 +209,9 @@ struct TranscriptView: View {
 
     // MARK: - Content
 
-    /// Meta, title and the view switch stay put; the transcript scrolls under them.
+    private static let headID = "head"
+
+    /// Meta and title, scrolling with the text.
     private func head(_ detail: SessionDetail) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(meta(detail))
@@ -231,17 +246,23 @@ struct TranscriptView: View {
                 suggestions(detail)
                     .transition(.opacity)
             }
-
-            Group {
-                viewSwitch(detail)
-                    .padding(.top, 24)
-
-                status(detail)
-            }
-            // While the title is being edited, the rest steps back.
-            .opacity(renaming ? 0.3 : 1)
-            .allowsHitTesting(!renaming)
         }
+        .padding(.bottom, 24)
+    }
+
+    /// The view switch and what's still happening, pinned while the text scrolls.
+    private func pinnedHeader(_ detail: SessionDetail) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            viewSwitch(detail)
+            status(detail)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.jBg)
+        // While the title is being edited, the rest steps back.
+        .opacity(renaming ? 0.3 : 1)
+        .allowsHitTesting(!renaming)
     }
 
     /// The title is a field all the time, styled as the title, so tapping
@@ -322,9 +343,11 @@ struct TranscriptView: View {
     }
 
     private func viewSwitch(_ detail: SessionDetail) -> some View {
-        let fillers = detail.blocks.reduce(0) { n, b in
-            n + (b.clean.map { Fillers.diff(raw: b.text, clean: $0).removedRuns } ?? 0)
-        }
+        // Original strikes out what the rules took; the model's rewording
+        // isn't counted.
+        let fillers = tab == .original ? detail.blocks.reduce(0) { n, b in
+            n + ((b.trimmed ?? b.clean).map { Fillers.diff(raw: b.text, clean: $0).removedRuns } ?? 0)
+        } : 0
         let marked = detail.highlights?.count ?? 0
         return VStack(spacing: 0) {
             HStack(spacing: 20) {
@@ -334,7 +357,7 @@ struct TranscriptView: View {
                     tabButton("Highlights", count: marked, selected: tab == .highlights) { tab = .highlights }
                 }
                 Spacer(minLength: 8)
-                if fillers > 0, tab != .highlights {
+                if fillers > 0 {
                     Text("\(fillers) \(fillers == 1 ? "filler" : "fillers") gone")
                         .font(.metaSmall)
                         .foregroundStyle(Color.jText3)
@@ -361,9 +384,12 @@ struct TranscriptView: View {
 
     @ViewBuilder
     private func status(_ detail: SessionDetail) -> some View {
-        let working = detail.status == "processing"
         let heard = detail.segments.filter { $0.status == "done" || $0.status == "failed" }.count
-        let note: String? = switch detail.status {
+        let tidying = detail.status == "ready" ? detail.tidying : nil
+        let working = detail.status == "processing" || tidying != nil
+        let note: String? = if let tidying {
+            "Tidying up · \(tidying.done) of \(tidying.total)"
+        } else { switch detail.status {
         case "recording": "Still recording. Text arrives a couple of minutes behind"
         case "processing":
             if let waiting = Pipeline.shared.waiting, heard < (detail.segmentCount ?? 1) {
@@ -375,7 +401,7 @@ struct TranscriptView: View {
             (detail.missingSegments ?? 0) > 0
                 ? "\(Format.plural(detail.missingSegments ?? 0, "part")) never reached your iPhone, so there are gaps"
                 : nil
-        }
+        } }
         if let note {
             HStack(spacing: 8) {
                 if working { ProcessingRing(size: 12) }
@@ -384,7 +410,8 @@ struct TranscriptView: View {
                     .foregroundStyle(Color.jText3)
                     .contentTransition(.numericText())
             }
-            .padding(.top, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 4)
             .animation(.easeOut(duration: 0.2), value: note)
         }
     }
@@ -410,36 +437,27 @@ struct TranscriptView: View {
         } else if tab == .highlights {
             highlightList(detail)
         } else {
-            LazyVStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 22) {
                 ForEach(groups(detail)) { group in
-                    Group {
-                        if group.highlights.isEmpty {
-                            paragraph(group.rows[0])
-                        } else {
-                            VStack(alignment: .leading, spacing: 0) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    ForEach(group.highlights) { HighlightLabel(highlight: $0) }
-                                }
-                                .padding(.bottom, 8)
-                                VStack(alignment: .leading, spacing: 22) {
-                                    ForEach(group.rows) { paragraph($0) }
-                                }
+                    VStack(alignment: .leading, spacing: 22) {
+                        ForEach(group.rows) { row in
+                            // Each highlight is named where it starts.
+                            let starting = group.highlights.filter { h in
+                                group.rows.first { h.covers($0.block) }?.id == row.id
                             }
-                            .padding(.horizontal, 8)
-                            .padding(.top, 12)
-                            .padding(.bottom, 14)
-                            .card(radius: 16)
-                            .padding(.horizontal, -8)
+                            paragraph(row, label: HighlightLabel.inline(starting))
+                                .marginGlyph(starting.first)
                         }
                     }
+                    .marginRule(!group.highlights.isEmpty)
                     .id(group.id)
                 }
             }
         }
     }
 
-    private func paragraph(_ row: Row) -> some View {
-        ParagraphView(row: row, showOriginal: showOriginal, isCurrent: currentBlock == row.block.id) {
+    private func paragraph(_ row: Row, label: String? = nil) -> some View {
+        ParagraphView(row: row, label: label, showOriginal: showOriginal, isCurrent: currentBlock == row.block.id) {
             player.seek(to: row.block.start)
         }
     }
@@ -449,10 +467,7 @@ struct TranscriptView: View {
     private func highlightList(_ detail: SessionDetail) -> some View {
         let highlights = detail.highlights ?? []
         let spoken = detail.blocks.filter { $0.backchannel != true }
-        return VStack(alignment: .leading, spacing: 12) {
-            Text(highlightSummary(highlights))
-                .font(.metaSmall)
-                .foregroundStyle(Color.jText3)
+        return VStack(alignment: .leading, spacing: 30) {
             ForEach(highlights) { h in
                 let said = spoken.filter(h.covers)
                 Button {
@@ -460,38 +475,30 @@ struct TranscriptView: View {
                     player.seek(to: h.start, play: false)
                     jumpTarget = said.first?.id
                 } label: {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 4) {
                         HighlightLabel(highlight: h)
                         if said.isEmpty {
-                            Text("Nothing was said here").font(.summary).foregroundStyle(Color.jText3)
+                            Text("Nothing was said here").font(.reading).foregroundStyle(Color.jText3)
                         }
-                        ForEach(said) { block in
-                            (Text(block.speaker == nil ? "" : Format.speaker(block.speaker) + "  ").font(.speaker)
-                                + Text(block.clean ?? block.text).font(.reading))
-                                .foregroundStyle(Color.jText)
-                                .lineSpacing(8)
-                                .multilineTextAlignment(.leading)
+                        VStack(alignment: .leading, spacing: 16) {
+                            ForEach(said) { block in
+                                (Text(block.speaker == nil ? "" : Format.speaker(block.speaker) + "  ").font(.speaker)
+                                    + Text(block.clean ?? block.text).font(.reading))
+                                    .foregroundStyle(Color.jText)
+                                    .lineSpacing(11)
+                                    .multilineTextAlignment(.leading)
+                            }
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 14)
-                    .padding(.bottom, 16)
-                    .card(radius: 16)
-                    .contentShape(RoundedRectangle(cornerRadius: 16))
+                    .marginGlyph(h)
+                    .marginRule(true)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint("Shows it in the transcript")
             }
         }
-    }
-
-    private func highlightSummary(_ highlights: [Highlight]) -> String {
-        let sections = highlights.filter(\.isSection).count
-        let moments = highlights.count - sections
-        let parts = [moments > 0 ? Format.plural(moments, "moment") : nil,
-                     sections > 0 ? Format.plural(sections, "section") : nil].compactMap { $0 }
-        return parts.joined(separator: " and ") + ", in order"
     }
 
     // MARK: - Data
@@ -587,8 +594,9 @@ struct TranscriptView: View {
             } catch {
                 self.error = error.localizedDescription
             }
-            if detail?.status == "ready" { return }
-            try? await Task.sleep(for: .seconds(4))
+            // Done, unless the text is still being tidied.
+            if detail?.status == "ready", detail?.tidying == nil { return }
+            try? await Task.sleep(for: .seconds(detail?.tidying == nil ? 4 : 2))
         }
     }
 
@@ -629,6 +637,8 @@ struct TranscriptView: View {
 
 struct ParagraphView: View {
     let row: TranscriptView.Row
+    /// What's marked here, beside the time ("Moment", "Section to 1:20").
+    var label: String?
     let showOriginal: Bool
     let isCurrent: Bool
     let seek: () -> Void
@@ -638,34 +648,32 @@ struct ParagraphView: View {
             if row.newSection {
                 Rectangle().fill(Color.jHairline).frame(height: 1).padding(.bottom, 22)
             }
-            HStack(alignment: .firstTextBaseline, spacing: 0) {
-                Button(action: seek) {
+            // The time sits over the paragraph, so the text has the full width.
+            Button(action: seek) {
+                HStack(spacing: 0) {
                     Text(Format.clock(row.block.start))
-                        .font(.metaSmall)
                         .foregroundStyle(isCurrent ? Color.jText : Color.jText3)
-                        .frame(width: 48, alignment: .leading)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Play from \(Format.clock(row.block.start))")
-
-                VStack(alignment: .leading, spacing: 2) {
-                    if row.showSpeaker {
-                        Text(Format.speaker(row.block.speaker))
-                            .font(.speaker)
-                            .foregroundStyle(Color.jText)
+                        .fontWeight(isCurrent ? .semibold : .medium)
+                    if let label {
+                        Text(" · " + label).foregroundStyle(Color.jText).fontWeight(.semibold)
                     }
-                    text
-                        .font(.reading)
-                        .lineSpacing(10)
-                        .textSelection(.enabled)
+                    if row.showSpeaker {
+                        Text("  " + Format.speaker(row.block.speaker)).foregroundStyle(Color.jText).fontWeight(.semibold)
+                    }
                 }
+                .font(.metaSmall)
+                .lineLimit(1)
+                .frame(minHeight: 20)
+                .contentShape(Rectangle())
             }
-            .padding(.leading, isCurrent ? 0 : 0)
-            .overlay(alignment: .leading) {
-                if isCurrent {
-                    Rectangle().fill(Color.jText).frame(width: 1.5).offset(x: -7)
-                }
-            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Play from \(Format.clock(row.block.start))")
+            .padding(.bottom, 4)
+
+            text
+                .font(.reading)
+                .lineSpacing(11)
+                .textSelection(.enabled)
         }
     }
 
@@ -681,7 +689,7 @@ struct ParagraphView: View {
         guard showOriginal else { return Text(clean).foregroundStyle(Color.jText) }
 
         var out = AttributedString()
-        for piece in Fillers.diff(raw: block.text, clean: clean).pieces {
+        for piece in Fillers.diff(raw: block.text, clean: block.trimmed ?? clean).pieces {
             var part = AttributedString(piece.text)
             if piece.removed {
                 part.foregroundColor = Color.jText4
@@ -695,24 +703,68 @@ struct ParagraphView: View {
     }
 }
 
-/// "★ 0:52 · moment" or "[ ] 0:14 – 0:40 · section".
+/// "0:52 · Moment" or "0:14 – 0:40 · Section", over a highlight's text
+/// in the Highlights tab; its glyph sits in the margin (`marginRule`).
 struct HighlightLabel: View {
     let highlight: Highlight
 
     var body: some View {
-        HStack(spacing: 6) {
-            GlyphView(glyph: highlight.isSection ? .brackets : .star)
-                .frame(width: 12, height: 12)
-            Text(highlight.isSection
-                 ? "\(Format.clock(highlight.start)) – \(Format.clock(highlight.end))"
-                 : Format.clock(highlight.at))
-                .font(.scaled(12, .semibold, relativeTo: .caption1).monospacedDigit())
-                .foregroundStyle(Color.jText)
-            Text(highlight.isSection ? "· section" : "· moment")
-                .font(.metaSmall)
-                .foregroundStyle(Color.jText3)
+        (Text(highlight.isSection
+              ? "\(Format.clock(highlight.start)) – \(Format.clock(highlight.end))"
+              : Format.clock(highlight.at))
+            .foregroundStyle(Color.jText).fontWeight(.semibold)
+         + Text(highlight.isSection ? " · Section" : " · Moment").foregroundStyle(Color.jText3))
+            .font(.metaSmall)
+            .frame(minHeight: 20)
+            .accessibilityElement(children: .combine)
+    }
+
+    /// Beside a paragraph's time, for the highlights that start there.
+    static func inline(_ highlights: [Highlight]) -> String? {
+        guard !highlights.isEmpty else { return nil }
+        let moments = highlights.filter { !$0.isSection }.count
+        let sections = highlights.filter(\.isSection)
+        var parts: [String] = sections.map { "Section to \(Format.clock($0.end))" }
+        if moments == 1 { parts.insert("Moment", at: 0) }
+        if moments > 1 { parts.insert("\(moments) moments", at: 0) }
+        return parts.joined(separator: " · ")
+    }
+}
+
+extension View {
+    /// A marked stretch: a rule down the left margin beside the text it
+    /// covers, starting under the first line's glyph.
+    @ViewBuilder
+    func marginRule(_ marked: Bool) -> some View {
+        if marked {
+            self.overlay(alignment: .topLeading) {
+                GeometryReader { geo in
+                    Capsule()
+                        .fill(Color.jText)
+                        .frame(width: 2, height: max(0, geo.size.height - 28))
+                        .offset(x: -11, y: 22)
+                }
+                .accessibilityHidden(true)
+            }
+        } else {
+            self
         }
-        .accessibilityElement(children: .combine)
+    }
+
+    /// The star or [ ] in the left margin, by the time where a highlight starts.
+    @ViewBuilder
+    func marginGlyph(_ highlight: Highlight?) -> some View {
+        if let highlight {
+            self.overlay(alignment: .topLeading) {
+                GlyphView(glyph: highlight.isSection ? .brackets : .star)
+                    .frame(width: 12, height: 12)
+                    .background(Color.jBg)
+                    .offset(x: -16, y: 4)
+                    .accessibilityHidden(true)
+            }
+        } else {
+            self
+        }
     }
 }
 

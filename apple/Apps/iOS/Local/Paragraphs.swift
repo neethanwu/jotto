@@ -19,11 +19,16 @@ enum Paragraphs {
     }
 
     /// Pause that starts a new paragraph.
-    static let paragraphGap = 2.5
+    static let paragraphGap = 2.0
     /// Silence that starts a new section.
     static let sectionGap = 90.0
-    /// Longer paragraphs are split at sentence ends.
-    static let maxBlockChars = 400
+    /// A paragraph is a few sentences: about 70 Chinese characters or 40
+    /// English words (`Sentences.units`). Short enough to read at a
+    /// glance, and each one gets its own time.
+    static let maxBlockUnits = 70.0
+    /// Phrases from before sentences had their own times (one result
+    /// could run a minute) are cut at sentence ends past this many characters.
+    static let maxBlockChars = 160
 
     static func stitch(_ segments: [LocalSegment]) -> [Utterance] {
         segments.sorted { $0.index < $1.index }.flatMap { seg in
@@ -61,7 +66,7 @@ enum Paragraphs {
                 let end = u.start + span * Double(consumed) / total
                 if let o = open, i == 0, blocks[o].section == section,
                    start - blocks[o].end < paragraphGap,
-                   blocks[o].text.count + piece.count <= maxBlockChars {
+                   Sentences.units(blocks[o].text) + Sentences.units(piece) <= maxBlockUnits {
                     blocks[o].text = join(blocks[o].text, piece)
                     blocks[o].end = end
                 } else {

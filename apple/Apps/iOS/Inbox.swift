@@ -56,15 +56,30 @@ final class Inbox: NSObject {
     /// watch to ask.
     @discardableResult
     func askWatchToStop(_ session: String) -> Bool {
+        tellWatch(["kind": "stop", "session": session])
+    }
+
+    /// A mark or section made on the phone's Live screen, so the watch's
+    /// count includes it.
+    func tellWatchMarked(_ session: String, section: Bool) {
+        tellWatch(["kind": section ? "section" : "mark", "session": session])
+    }
+
+    /// A live message when the watch app is reachable (with a reply, so a
+    /// failure is known), else queued user info. The watch handles both.
+    @discardableResult
+    private func tellWatch(_ message: [String: Any]) -> Bool {
         guard WCSession.isSupported(), WCSession.default.activationState == .activated,
               WCSession.default.isPaired, WCSession.default.isWatchAppInstalled else { return false }
-        let message: [String: Any] = ["kind": "stop", "session": session]
-        PhoneLog.shared.note("ask_watch_stop", "reachable=\(WCSession.default.isReachable)")
+        let kind = message["kind"] as? String ?? "?"
+        PhoneLog.shared.note("tell_watch", "\(kind) reachable=\(WCSession.default.isReachable)")
         if WCSession.default.isReachable {
-            WCSession.default.sendMessage(message, replyHandler: nil) { error in
-                PhoneLog.shared.later("ask_watch_stop_failed", error.localizedDescription)
+            WCSession.default.sendMessage(message, replyHandler: { _ in
+                PhoneLog.shared.later("tell_watch_ok", kind)
+            }, errorHandler: { error in
+                PhoneLog.shared.later("tell_watch_failed", "\(kind) \(error.localizedDescription)")
                 WCSession.default.transferUserInfo(message)
-            }
+            })
         } else {
             WCSession.default.transferUserInfo(message)
         }

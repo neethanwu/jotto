@@ -39,6 +39,16 @@ final class AppConfig {
         didSet { UserDefaults.standard.set(writesTitles, forKey: "writesTitles") }
     }
 
+    /// Let the on-device model tidy the text (`Editor`).
+    var tidiesText: Bool {
+        didSet { UserDefaults.standard.set(tidiesText, forKey: "tidiesText") }
+    }
+
+    /// How far back a moment (the star) reaches, in seconds.
+    var momentSeconds: Int {
+        didSet { UserDefaults.standard.set(momentSeconds, forKey: "momentSeconds") }
+    }
+
     /// A notice when a recording is ready, with its title and summary.
     var notifiesWhenReady: Bool {
         didSet { UserDefaults.standard.set(notifiesWhenReady, forKey: "notifiesWhenReady") }
@@ -54,5 +64,7 @@ final class AppConfig {
         opensOriginal = defaults.bool(forKey: "opensOriginal")
         writesTitles = defaults.object(forKey: "writesTitles") as? Bool ?? true
         notifiesWhenReady = defaults.object(forKey: "notifiesWhenReady") as? Bool ?? true
+        tidiesText = defaults.object(forKey: "tidiesText") as? Bool ?? true
+        momentSeconds = defaults.object(forKey: "momentSeconds") as? Int ?? Highlight.defaultBefore
     }
 }

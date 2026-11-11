@@ -44,6 +44,13 @@ struct SessionDetail: Decodable, Identifiable {
     var highlights: [Highlight]? = nil
     /// The language it was heard in, a locale identifier.
     var language: String? = nil
+    /// Paragraphs tidied so far and in all, while the on-device model works through them.
+    var tidying: Tidying? = nil
+
+    struct Tidying: Decodable, Equatable {
+        let done: Int
+        let total: Int
+    }
 }
 
 /// A moment (the star) or a section ([ ]) marked on the watch, as the
@@ -57,9 +64,15 @@ struct Highlight: Codable, Hashable, Identifiable {
 
     var id: String { "\(isSection ? "s" : "m")\(at)" }
 
-    /// People mark after they hear it, so a moment reaches further back.
-    static let before: Double = 30
-    static let after: Double = 10
+    /// People mark after they hear it, so a moment reaches back: by
+    /// default 15 seconds (Settings → Moments), and 5 past the tap.
+    static let defaultBefore = 15
+    static let beforeChoices = [10, 15, 30, 60]
+    static let after: Double = 5
+    static var before: Double {
+        let s = UserDefaults.standard.integer(forKey: "momentSeconds")
+        return Double(s > 0 ? s : defaultBefore)
+    }
 
     static func moment(at t: Double) -> Highlight {
         Highlight(at: t, start: max(0, t - before), end: t + after, isSection: false)
@@ -69,8 +82,13 @@ struct Highlight: Codable, Hashable, Identifiable {
         Highlight(at: start, start: start, end: end, isSection: true)
     }
 
+    /// A paragraph that only grazes the stretch (a second or two at its
+    /// edge) isn't counted, unless the star was pressed during it.
     func covers(_ block: TranscriptBlock) -> Bool {
-        block.start < end && block.end > start
+        let overlap = min(block.end, end) - max(block.start, start)
+        guard overlap > 0 else { return false }
+        if !isSection, block.start <= at, at <= block.end { return true }
+        return overlap >= min(3, (block.end - block.start) / 2)
     }
 }
 
@@ -84,6 +102,9 @@ struct TranscriptBlock: Codable, Identifiable, Hashable {
     /// Polished text; nil while polish hasn't caught up.
     let clean: String?
     let backchannel: Bool?
+    /// Fillers and repeats taken out by rule, which Original strikes
+    /// through. Nil for recordings imported from the server.
+    var trimmed: String? = nil
 }
 
 struct SearchResults: Decodable {

@@ -23,7 +23,8 @@ final class Recorder {
     private(set) var levels: [Float] = Array(repeating: 0, count: Recorder.levelCount)
     /// The recording that just ended, shown on the Saved screen.
     private(set) var justSaved: (length: TimeInterval, sentNow: Bool)?
-    /// Highlights marked in this recording, and when the last one was, for feedback.
+    /// Highlights in this recording, moments and sections, made here or
+    /// on the phone; and when the last moment was, for feedback.
     private(set) var marks = 0
     private(set) var lastMarkAt: Date?
     /// When the section being marked began, while one is open.
@@ -101,6 +102,7 @@ final class Recorder {
         if reason != "stop" { WKInterfaceDevice.current().play(.directionDown) }
         let start = begin.timeIntervalSince(startedAt)
         let end = Date.now.timeIntervalSince(startedAt)
+        marks += 1
         WatchTransfer.shared.sendSection(session: sessionID, startedAt: startedAt, start: start, end: end)
         note("section_end", "start=\(Int(start))s end=\(Int(end))s reason=\(reason)")
     }
@@ -199,6 +201,18 @@ final class Recorder {
         }
         note("phone_stop")
         stop()
+    }
+
+    /// Marked on the phone's Live screen: counts here too, and a moment
+    /// flashes the star as if pressed.
+    func markedOnPhone(session: String, section: Bool) {
+        guard state != .idle, sessionID?.uuidString.lowercased() == session.lowercased() else { return }
+        marks += 1
+        if !section {
+            lastMarkAt = .now
+            WKInterfaceDevice.current().play(.click)
+        }
+        note("phone_mark", section ? "section" : "moment")
     }
 
     func dismissSaved() {

@@ -43,6 +43,16 @@ enum Fillers {
         return Result(pieces: pieces, removedRuns: runs)
     }
 
+    /// How much of `a`'s words `b` keeps, in order: matched words, all
+    /// of `a`'s words, and words in `b` that aren't matched.
+    static func overlap(_ a: String, _ b: String) -> (matched: Int, total: Int, added: Int) {
+        let keysA = tokens(a).map(\.key)
+        let keysB = tokens(b).map(\.key).filter { !$0.isEmpty }
+        let matched = lcsMask(keysA, keysB).filter { $0 }.count
+        let total = keysA.filter { !$0.isEmpty }.count
+        return (matched, total, keysB.count - matched)
+    }
+
     private struct Token {
         let text: String
         let key: String

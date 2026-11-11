@@ -13,11 +13,13 @@ enum Mixer {
         var length: Double { max(0.05, end - start) }
     }
 
-    struct Piece: Equatable {
+    struct Piece {
         let start: Double
         let end: Double
         let text: String
         let language: String
+        /// The words kept, for cutting into sentences.
+        var tokens: [Token] = []
     }
 
     private static let sentenceEnds: Set<Character> = ["。", ".", "!", "?", "！", "？"]
@@ -73,13 +75,18 @@ enum Mixer {
                 text = text.drop { $0.isWhitespace || $0.isPunctuation }.description
             }
             guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { continue }
-            let piece = Piece(start: best.tokens.first!.start, end: best.tokens.last!.end, text: text, language: best.language)
+            var kept = best.tokens
+            if pieces.isEmpty || pieces.last?.language != best.language {
+                // Same trim as the text: no stray punctuation at a switch.
+                while let first = kept.first, first.text.allSatisfy({ $0.isWhitespace || $0.isPunctuation }) { kept.removeFirst() }
+            }
+            let piece = Piece(start: best.tokens.first!.start, end: best.tokens.last!.end, text: text, language: best.language, tokens: kept)
             if let last = pieces.last, last.language == piece.language {
-                pieces[pieces.count - 1] = Piece(start: last.start, end: piece.end, text: last.text + piece.text, language: last.language)
+                pieces[pieces.count - 1] = Piece(start: last.start, end: piece.end, text: last.text + piece.text, language: last.language, tokens: last.tokens + kept)
             } else {
                 pieces.append(piece)
             }
         }
-        return pieces.map { Piece(start: $0.start, end: $0.end, text: $0.text.trimmingCharacters(in: .whitespaces), language: $0.language) }
+        return pieces.map { Piece(start: $0.start, end: $0.end, text: $0.text.trimmingCharacters(in: .whitespaces), language: $0.language, tokens: $0.tokens) }
     }
 }

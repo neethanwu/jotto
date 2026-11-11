@@ -178,7 +178,8 @@ struct GlyphView: View {
             case .star:
                 let points: [(Double, Double)] = [(12, 3.2), (14.6, 8.7), (20.6, 9.5), (16.2, 13.7), (17.3, 19.7),
                                                   (12, 16.8), (6.7, 19.7), (7.8, 13.7), (3.4, 9.5), (9.4, 8.7)]
-                p.addLines(points.map { CGPoint(x: $0.0, y: $0.1) })
+                // Down a touch, so the points rather than the box are centred.
+                p.addLines(points.map { CGPoint(x: $0.0, y: $0.1 + 0.55) })
                 p.closeSubpath()
                 context.fill(p, with: .color(color))
                 context.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: 1.2, lineJoin: .round))

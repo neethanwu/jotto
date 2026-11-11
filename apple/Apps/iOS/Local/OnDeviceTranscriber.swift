@@ -150,21 +150,8 @@ actor OnDeviceTranscriber {
             return try JSONDecoder().decode([Phrase].self, from: data)
         }
         #endif
-        let transcriber = try await requireInstalled(locale)
-        let analyzer = SpeechAnalyzer(modules: [transcriber])
-        let file = try AVAudioFile(forReading: url)
-
-        async let collected: [Phrase] = transcriber.results.reduce(into: []) { phrases, result in
-            let text = String(result.text.characters).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { return }
-            phrases.append(Phrase(start: result.range.start.seconds, end: result.range.end.seconds, text: text))
-        }
-        if let last = try await analyzer.analyzeSequence(from: file) {
-            try await analyzer.finalizeAndFinish(through: last)
-        } else {
-            await analyzer.cancelAndFinishNow()
-        }
-        return try await collected
+        // Word times, then sentences: a result alone can run a minute.
+        return Sentences.phrases(try await tokens(url, locale: locale))
     }
 
     // MARK: - Mixed languages (experiment)
@@ -186,7 +173,7 @@ actor OnDeviceTranscriber {
         let counts = Dictionary(grouping: pieces, by: \.language).mapValues(\.count)
         let note = counts.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: " ")
             + " words=" + heard.map { "\($0.key):\($0.value.count)" }.sorted().joined(separator: ",")
-        return (pieces.map { Phrase(start: $0.start, end: $0.end, text: $0.text) }, note)
+        return (pieces.flatMap { Sentences.phrases($0.tokens) }, note)
     }
 
     /// What one language's model heard, a word (or character) at a time.
@@ -202,11 +189,15 @@ actor OnDeviceTranscriber {
         let analyzer = SpeechAnalyzer(modules: [transcriber])
         let file = try AVAudioFile(forReading: url)
         async let collected: [Mixer.Token] = transcriber.results.reduce(into: []) { out, result in
+            var at = result.range.start.seconds
             for run in result.text.runs {
                 let text = String(result.text[run.range].characters)
-                // Without word times, the whole result counts as one word.
-                let range = run.audioTimeRange ?? result.range
-                out.append(.init(text: text, start: range.start.seconds, end: range.end.seconds,
+                // Punctuation and spaces come without times: they sit where
+                // the last word ended.
+                let start = run.audioTimeRange?.start.seconds ?? at
+                let end = run.audioTimeRange?.end.seconds ?? at
+                at = max(at, end)
+                out.append(.init(text: text, start: start, end: end,
                                  confidence: run.transcriptionConfidence ?? 0.5))
             }
         }

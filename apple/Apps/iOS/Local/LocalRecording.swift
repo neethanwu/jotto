@@ -12,6 +12,11 @@ struct LocalRecording: Codable, Identifiable, Hashable {
     var segments: [Int: LocalSegment] = [:]
     /// Clean text by raw paragraph text, so it survives re-layout.
     var clean: [String: String] = [:]
+    /// The same paragraphs tidied by the on-device model (`Editor`), by
+    /// raw text; the rule-based text where its answer didn't hold up.
+    var tidy: [String: String]?
+    /// Set once every paragraph has been through `Editor`.
+    var tidiedAt: Date?
     var title: String?
     var titleByUser = false
     var titleSuggestions: [String] = []

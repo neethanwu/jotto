@@ -206,9 +206,9 @@ private struct LivePill: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 8) {
+            HStack(spacing: 7) {
                 GlyphView(glyph: glyph, color: accent ? .jLive : .ink50)
-                    .frame(width: 16, height: 16)
+                    .frame(width: 15, height: 15)
                 Text(label)
                     .font(.scaled(15, .semibold, relativeTo: .subheadline))
                     .foregroundStyle(accent ? Color.jLive : Color.ink50)

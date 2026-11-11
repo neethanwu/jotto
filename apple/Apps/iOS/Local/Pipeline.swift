@@ -20,6 +20,8 @@ final class Pipeline {
     @ObservationIgnored private var running = false
     /// Titles that failed this run (rate limit, refusal); retried next run.
     @ObservationIgnored private var describeFailed: Set<String> = []
+    /// Same for tidying the text.
+    @ObservationIgnored private var tidyFailed: Set<String> = []
     /// Transcription can't run yet (model not downloaded); retried next run.
     @ObservationIgnored private var transcriberNotReady = false
 
@@ -53,6 +55,7 @@ final class Pipeline {
 
     func markNow(_ id: String, startedAt: Date) {
         marked(id, startedAt: startedAt, offset: Date.now.timeIntervalSince(startedAt))
+        Inbox.shared.tellWatchMarked(id, section: false)
         changed()
     }
 
@@ -60,6 +63,7 @@ final class Pipeline {
         let now = Date.now.timeIntervalSince(startedAt)
         if let start = openSections.removeValue(forKey: id) {
             markedSection(id, startedAt: startedAt, start: start, end: min(now, start + Self.sectionLimit))
+            Inbox.shared.tellWatchMarked(id, section: true)
             changed()
         } else {
             openSections[id] = now
@@ -102,12 +106,15 @@ final class Pipeline {
             for i in r.segments.keys { r.segments[i]?.phrases = nil; r.segments[i]?.failed = nil }
             r.locale = language
             r.clean = [:]
+            r.tidy = nil
+            r.tidiedAt = nil
             r.polishedAt = nil
             r.describedAt = nil
             r.notifiedAt = .now
             if !r.titleByUser { r.title = nil; r.summary = nil; r.titleSuggestions = [] }
         }
         describeFailed.remove(id)
+        tidyFailed.remove(id)
         changed()
         run()
     }
@@ -126,9 +133,11 @@ final class Pipeline {
             repeat {
                 rerun = false
                 describeFailed = []
+                tidyFailed = []
                 transcriberNotReady = false
                 await prepareIfNeeded()
                 await redoSlowedRecordings()
+                refreshLayouts()
                 store.purgeAudio(keepingDays: AppConfig.shared.keepAudioDays)
                 while let step = nextStep() {
                     await perform(step)
@@ -159,6 +168,8 @@ final class Pipeline {
             store.update(r.id, startedAt: r.startedAt) { r in
                 for i in redo { r.segments[i]?.phrases = nil; r.segments[i]?.failed = nil }
                 r.clean = [:]
+                r.tidy = nil
+                r.tidiedAt = nil
                 r.polishedAt = nil
                 r.describedAt = nil
                 r.notifiedAt = nil
@@ -168,6 +179,29 @@ final class Pipeline {
         UserDefaults.standard.set(true, forKey: key)
         changed()
     }
+
+    /// Paragraphs are laid out afresh from the sentences each time; when
+    /// the rules change (as when paragraphs got shorter), ones without
+    /// clean text get it now, and go through the model again.
+    private func refreshLayouts() {
+        let key = "layoutVersion"
+        guard UserDefaults.standard.integer(forKey: key) < Self.layoutVersion else { return }
+        for r in store.recordings.values where r.polishedAt != nil && r.imported == nil {
+            let blocks = LocalStore.blocks(r).filter { !$0.backchannel }
+            guard blocks.contains(where: { r.clean[$0.text] == nil }) else { continue }
+            var clean = r.clean
+            for b in blocks where clean[b.text] == nil { clean[b.text] = Cleanup.clean(b.text) }
+            store.update(r.id, startedAt: r.startedAt) {
+                $0.clean = clean
+                $0.tidiedAt = nil
+            }
+        }
+        UserDefaults.standard.set(Self.layoutVersion, forKey: key)
+        changed()
+    }
+
+    /// Bump when `Paragraphs` lays text out differently.
+    private static let layoutVersion = 3
 
     @ObservationIgnored private var prepared = false
 
@@ -196,6 +230,20 @@ final class Pipeline {
         case transcribe(id: String, index: Int)
         case polish(id: String)
         case describe(id: String)
+        case tidy(id: String)
+    }
+
+    /// Whether the on-device model will tidy this recording's text.
+    private func willTidy(_ r: LocalRecording) -> Bool {
+        r.polishedAt != nil && r.tidiedAt == nil && r.imported == nil
+            && Editor.isAvailable && AppConfig.shared.tidiesText
+    }
+
+    /// Paragraphs tidied so far, for the transcript's status line.
+    func tidyProgress(_ r: LocalRecording) -> SessionDetail.Tidying? {
+        guard willTidy(r) else { return nil }
+        let blocks = LocalStore.blocks(r).filter { !$0.backchannel }
+        return .init(done: blocks.filter { r.tidy?[$0.text] != nil }.count, total: blocks.count)
     }
 
     private func nextStep() -> Step? {
@@ -218,6 +266,12 @@ final class Pipeline {
             for r in all where r.polishedAt != nil && r.describedAt == nil && !r.titleByUser
                 && !describeFailed.contains(r.id) && (inFront || r.notifiedAt == nil) {
                 return .describe(id: r.id)
+            }
+        }
+        // Tidying, newest first (the one likely open), only in front.
+        if UIApplication.shared.applicationState != .background {
+            for r in all.reversed() where willTidy(r) && !tidyFailed.contains(r.id) {
+                return .tidy(id: r.id)
             }
         }
         return nil
@@ -299,7 +353,7 @@ final class Pipeline {
 
         case let .describe(id):
             guard let r = store.recordings[id] else { return }
-            let paragraphs = LocalStore.blocks(r).filter { !$0.backchannel }.map { r.clean[$0.text] ?? $0.text }
+            let paragraphs = LocalStore.blocks(r).filter { !$0.backchannel }.map { r.tidy?[$0.text] ?? r.clean[$0.text] ?? $0.text }
             guard !paragraphs.joined().isEmpty else {
                 store.update(id, startedAt: r.startedAt) { $0.describedAt = .now }
                 Notifier.shared.ready(id)
@@ -323,8 +377,37 @@ final class Pipeline {
                 Notifier.shared.ready(id)
                 return
             }
+
+        case let .tidy(id):
+            await tidy(id)
         }
         changed()
+    }
+
+    /// Paragraph by paragraph, saving as it goes so the transcript fills
+    /// in. Stops when Jotto leaves the front; carries on next time.
+    private func tidy(_ id: String) async {
+        guard let r = store.recordings[id] else { return }
+        let blocks = LocalStore.blocks(r).filter { !$0.backchannel }
+        let began = Date.now
+        var kept = 0, rejected = 0
+        for b in blocks where store.recordings[id]?.tidy?[b.text] == nil {
+            guard UIApplication.shared.applicationState != .background,
+                  store.recordings[id]?.tidiedAt == nil, store.recordings[id]?.polishedAt != nil else { return }
+            let rough = r.clean[b.text] ?? Cleanup.clean(b.text)
+            do {
+                let tidied = try await Editor.tidy(rough)
+                if tidied == nil { rejected += 1 } else { kept += 1 }
+                store.update(id, startedAt: r.startedAt) { $0.tidy = ($0.tidy ?? [:]).merging([b.text: tidied ?? rough]) { $1 } }
+                changed()
+            } catch {
+                tidyFailed.insert(id)
+                PhoneLog.shared.note("tidy_failed", "\(id) \(error.localizedDescription)")
+                return
+            }
+        }
+        store.update(id, startedAt: r.startedAt) { $0.tidiedAt = .now }
+        PhoneLog.shared.note("tidied", "\(id) kept=\(kept) rejected=\(rejected) \(String(format: "%.1f", Date.now.timeIntervalSince(began)))s")
     }
 
     private func changed() {
@@ -354,6 +437,12 @@ extension Pipeline {
             let duration = (try? AVAudioFile(forReading: destination)).map { Double($0.length) / $0.fileFormat.sampleRate } ?? 120
             segmentArrived(id, startedAt: startedAt, index: index, offset: offset, duration: duration)
             offset += duration
+        }
+        // "15,30-45": a moment at 0:15, a section from 0:30 to 0:45.
+        for mark in (ProcessInfo.processInfo.environment["JOTTO_SIMULATE_MARKS"] ?? "").split(separator: ",") {
+            let ends = mark.split(separator: "-").compactMap { Double($0) }
+            if ends.count == 2 { markedSection(id, startedAt: startedAt, start: ends[0], end: ends[1]) }
+            else if let at = ends.first { marked(id, startedAt: startedAt, offset: at) }
         }
         finished(id, startedAt: startedAt, endedAt: startedAt.addingTimeInterval(offset), segmentCount: files.count)
     }
