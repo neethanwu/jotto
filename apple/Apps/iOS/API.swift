@@ -42,6 +42,8 @@ struct SessionDetail: Decodable, Identifiable {
     let segments: [Segment]
     let blocks: [TranscriptBlock]
     var highlights: [Highlight]? = nil
+    /// The language it was heard in, a locale identifier.
+    var language: String? = nil
 }
 
 /// A moment (the star) or a section ([ ]) marked on the watch, as the

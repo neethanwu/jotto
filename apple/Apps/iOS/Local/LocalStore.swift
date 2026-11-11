@@ -66,7 +66,7 @@ final class LocalStore {
             id: r.id, status: r.status, startedAt: r.startedAt, endedAt: r.endedAt,
             title: r.title, titleByUser: r.titleByUser, titleSuggestions: r.titleSuggestions,
             summary: r.summary, segmentCount: r.segmentCount, missingSegments: r.missing,
-            segments: segments, blocks: blocks, highlights: r.highlights
+            segments: segments, blocks: blocks, highlights: r.highlights, language: r.locale
         )
     }
 

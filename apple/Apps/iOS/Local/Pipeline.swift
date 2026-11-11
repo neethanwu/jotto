@@ -94,11 +94,13 @@ final class Pipeline {
 
     /// Everything after the watch, again: language, text, clean-up and
     /// title. For a recording heard in the wrong language.
-    func redo(_ id: String) {
+    /// `language` nil: hear which one again, from Settings' languages.
+    func redo(_ id: String, language: String? = nil) {
         guard let r = store.recordings[id], r.imported == nil else { return }
+        if let language, !SpeechModels.shared.isInstalled(language) { prepared = false }
         store.update(id, startedAt: r.startedAt) { r in
             for i in r.segments.keys { r.segments[i]?.phrases = nil; r.segments[i]?.failed = nil }
-            r.locale = nil
+            r.locale = language
             r.clean = [:]
             r.polishedAt = nil
             r.describedAt = nil
@@ -180,7 +182,14 @@ final class Pipeline {
     private func prepareIfNeeded() async {
         guard !prepared, UIApplication.shared.applicationState == .active else { return }
         prepared = true
-        await OnDeviceTranscriber.shared.prepare { self.waiting = $0 }
+        await AppConfig.shared.fillLanguagesIfNeeded()
+        let models = SpeechModels.shared
+        let wanted = AppConfig.shared.languages
+        await models.refresh()
+        if wanted.contains(where: { !models.isInstalled($0) }) { waiting = "Downloading the speech model" }
+        await models.ensure(wanted)
+        waiting = wanted.contains(where: models.failed.contains)
+            ? "Couldn't download the speech model. Open Jotto on Wi-Fi to try again" : nil
     }
 
     private enum Step {

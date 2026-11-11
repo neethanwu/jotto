@@ -21,7 +21,9 @@ struct SettingsView: View {
                         SettingsRow("Processing", value: "On this iPhone")
                     }
                     NavigationLink(value: Route.language) {
-                        SettingsRow("Language", value: LanguageView.name(config.transcriptionLocale))
+                        SettingsRow("Languages", value: config.languages.count == 1
+                                    ? LanguageView.name(config.languages[0])
+                                    : config.languages.map(LanguageView.shortName).joined(separator: ", "))
                     }
                     if Describer.isAvailable {
                         SettingsToggle("Titles and summaries", isOn: Bindable(config).writesTitles)

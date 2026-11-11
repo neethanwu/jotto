@@ -51,6 +51,26 @@ final class Inbox: NSObject {
         reload()
     }
 
+    /// Asks the watch to stop this recording: right away if its app is
+    /// reachable, else queued for when it next runs. False if there's no
+    /// watch to ask.
+    @discardableResult
+    func askWatchToStop(_ session: String) -> Bool {
+        guard WCSession.isSupported(), WCSession.default.activationState == .activated,
+              WCSession.default.isPaired, WCSession.default.isWatchAppInstalled else { return false }
+        let message: [String: Any] = ["kind": "stop", "session": session]
+        PhoneLog.shared.note("ask_watch_stop", "reachable=\(WCSession.default.isReachable)")
+        if WCSession.default.isReachable {
+            WCSession.default.sendMessage(message, replyHandler: nil) { error in
+                PhoneLog.shared.later("ask_watch_stop_failed", error.localizedDescription)
+                WCSession.default.transferUserInfo(message)
+            }
+        } else {
+            WCSession.default.transferUserInfo(message)
+        }
+        return true
+    }
+
     /// Tells the watch which recordings the phone has from the last week,
     /// so its "2 today · 4 min" line drops ones deleted here. The latest
     /// context replaces any earlier one still on its way.

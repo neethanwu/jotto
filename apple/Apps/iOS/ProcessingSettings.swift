@@ -101,49 +101,45 @@ struct ChoiceCard: View {
     }
 }
 
-/// The language on-device transcription listens for. Automatic listens to
-/// the start of each recording and picks from the iPhone's languages and
-/// keyboards. "Downloaded" marks models already on the phone; others
-/// download when picked.
+/// The languages people speak in the recordings, one to three. Picked
+/// ones sit on top; picking one starts its download right away, with
+/// progress. With more than one, each recording is matched to one.
 struct LanguageView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var config: AppConfig = .shared
-    @State private var locales: [Locale] = []
-    @State private var installed: Set<String> = []
+    @State private var all: [Locale] = []
     @State private var loaded = false
-    /// The languages Automatic chooses between on this iPhone.
-    @State private var automatic: String?
-
-    private var automaticDetail: String {
-        guard let automatic else { return "Hears which of your iPhone's languages each recording is in" }
-        return "Hears which one each recording is in: \(automatic)"
-    }
+    @State private var limitNote = false
+    private var models: SpeechModels { .shared }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                PageHeader(title: "Language", detail: "The language people mostly speak in your recordings. A recording in mixed languages comes out in the main one.") { dismiss() }
+                PageHeader(title: "Languages", detail: "The languages people speak in your recordings. With more than one, Jotto listens to the start of each recording and picks.") { dismiss() }
 
+                label("Listening for · \(config.languages.count) of \(AppConfig.maxLanguages)")
+                    .padding(.top, 28)
                 SettingsGroup {
-                    ChoiceRow(label: "Automatic", detail: automaticDetail, selected: config.transcriptionLocale.isEmpty) {
-                        pick("")
-                    }
-                    ForEach(locales, id: \.identifier) { locale in
-                        ChoiceRow(
-                            label: Self.name(locale.identifier),
-                            detail: detail(locale),
-                            selected: config.transcriptionLocale == locale.identifier
-                        ) { pick(locale.identifier) }
+                    ForEach(config.languages, id: \.self) { id in
+                        row(id, picked: true)
                     }
                 }
-                .padding(.top, 24)
+                if limitNote {
+                    Text("Up to three. Remove one first.")
+                        .font(.metaSmall)
+                        .foregroundStyle(Color.jText3)
+                        .padding(.top, 8)
+                        .transition(.opacity)
+                }
 
-                Text("Downloaded languages are already on your iPhone. Others download when you pick them, with Jotto open.")
-                    .font(.metaSmall)
-                    .foregroundStyle(Color.jText3)
-                    .padding(.top, 12)
+                label("All languages").padding(.top, 28)
+                SettingsGroup {
+                    ForEach(all.filter { !config.languages.contains($0.identifier) }, id: \.identifier) { locale in
+                        row(locale.identifier, picked: false)
+                    }
+                }
 
-                if loaded && locales.isEmpty {
+                if loaded && all.isEmpty {
                     Text("On-device transcription isn't available on this iPhone.")
                         .font(.summary)
                         .foregroundStyle(Color.jText3)
@@ -156,37 +152,101 @@ struct LanguageView: View {
         .statusBarCover()
         .background(Color.jBg)
         .toolbar(.hidden, for: .navigationBar)
-        .sensoryFeedback(.selection, trigger: config.transcriptionLocale)
-        .onChange(of: Pipeline.shared.waiting) {
-            Task { installed = Set(await SpeechTranscriber.installedLocales.map(\.identifier)) }
-        }
+        .sensoryFeedback(.selection, trigger: config.languages)
+        .animation(.easeOut(duration: 0.2), value: config.languages)
+        .animation(.easeOut(duration: 0.2), value: limitNote)
         .task {
-            let all = await SpeechTranscriber.supportedLocales
-            installed = Set(await SpeechTranscriber.installedLocales.map(\.identifier))
-            automatic = await OnDeviceTranscriber.candidates().map { Self.name($0.identifier) }.joined(separator: ", ")
-            locales = all.sorted { Self.name($0.identifier).localizedStandardCompare(Self.name($1.identifier)) == .orderedAscending }
+            await config.fillLanguagesIfNeeded()
+            await models.refresh()
+            let supported = await SpeechTranscriber.supportedLocales
+            all = supported.sorted { Self.name($0.identifier).localizedStandardCompare(Self.name($1.identifier)) == .orderedAscending }
             loaded = true
         }
     }
 
-    private func pick(_ id: String) {
-        guard config.transcriptionLocale != id else { return }
-        config.transcriptionLocale = id
-        Pipeline.shared.languageChanged()
+    private func label(_ text: String) -> some View {
+        Text(text)
+            .font(.scaled(11, .medium, relativeTo: .caption2))
+            .foregroundStyle(Color.jText3)
+            .padding(.bottom, 4)
     }
 
-    private func detail(_ locale: Locale) -> String? {
-        let here = Locale.current.localizedString(forIdentifier: locale.identifier)
-        let state: String? = installed.contains(locale.identifier) ? "Downloaded"
-            : config.transcriptionLocale == locale.identifier ? (Pipeline.shared.waiting == nil ? "Downloads when needed" : "Downloading") : nil
-        let parts = [here == Self.name(locale.identifier) ? nil : here, state]
-        let text = parts.compactMap { $0 }.joined(separator: " · ")
-        return text.isEmpty ? nil : text
+    private func row(_ id: String, picked: Bool) -> some View {
+        Button { toggle(id) } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(Self.name(id)).font(.reading).foregroundStyle(Color.jText)
+                    status(id, picked: picked)
+                }
+                Spacer()
+                Image(systemName: "checkmark")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(Color.jText)
+                    .opacity(picked ? 1 : 0)
+            }
+            .padding(.vertical, 12)
+            .frame(minHeight: 64)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(picked ? .isSelected : [])
+    }
+
+    @ViewBuilder
+    private func status(_ id: String, picked: Bool) -> some View {
+        let here = Locale.current.localizedString(forIdentifier: id)
+        let other = here == Self.name(id) ? nil : here
+        if let progress = models.progress[id] {
+            HStack(spacing: 8) {
+                ProgressView(value: progress)
+                    .progressViewStyle(.linear)
+                    .tint(Color.jText)
+                    .frame(width: 72)
+                Text("Downloading · \(Int(progress * 100))%")
+                    .monospacedDigit()
+            }
+            .font(.metaSmall)
+            .foregroundStyle(Color.jText3)
+        } else {
+            let state: String? = models.isInstalled(id) ? "Downloaded"
+                : models.failed.contains(id) ? "Couldn't download. Tap to try again"
+                : picked ? "Downloads with Jotto open" : nil
+            let text = [other, state].compactMap { $0 }.joined(separator: " · ")
+            if !text.isEmpty {
+                Text(text).font(.metaSmall).foregroundStyle(Color.jText3)
+            }
+        }
+    }
+
+    private func toggle(_ id: String) {
+        if config.languages.contains(id), models.failed.contains(id) {
+            Task { await models.ensure([id]) }
+            return
+        }
+        if let i = config.languages.firstIndex(of: id) {
+            // At least one stays.
+            guard config.languages.count > 1 else { return }
+            config.languages.remove(at: i)
+        } else {
+            guard config.languages.count < AppConfig.maxLanguages else {
+                limitNote = true
+                return
+            }
+            limitNote = false
+            config.languages.append(id)
+            Task { await models.ensure([id]) }
+        }
+        Pipeline.shared.languageChanged()
     }
 
     /// The language in its own words: "中文（中国大陆）", "English (US)".
     static func name(_ id: String) -> String {
-        guard !id.isEmpty else { return "Automatic" }
-        return Locale(identifier: id).localizedString(forIdentifier: id) ?? id
+        Locale(identifier: id).localizedString(forIdentifier: id) ?? id
+    }
+
+    /// Just the language, in its own words: "中文", "English".
+    static func shortName(_ id: String) -> String {
+        let locale = Locale(identifier: id)
+        return locale.language.languageCode.flatMap { locale.localizedString(forLanguageCode: $0.identifier) } ?? name(id)
     }
 }

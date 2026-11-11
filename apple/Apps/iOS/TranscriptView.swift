@@ -25,6 +25,7 @@ struct TranscriptView: View {
     @FocusState private var titleFocused: Bool
     @State private var confirmDelete = false
     @State private var scrolledToStart = false
+    @State private var pickingLanguages = false
     /// Bumped to start polling again after a redo.
     @State private var polls = 0
 
@@ -112,6 +113,7 @@ struct TranscriptView: View {
             Text(DeleteCopy.message(detail.map { title($0) } ?? "This recording"))
         }
         .task(id: polls) { await poll() }
+        .sheet(isPresented: $pickingLanguages) { LanguageView() }
         .onDisappear { player.stop() }
     }
 
@@ -149,9 +151,22 @@ struct TranscriptView: View {
             Menu {
                 Button("Rename", systemImage: "pencil") { titleFocused = true }
                 if detail?.status == "ready", detail?.segments.contains(where: \.hasAudio) == true, !isImported {
-                    Button("Transcribe again", systemImage: "arrow.clockwise") {
-                        Pipeline.shared.redo(id)
-                        polls += 1
+                    // Pick the language right here; no trip to Settings.
+                    Menu("Transcribe again", systemImage: "arrow.clockwise") {
+                        ForEach(AppConfig.shared.languages, id: \.self) { language in
+                            Button {
+                                Pipeline.shared.redo(id, language: language)
+                                polls += 1
+                            } label: {
+                                if detail?.language == language {
+                                    Label(LanguageView.name(language), systemImage: "checkmark")
+                                } else {
+                                    Text(LanguageView.name(language))
+                                }
+                            }
+                        }
+                        Divider()
+                        Button("Other languages…") { pickingLanguages = true }
                     }
                 }
                 Button("Delete", systemImage: "trash", role: .destructive) { confirmDelete = true }
@@ -543,6 +558,7 @@ struct TranscriptView: View {
     private func meta(_ detail: SessionDetail) -> String {
         var parts = [Format.weekdayDayMonth(detail.startedAt), Format.time(detail.startedAt)]
         if let end = detail.endedAt { parts.append(Format.length(end.timeIntervalSince(detail.startedAt))) }
+        if let language = detail.language { parts.append(LanguageView.shortName(language)) }
         let speakers = Set(detail.blocks.compactMap(\.speaker)).count
         if speakers > 1 { parts.append(Format.plural(speakers, "speaker")) }
         return parts.joined(separator: " · ")

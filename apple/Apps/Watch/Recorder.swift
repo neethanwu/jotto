@@ -190,6 +190,17 @@ final class Recorder {
         }
     }
 
+    /// Held the dot on the phone's Live screen. Only for the recording
+    /// still going, so a late message can't stop a new one.
+    func stopFromPhone(session: String) {
+        guard state != .idle, sessionID?.uuidString.lowercased() == session.lowercased() else {
+            note("phone_stop_ignored", session)
+            return
+        }
+        note("phone_stop")
+        stop()
+    }
+
     func dismissSaved() {
         justSaved = nil
     }

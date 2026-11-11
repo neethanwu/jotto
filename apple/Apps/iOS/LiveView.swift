@@ -3,7 +3,8 @@ import SwiftUI
 /// A recording in progress. Always dark: the timer, the breathing dot,
 /// Mark and Section (the same as the watch's star and [ ]), and the latest
 /// transcript as it arrives (a couple of minutes behind, since the watch
-/// sends audio in two-minute parts). Stopping stays on the wrist.
+/// sends audio in two-minute parts). Hold the dot for a second to stop,
+/// as on the watch; the phone asks the watch to stop.
 struct LiveView: View {
     let id: String
 
@@ -12,6 +13,9 @@ struct LiveView: View {
     @State private var detail: SessionDetail?
     /// The star turns orange for a moment after a mark, as on the watch.
     @State private var justMarked = false
+    @State private var holding = false
+    /// When the phone asked the watch to stop, until the recording ends.
+    @State private var stopAskedAt: Date?
     private var pipeline: Pipeline { .shared }
     private var sectionOpen: Bool { pipeline.openSections[id] != nil }
     private var highlightCount: Int {
@@ -40,7 +44,7 @@ struct LiveView: View {
             }
             .padding(.top, 40)
 
-            BreathingDot(size: 124)
+            HoldToStopDot(holding: $holding) { stop() }
                 .padding(.top, 36)
 
             if let startedAt {
@@ -54,10 +58,12 @@ struct LiveView: View {
                 .sensoryFeedback(.impact(weight: .medium), trigger: highlightCount)
                 .sensoryFeedback(.selection, trigger: sectionOpen)
 
-                Text(metaLine(startedAt))
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text(metaLine(startedAt, now: context.date))
                     .font(.scaled(13, .medium, relativeTo: .footnote))
                     .foregroundStyle(Color.ink500)
                     .contentTransition(.numericText())
+                }
                     .padding(.top, 20)
                     .animation(.easeOut(duration: 0.2), value: highlightCount)
             }
@@ -86,11 +92,20 @@ struct LiveView: View {
         }
     }
 
-    private func metaLine(_ startedAt: Date) -> String {
+    private func stop() {
+        stopAskedAt = .now
+        if !Inbox.shared.askWatchToStop(id) { stopAskedAt = .distantPast }
+    }
+
+    private func metaLine(_ startedAt: Date, now: Date) -> String {
+        if holding { return "Keep holding to stop · let go to keep recording" }
+        if let asked = stopAskedAt {
+            return now.timeIntervalSince(asked) < 10 ? "Stopping on your watch" : "Couldn't reach your watch. Stop it on your wrist"
+        }
         let count = highlightCount
         if sectionOpen { return count == 0 ? "Section open" : "Section open · \(Format.plural(count, "mark"))" }
         let lead = count == 0 ? "Since \(Format.time(startedAt))" : Format.plural(count, "mark")
-        return "\(lead) · stop it on your wrist"
+        return "\(lead) · hold the dot to stop"
     }
 
     private var lines: [String] {
@@ -109,7 +124,7 @@ struct LiveView: View {
                     .lineLimit(2)
             }
             if !reduceMotion && !lines.isEmpty {
-                Particles().frame(height: 36)
+                Particles().frame(height: 96)
             }
             TimelineView(.periodic(from: .now, by: 0.5)) { context in
                 let blink = reduceMotion || Int(context.date.timeIntervalSinceReferenceDate * 2) % 2 == 0
@@ -207,5 +222,50 @@ private struct LivePill: View {
             .animation(.easeOut(duration: 0.2), value: accent)
         }
         .buttonStyle(PressStyle())
+    }
+}
+
+/// The breathing dot, held for a second to stop, like the watch's: a
+/// ring fills around it while the finger stays; letting go early keeps
+/// recording.
+private struct HoldToStopDot: View {
+    @Binding var holding: Bool
+    let onStop: () -> Void
+    @State private var progress: CGFloat = 0
+    @State private var stops = 0
+
+    var body: some View {
+        BreathingDot(size: 124)
+            .scaleEffect(holding ? 0.94 : 1)
+            .animation(.spring(duration: 0.25), value: holding)
+            .overlay {
+                ZStack {
+                    Circle().stroke(Color.ink800, lineWidth: 3).opacity(holding ? 1 : 0)
+                    Circle()
+                        .trim(from: 0, to: progress)
+                        .stroke(Color.jLive, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                }
+                .frame(width: 144, height: 144)
+                .allowsHitTesting(false)
+            }
+            .contentShape(Circle())
+            .onLongPressGesture(minimumDuration: 1, maximumDistance: 40) {
+                stops += 1
+                onStop()
+            } onPressingChanged: { pressing in
+                holding = pressing
+                if pressing {
+                    withAnimation(.linear(duration: 1)) { progress = 1 }
+                } else {
+                    withAnimation(.easeOut(duration: 0.2)) { progress = 0 }
+                }
+            }
+            .sensoryFeedback(.impact(weight: .light), trigger: holding) { _, now in now }
+            .sensoryFeedback(.success, trigger: stops)
+            .accessibilityElement()
+            .accessibilityLabel("Recording")
+            .accessibilityHint("Hold for a second to stop")
+            .accessibilityAction(named: "Stop recording") { onStop() }
     }
 }

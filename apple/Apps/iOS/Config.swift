@@ -6,10 +6,19 @@ import Observation
 final class AppConfig {
     static let shared = AppConfig()
 
-    /// The language on-device transcription listens for; empty means
-    /// let each recording pick from the iPhone's languages. Read by `OnDeviceTranscriber`.
-    var transcriptionLocale: String {
-        didSet { UserDefaults.standard.set(transcriptionLocale.isEmpty ? nil : transcriptionLocale, forKey: "transcriptionLocale") }
+    /// The languages people speak in the recordings (locale identifiers),
+    /// one to three. With more than one, each recording is matched to one
+    /// (`OnDeviceTranscriber.detect`). Empty only until the first launch
+    /// fills it from the iPhone's languages and keyboards.
+    var languages: [String] {
+        didSet { UserDefaults.standard.set(languages, forKey: "transcriptionLocales") }
+    }
+    static let maxLanguages = 3
+
+    /// First launch: the iPhone's languages and keyboards, as a start.
+    func fillLanguagesIfNeeded() async {
+        guard languages.isEmpty else { return }
+        languages = await OnDeviceTranscriber.candidates().map(\.identifier)
     }
     /// Days to keep audio after a recording is transcribed; 0 keeps it forever.
     var keepAudioDays: Int {
@@ -31,7 +40,9 @@ final class AppConfig {
 
     private init() {
         let defaults = UserDefaults.standard
-        transcriptionLocale = defaults.string(forKey: "transcriptionLocale") ?? ""
+        // Before 2026-11-11 there was one language, or Automatic (none).
+        languages = defaults.stringArray(forKey: "transcriptionLocales")
+            ?? defaults.string(forKey: "transcriptionLocale").map { [$0] } ?? []
         keepAudioDays = defaults.object(forKey: "keepAudioDays") as? Int ?? 30
         opensOriginal = defaults.bool(forKey: "opensOriginal")
         writesTitles = defaults.object(forKey: "writesTitles") as? Bool ?? true

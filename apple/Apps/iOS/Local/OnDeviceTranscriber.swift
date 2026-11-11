@@ -7,9 +7,9 @@ import UIKit
 /// fast: about 2.6 s for a 2-minute segment on an M-series Mac. One
 /// language per recording; no speaker labels.
 ///
-/// The language is the user's pick, or with Automatic, whichever of the
-/// iPhone's languages and keyboards the start of each recording sounds
-/// most like (`detect`).
+/// The languages are the ones picked in Settings → Languages; with more
+/// than one, each recording gets whichever the start of it sounds most
+/// like (`detect`).
 actor OnDeviceTranscriber {
     static let shared = OnDeviceTranscriber()
 
@@ -24,14 +24,16 @@ actor OnDeviceTranscriber {
         }
     }
 
-    /// The language picked in Settings, if not Automatic.
-    static var chosenLocale: Locale? {
-        UserDefaults.standard.string(forKey: "transcriptionLocale").map { Locale(identifier: $0) }
+    /// The languages picked in Settings, or the iPhone's if none yet.
+    static func languages() async -> [Locale] {
+        let picked = await MainActor.run { AppConfig.shared.languages }
+        if !picked.isEmpty { return picked.map { Locale(identifier: $0) } }
+        return await candidates()
     }
 
-    /// What Automatic chooses between: the iPhone's languages, then its
-    /// keyboards, that on-device transcription supports. One per language
-    /// (English (US) and English (UK) count once), at most three.
+    /// A first guess at the languages: the iPhone's, then its keyboards',
+    /// that on-device transcription supports. One per language (English
+    /// (US) and English (UK) count once), at most three.
     static func candidates() async -> [Locale] {
         let keyboards = await MainActor.run { UITextInputMode.activeInputModes.compactMap(\.primaryLanguage) }
         var out: [Locale] = []
@@ -50,31 +52,6 @@ actor OnDeviceTranscriber {
         guard a.language.languageCode == b.language.languageCode else { return false }
         if a.language.languageCode == .chinese { return a.identifier == b.identifier }
         return true
-    }
-
-    /// The languages whose models should be on the phone.
-    static func wantedLocales() async -> [Locale] {
-        if let chosen = chosenLocale { return [chosen] }
-        return await candidates()
-    }
-
-    /// Downloads the language models if needed. Call while in the foreground.
-    func prepare(status: @MainActor @escaping (String?) -> Void = { _ in }) async {
-        let locales = await Self.wantedLocales()
-        await PhoneLog.shared.noteAsync("asr_prepare", "locales=\(locales.map(\.identifier)) available=\(SpeechTranscriber.isAvailable)")
-        let transcribers = locales.map { SpeechTranscriber(locale: $0, preset: .transcription) }
-        do {
-            if let request = try await AssetInventory.assetInstallationRequest(supporting: transcribers) {
-                await PhoneLog.shared.noteAsync("asr_download", locales.map(\.identifier).joined(separator: ","))
-                await status("Downloading the speech model")
-                try await request.downloadAndInstall()
-                await PhoneLog.shared.noteAsync("asr_downloaded")
-            }
-            await status(nil)
-        } catch {
-            await PhoneLog.shared.noteAsync("asr_download_failed", error.localizedDescription)
-            await status("Couldn't download the speech model. Open Jotto on Wi-Fi to try again")
-        }
     }
 
     private func requireInstalled(_ locale: Locale) async throws -> SpeechTranscriber {
@@ -96,11 +73,10 @@ actor OnDeviceTranscriber {
     // MARK: - Which language
 
     /// The language a recording is in, from its first segment. With one
-    /// candidate there is nothing to decide. Otherwise the first 30 s go
+    /// language there is nothing to decide. Otherwise the first 30 s go
     /// through each language's model and the most confident one wins.
     func detect(_ url: URL) async throws -> Locale {
-        if let chosen = Self.chosenLocale { return chosen }
-        let candidates = await Self.candidates()
+        let candidates = await Self.languages()
         guard candidates.count > 1 else { return candidates[0] }
         #if DEBUG
         if ProcessInfo.processInfo.environment["JOTTO_FAKE_ASR"] != nil { return candidates[0] }
