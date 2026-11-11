@@ -1,8 +1,8 @@
 import Foundation
 import Observation
 
-/// Every recording the phone processes itself, and the same read API the
-/// server offers (`API`), so the screens don't care where the work happens.
+/// Every recording, as the phone keeps it, and the reads the screens
+/// make through `API`.
 @MainActor @Observable
 final class LocalStore {
     static let shared = LocalStore()
@@ -58,7 +58,7 @@ final class LocalStore {
                 index: s.index,
                 status: s.phrases != nil ? "done" : s.failed != nil ? "failed" : "pending",
                 offset: s.offset, duration: s.duration,
-                hasAudio: FileManager.default.fileExists(atPath: Uploader.audioURL(session: id, index: s.index).path)
+                hasAudio: FileManager.default.fileExists(atPath: AudioFiles.url(session: id, index: s.index).path)
             )
         }
         let blocks = Self.transcript(r)
@@ -78,7 +78,7 @@ final class LocalStore {
     func delete(_ id: String) {
         recordings[id] = nil
         try? FileManager.default.removeItem(at: Self.directory.appending(path: "\(id).json"))
-        try? FileManager.default.removeItem(at: Uploader.sessionsDirectory.appending(path: id))
+        try? FileManager.default.removeItem(at: AudioFiles.directory.appending(path: id))
     }
 
     /// Deletes the audio of recordings that were transcribed more than
@@ -88,7 +88,7 @@ final class LocalStore {
         let cutoff = Date.now.addingTimeInterval(-Double(days) * 86_400)
         for r in recordings.values {
             guard let done = r.polishedAt, done < cutoff else { continue }
-            let dir = Uploader.sessionsDirectory.appending(path: r.id)
+            let dir = AudioFiles.directory.appending(path: r.id)
             if FileManager.default.fileExists(atPath: dir.path) {
                 try? FileManager.default.removeItem(at: dir)
             }

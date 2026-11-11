@@ -357,7 +357,7 @@ struct DaysView: View {
         do {
             try await API.delete(id)
             withAnimation(.spring(duration: 0.35)) { library.remove(id) }
-            try? FileManager.default.removeItem(at: Uploader.sessionsDirectory.appending(path: id))
+            try? FileManager.default.removeItem(at: AudioFiles.directory.appending(path: id))
         } catch {
             actionError = error.localizedDescription
         }
@@ -428,15 +428,7 @@ struct DaysView: View {
 
     @ViewBuilder
     private var content: some View {
-        if !config.isReady && !config.processesLocally {
-            EmptyDay(
-                title: "Connect to a server",
-                detail: "Add the server address and token in Settings, then record on your watch"
-            ) {
-                Button("Open Settings") { router.tab = .settings; router.settings = [.processing] }
-                    .buttonStyle(PrimaryPillStyle())
-            }
-        } else if entries.isEmpty {
+        if entries.isEmpty {
             if Calendar.current.isDateInToday(day) {
                 EmptyDay(title: "Tap the dot when it matters", detail: "Recordings from your watch land here, cleaned up, a minute after each part.")
             } else if day > .now {
@@ -893,7 +885,7 @@ struct TimelineRow: View {
     }
 
     private func processingText(done: Int, total: Int?, polishing: Bool) -> String {
-        if !polishing, let waiting = Pipeline.shared.waiting, AppConfig.shared.processesLocally { return waiting }
+        if !polishing, let waiting = Pipeline.shared.waiting { return waiting }
         guard let total, total > 0 else { return "Transcribing" }
         return polishing ? "Cleaning up" : "Transcribing · \(min(done, total)) of \(total) parts"
     }
@@ -1013,8 +1005,7 @@ struct EmptyDay<Actions: View>: View {
 
 /// What deleting takes with it, said once for Days and the transcript.
 enum DeleteCopy {
-    @MainActor static func message(_ title: String) -> String {
-        let place = AppConfig.shared.processesLocally ? "this iPhone" : "this iPhone and the server"
-        return "\u{201C}\(title)\u{201D} and its audio are removed from \(place). This can't be undone."
+    static func message(_ title: String) -> String {
+        "\u{201C}\(title)\u{201D} and its audio are removed from this iPhone. This can't be undone."
     }
 }

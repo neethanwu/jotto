@@ -6,7 +6,6 @@ import SwiftUI
 struct SettingsView: View {
     let router: Router
     private var config: AppConfig { .shared }
-    private var uploader: Uploader { .shared }
     private var inbox: Inbox { .shared }
     private var library: Library { .shared }
 
@@ -19,17 +18,15 @@ struct SettingsView: View {
 
                 SettingsSection("Transcribe and polish") {
                     NavigationLink(value: Route.processing) {
-                        SettingsRow("Processing", value: config.processesLocally ? "On this iPhone" : "Test server")
+                        SettingsRow("Processing", value: "On this iPhone")
                     }
-                    if config.processesLocally {
-                        NavigationLink(value: Route.language) {
-                            SettingsRow("Language", value: LanguageView.name(config.transcriptionLocale))
-                        }
-                        if Describer.isAvailable {
-                            SettingsToggle("Titles and summaries", isOn: Bindable(config).writesTitles)
-                        }
-                        SettingsToggle("Notify when ready", isOn: Bindable(config).notifiesWhenReady)
+                    NavigationLink(value: Route.language) {
+                        SettingsRow("Language", value: LanguageView.name(config.transcriptionLocale))
                     }
+                    if Describer.isAvailable {
+                        SettingsToggle("Titles and summaries", isOn: Bindable(config).writesTitles)
+                    }
+                    SettingsToggle("Notify when ready", isOn: Bindable(config).notifiesWhenReady)
                 }
 
                 SettingsSection("Storage") {
@@ -43,9 +40,6 @@ struct SettingsView: View {
 
                 SettingsSection("Beta") {
                     SettingsRow("Apple Watch", value: inbox.watchStatus.capitalizedFirst, chevron: false)
-                    if !config.processesLocally {
-                        SettingsRow("Waiting to upload", value: uploader.jobs.isEmpty ? "None" : Format.plural(uploader.jobs.count, "part"), chevron: false)
-                    }
                     NavigationLink(value: Route.inbox) {
                         SettingsRow("Files from the watch", value: "\(inbox.items.count)")
                     }

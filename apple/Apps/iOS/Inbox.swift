@@ -68,7 +68,7 @@ extension Inbox: WCSessionDelegate {
         let meta = file.metadata ?? [:]
         PhoneLog.shared.later("wc_file", "kind=\(meta["kind"] as? String ?? "?") index=\(meta["index"] as? Int ?? -1)")
         if let segment = SegmentInfo(meta) {
-            let destination = Uploader.audioURL(session: segment.session, index: segment.index)
+            let destination = AudioFiles.url(session: segment.session, index: segment.index)
             try? FileManager.default.createDirectory(
                 at: destination.deletingLastPathComponent(), withIntermediateDirectories: true
             )
@@ -81,18 +81,10 @@ extension Inbox: WCSessionDelegate {
             }
             Task { @MainActor in
                 Library.shared.watchSent(segment.session, startedAt: segment.sessionStartedAt, index: segment.index)
-                if AppConfig.shared.processesLocally {
-                    Pipeline.shared.segmentArrived(
-                        segment.session, startedAt: segment.sessionStartedAt,
-                        index: segment.index, offset: segment.offset, duration: segment.duration
-                    )
-                    return
-                }
-                Uploader.shared.enqueue(.init(
-                    session: segment.session,
-                    sessionStartedAt: segment.sessionStartedAt,
-                    kind: .segment(index: segment.index, offset: segment.offset, duration: segment.duration)
-                ))
+                Pipeline.shared.segmentArrived(
+                    segment.session, startedAt: segment.sessionStartedAt,
+                    index: segment.index, offset: segment.offset, duration: segment.duration
+                )
             }
             return
         }
@@ -114,17 +106,17 @@ extension Inbox: WCSessionDelegate {
         case "start":
             Task { @MainActor in
                 Library.shared.watchStarted(id, at: started)
-                if AppConfig.shared.processesLocally { Pipeline.shared.started(id, at: started) }
+                Pipeline.shared.started(id, at: started)
             }
         case "mark":
             guard let offset = userInfo["offset"] as? Double else { return }
             Task { @MainActor in
-                if AppConfig.shared.processesLocally { Pipeline.shared.marked(id, startedAt: started, offset: offset) }
+                Pipeline.shared.marked(id, startedAt: started, offset: offset)
             }
         case "section":
             guard let start = userInfo["offset"] as? Double, let end = userInfo["end"] as? Double else { return }
             Task { @MainActor in
-                if AppConfig.shared.processesLocally { Pipeline.shared.markedSection(id, startedAt: started, start: start, end: end) }
+                Pipeline.shared.markedSection(id, startedAt: started, start: start, end: end)
             }
         case "finish":
             guard let ended = userInfo["endedAt"] as? Double,
@@ -132,15 +124,7 @@ extension Inbox: WCSessionDelegate {
             let endedAt = Date(timeIntervalSince1970: ended)
             Task { @MainActor in
                 Library.shared.watchFinished(id, startedAt: started, endedAt: endedAt, segmentCount: count)
-                if AppConfig.shared.processesLocally {
-                    Pipeline.shared.finished(id, startedAt: started, endedAt: endedAt, segmentCount: count)
-                    return
-                }
-                Uploader.shared.enqueue(.init(
-                    session: id,
-                    sessionStartedAt: started,
-                    kind: .finish(segmentCount: count, endedAt: endedAt)
-                ))
+                Pipeline.shared.finished(id, startedAt: started, endedAt: endedAt, segmentCount: count)
             }
         default:
             break

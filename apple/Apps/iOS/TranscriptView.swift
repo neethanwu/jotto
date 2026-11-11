@@ -328,7 +328,7 @@ struct TranscriptView: View {
         let note: String? = switch detail.status {
         case "recording": "Still recording. Text arrives a couple of minutes behind"
         case "processing":
-            if let waiting = Pipeline.shared.waiting, AppConfig.shared.processesLocally, heard < (detail.segmentCount ?? 1) {
+            if let waiting = Pipeline.shared.waiting, heard < (detail.segmentCount ?? 1) {
                 waiting
             } else if let total = detail.segmentCount, total > 0 {
                 heard >= total ? "Cleaning up" : "Transcribing · \(heard) of \(total) parts"
@@ -359,9 +359,7 @@ struct TranscriptView: View {
                     Text("Nothing to write down")
                         .font(.rowTitle)
                         .foregroundStyle(Color.jText)
-                    Text(AppConfig.shared.processesLocally
-                         ? "Jotto couldn't make out any words. If people spoke another language, change it in Settings → Language."
-                         : "No words were heard in this recording.")
+                    Text("Jotto couldn't make out any words. If people spoke another language, change it in Settings → Language.")
                         .font(.summary)
                         .foregroundStyle(Color.jText2)
                         .lineSpacing(3)
@@ -580,7 +578,7 @@ struct TranscriptView: View {
         do {
             try await API.delete(id)
             Library.shared.remove(id)
-            try? FileManager.default.removeItem(at: Uploader.sessionsDirectory.appending(path: id))
+            try? FileManager.default.removeItem(at: AudioFiles.directory.appending(path: id))
             dismiss()
         } catch {
             self.error = error.localizedDescription

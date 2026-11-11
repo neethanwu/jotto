@@ -3,7 +3,7 @@ import Observation
 
 /// Plays one recording as a single timeline: its segments laid end to end
 /// at their offsets in a composition, so seeking is just a time. Segments
-/// come from the phone's own copy when it still has it, else the server.
+/// come from the phone's own copy, while it still keeps it.
 @MainActor @Observable
 final class RecordingPlayer {
     enum Availability: Equatable {
@@ -49,7 +49,7 @@ final class RecordingPlayer {
         loadedFor = detail.id
         let segments = detail.segments.filter(\.hasAudio).sorted { $0.index < $1.index }
         let local = detail.segments.filter {
-            FileManager.default.fileExists(atPath: Uploader.audioURL(session: detail.id, index: $0.index).path)
+            FileManager.default.fileExists(atPath: AudioFiles.url(session: detail.id, index: $0.index).path)
         }
         guard !segments.isEmpty || !local.isEmpty else {
             availability = .unavailable(detail.segments.isEmpty ? "No audio yet" : "Audio no longer kept")

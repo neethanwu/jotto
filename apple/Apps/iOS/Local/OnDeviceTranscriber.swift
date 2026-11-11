@@ -25,6 +25,13 @@ actor OnDeviceTranscriber {
         if let saved = UserDefaults.standard.string(forKey: "transcriptionLocale") {
             return Locale(identifier: saved)
         }
+        return await automaticLocale()
+    }
+
+    /// What Automatic picks: the first of the iPhone's languages that
+    /// on-device transcription supports. One language for every recording;
+    /// it doesn't listen and choose.
+    static func automaticLocale() async -> Locale {
         for id in Locale.preferredLanguages {
             if let match = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: id)) {
                 return match

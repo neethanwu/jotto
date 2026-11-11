@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 /// What the phone has heard from the watch about each recording, before
-/// (or without) the server knowing: started, which segments arrived, ended.
+/// (or without) the phone having made sense of it yet: started, which segments arrived, ended.
 /// Lets the timeline show a live recording the moment it starts, and a
 /// finished one whose audio is still on the watch.
 struct LocalSession: Codable, Hashable {
@@ -39,7 +39,7 @@ struct TimelineEntry: Identifiable, Hashable {
 final class Library {
     static let shared = Library()
 
-    private(set) var server: [SessionSummary] = []
+    private(set) var stored: [SessionSummary] = []
     private(set) var local: [String: LocalSession] = [:]
     private(set) var loadError: String?
     private(set) var loadedOnce = false
@@ -75,8 +75,8 @@ final class Library {
     }
 
     private func saveLocal() {
-        // Forget sessions the server has finished, and anything over a month old.
-        let ready = Set(server.filter { $0.status == "ready" }.map(\.id))
+        // Forget sessions the phone has finished, and anything over a month old.
+        let ready = Set(stored.filter { $0.status == "ready" }.map(\.id))
         let cutoff = Date.now.addingTimeInterval(-30 * 86400)
         local = local.filter { !ready.contains($0.key) && $0.value.startedAt > cutoff }
         if let data = try? JSONEncoder().encode(local) {
@@ -84,20 +84,19 @@ final class Library {
         }
     }
 
-    // MARK: - From the server
+    // MARK: - From the store
 
     func refresh() async {
         #if DEBUG
         // Simulator screenshots: `SIMCTL_CHILD_JOTTO_DEMO_DAYS=1 xcrun simctl launch …`
         if ProcessInfo.processInfo.environment["JOTTO_DEMO_DAYS"] != nil {
-            server = Self.demo
+            stored = Self.demo
             loadedOnce = true
             return
         }
         #endif
-        guard AppConfig.shared.isReady || AppConfig.shared.processesLocally else { return }
         do {
-            server = try await API.sessions()
+            stored = try await API.sessions()
             loadError = nil
             saveLocal()
         } catch {
@@ -109,13 +108,12 @@ final class Library {
     /// Something is still changing, so poll faster.
     var isBusy: Bool {
         entries.contains { $0.state != .done }
-            || (!AppConfig.shared.processesLocally && !Uploader.shared.jobs.isEmpty)
     }
 
     func applyRename(_ id: String, title: String) {
-        guard let i = server.firstIndex(where: { $0.id == id }) else { return }
-        let s = server[i]
-        server[i] = SessionSummary(
+        guard let i = stored.firstIndex(where: { $0.id == id }) else { return }
+        let s = stored[i]
+        stored[i] = SessionSummary(
             id: s.id, startedAt: s.startedAt, endedAt: s.endedAt, status: s.status, title: title,
             summary: s.summary, segmentCount: s.segmentCount, missingSegments: s.missingSegments,
             segmentsDone: s.segmentsDone, segmentsReceived: s.segmentsReceived, lastLine: s.lastLine
@@ -123,7 +121,7 @@ final class Library {
     }
 
     func remove(_ id: String) {
-        server.removeAll { $0.id == id }
+        stored.removeAll { $0.id == id }
         local[id] = nil
         saveLocal()
     }
@@ -132,8 +130,8 @@ final class Library {
 
     var entries: [TimelineEntry] {
         var out: [String: TimelineEntry] = [:]
-        for s in server {
-            out[s.id] = makeEntry(server: s, local: local[s.id])
+        for s in stored {
+            out[s.id] = makeEntry(stored: s, local: local[s.id])
         }
         for (id, l) in local where out[id] == nil {
             out[id] = makeEntry(local: l)
@@ -161,7 +159,7 @@ final class Library {
         return Date.now.timeIntervalSince(l.startedAt) < Self.liveTimeout
     }
 
-    private func makeEntry(server s: SessionSummary, local l: LocalSession?) -> TimelineEntry {
+    private func makeEntry(stored s: SessionSummary, local l: LocalSession?) -> TimelineEntry {
         let state: TimelineEntry.State
         if s.status == "ready" {
             state = .done

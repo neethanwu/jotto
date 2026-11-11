@@ -33,7 +33,7 @@ final class Pipeline {
         changed()
     }
 
-    /// The audio is already at `Uploader.audioURL(session:index:)`.
+    /// The audio is already at `AudioFiles.url(session:index:)`.
     func segmentArrived(_ id: String, startedAt: Date, index: Int, offset: Double, duration: Double) {
         store.update(id, startedAt: startedAt) { r in
             if r.segments[index] == nil {
@@ -103,7 +103,7 @@ final class Pipeline {
         for r in store.recordings.values where r.imported == nil {
             var redo: [Int] = []
             for s in r.segments.values {
-                let url = Uploader.audioURL(session: r.id, index: s.index)
+                let url = AudioFiles.url(session: r.id, index: s.index)
                 let duration = s.duration
                 let fixed = await Task.detached(priority: .utility) { AudioRepair.fix(url, expected: duration) }.value
                 if fixed { redo.append(s.index) }
@@ -187,7 +187,7 @@ final class Pipeline {
         switch step {
         case let .transcribe(id, index):
             guard let r = store.recordings[id] else { return }
-            let url = Uploader.audioURL(session: id, index: index)
+            let url = AudioFiles.url(session: id, index: index)
             let began = Date.now
             if let expected = r.segments[index]?.duration {
                 // From a watch that hasn't updated yet.
@@ -275,7 +275,7 @@ extension Pipeline {
         var offset = 0.0
         for (index, name) in files.enumerated() {
             let source = URL(fileURLWithPath: dir).appending(path: name)
-            let destination = Uploader.audioURL(session: id, index: index)
+            let destination = AudioFiles.url(session: id, index: index)
             try? FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? FileManager.default.copyItem(at: source, to: destination)
             let duration = (try? AVAudioFile(forReading: destination)).map { Double($0.length) / $0.fileFormat.sampleRate } ?? 120
