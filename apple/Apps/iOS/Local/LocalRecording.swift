@@ -26,8 +26,10 @@ struct LocalRecording: Codable, Identifiable, Hashable {
     /// the on-device model is rate-limited in the background).
     var describedAt: Date?
     /// The language it was heard in (a locale identifier), decided from
-    /// the first part; nil until then.
+    /// the first part; nil until then. `mixed` for the experiment that
+    /// runs every language and keeps the surest, stretch by stretch.
     var locale: String?
+    static let mixed = "mixed"
     /// When the "ready" notice went out (or was skipped), so it goes once.
     var notifiedAt: Date?
     /// Segments given up on after the recording ended (see `Pipeline`).

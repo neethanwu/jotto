@@ -165,6 +165,19 @@ struct TranscriptView: View {
                                 }
                             }
                         }
+                        if AppConfig.shared.languages.count > 1 {
+                            Button {
+                                Pipeline.shared.redo(id, language: LocalRecording.mixed)
+                                polls += 1
+                            } label: {
+                                let title = "Mixed: " + AppConfig.shared.languages.map(LanguageView.shortName).joined(separator: " + ")
+                                if detail?.language == LocalRecording.mixed {
+                                    Label(title, systemImage: "checkmark")
+                                } else {
+                                    Text(title)
+                                }
+                            }
+                        }
                         Divider()
                         Button("Other languages…") { pickingLanguages = true }
                     }

@@ -97,7 +97,7 @@ final class Pipeline {
     /// `language` nil: hear which one again, from Settings' languages.
     func redo(_ id: String, language: String? = nil) {
         guard let r = store.recordings[id], r.imported == nil else { return }
-        if let language, !SpeechModels.shared.isInstalled(language) { prepared = false }
+        if let language, language != LocalRecording.mixed, !SpeechModels.shared.isInstalled(language) { prepared = false }
         store.update(id, startedAt: r.startedAt) { r in
             for i in r.segments.keys { r.segments[i]?.phrases = nil; r.segments[i]?.failed = nil }
             r.locale = language
@@ -249,15 +249,26 @@ final class Pipeline {
             }
             do {
                 // The recording's language, decided once from its first part to arrive.
-                let locale: Locale
+                let languages = AppConfig.shared.languages
+                let language: String
                 if let known = r.locale {
-                    locale = Locale(identifier: known)
+                    language = known
+                } else if AppConfig.shared.mixesLanguages, languages.count > 1 {
+                    language = LocalRecording.mixed
+                    store.update(id, startedAt: r.startedAt) { $0.locale = language }
                 } else {
-                    locale = try await OnDeviceTranscriber.shared.detect(url)
-                    store.update(id, startedAt: r.startedAt) { $0.locale = locale.identifier }
-                    PhoneLog.shared.note("asr_language", "\(id) \(locale.identifier)")
+                    language = try await OnDeviceTranscriber.shared.detect(url).identifier
+                    store.update(id, startedAt: r.startedAt) { $0.locale = language }
+                    PhoneLog.shared.note("asr_language", "\(id) \(language)")
                 }
-                let phrases = try await OnDeviceTranscriber.shared.transcribe(url, locale: locale)
+                let phrases: [Phrase]
+                if language == LocalRecording.mixed {
+                    let mixed = try await OnDeviceTranscriber.shared.transcribeMixed(url, languages: languages.map { Locale(identifier: $0) })
+                    phrases = mixed.phrases
+                    PhoneLog.shared.note("asr_mixed", "segment \(index) \(mixed.note)")
+                } else {
+                    phrases = try await OnDeviceTranscriber.shared.transcribe(url, locale: Locale(identifier: language))
+                }
                 store.update(id, startedAt: r.startedAt) { $0.segments[index]?.phrases = phrases }
                 waiting = nil
                 PhoneLog.shared.note("asr_done", "segment \(index) \(String(format: "%.1f", Date.now.timeIntervalSince(began)))s phrases=\(phrases.count)")

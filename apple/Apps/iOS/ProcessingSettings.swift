@@ -124,6 +124,16 @@ struct LanguageView: View {
                         row(id, picked: true)
                     }
                 }
+                if config.languages.count > 1 {
+                    VStack(alignment: .leading, spacing: 6) {
+                        SettingsToggle("Mixed in one recording", isOn: $config.mixesLanguages)
+                        Text("Experiment. Transcribes each recording in every language above and keeps whichever is surer, a sentence or two at a time. Takes a little longer.")
+                            .font(.metaSmall)
+                            .foregroundStyle(Color.jText3)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.top, 12)
+                }
                 if limitNote {
                     Text("Up to three. Remove one first.")
                         .font(.metaSmall)
@@ -246,6 +256,7 @@ struct LanguageView: View {
 
     /// Just the language, in its own words: "中文", "English".
     static func shortName(_ id: String) -> String {
+        if id == LocalRecording.mixed { return "Mixed languages" }
         let locale = Locale(identifier: id)
         return locale.language.languageCode.flatMap { locale.localizedString(forLanguageCode: $0.identifier) } ?? name(id)
     }

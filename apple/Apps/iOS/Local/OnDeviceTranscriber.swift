@@ -166,4 +166,55 @@ actor OnDeviceTranscriber {
         }
         return try await collected
     }
+
+    // MARK: - Mixed languages (experiment)
+
+    /// Every language's model over the whole segment, word by word with
+    /// times and confidence; `Mixer` then keeps the surer language for
+    /// each stretch between pauses and sentence ends.
+    func transcribeMixed(_ url: URL, languages: [Locale]) async throws -> (phrases: [Phrase], note: String) {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["JOTTO_FAKE_ASR"] != nil {
+            return (try await transcribe(url, locale: languages[0]), "fake")
+        }
+        #endif
+        var heard: [String: [Mixer.Token]] = [:]
+        for locale in languages {
+            heard[locale.identifier] = try await tokens(url, locale: locale)
+        }
+        let pieces = Mixer.merge(heard)
+        let counts = Dictionary(grouping: pieces, by: \.language).mapValues(\.count)
+        let note = counts.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: " ")
+            + " words=" + heard.map { "\($0.key):\($0.value.count)" }.sorted().joined(separator: ",")
+        return (pieces.map { Phrase(start: $0.start, end: $0.end, text: $0.text) }, note)
+    }
+
+    /// What one language's model heard, a word (or character) at a time.
+    private func tokens(_ url: URL, locale: Locale) async throws -> [Mixer.Token] {
+        _ = try await requireInstalled(locale)
+        let preset = SpeechTranscriber.Preset.transcription
+        let transcriber = SpeechTranscriber(
+            locale: locale,
+            transcriptionOptions: preset.transcriptionOptions,
+            reportingOptions: preset.reportingOptions,
+            attributeOptions: preset.attributeOptions.union([.audioTimeRange, .transcriptionConfidence])
+        )
+        let analyzer = SpeechAnalyzer(modules: [transcriber])
+        let file = try AVAudioFile(forReading: url)
+        async let collected: [Mixer.Token] = transcriber.results.reduce(into: []) { out, result in
+            for run in result.text.runs {
+                let text = String(result.text[run.range].characters)
+                // Without word times, the whole result counts as one word.
+                let range = run.audioTimeRange ?? result.range
+                out.append(.init(text: text, start: range.start.seconds, end: range.end.seconds,
+                                 confidence: run.transcriptionConfidence ?? 0.5))
+            }
+        }
+        if let last = try await analyzer.analyzeSequence(from: file) {
+            try await analyzer.finalizeAndFinish(through: last)
+        } else {
+            await analyzer.cancelAndFinishNow()
+        }
+        return try await collected
+    }
 }
