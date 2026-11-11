@@ -209,13 +209,12 @@ struct SendView: View {
                 .padding(16)
                 .card()
 
-                sectionTitle("Templates", count: templates.all.count)
+                sectionTitle("Templates", count: templates.all.count) { newTemplate }
                 VStack(spacing: 10) {
                     ForEach(templates.all) { template in
                         Button { editing = template } label: { card(template) }
                             .buttonStyle(.plain)
                     }
-                    newTemplate
                 }
             }
             .padding(.horizontal, 20)
@@ -224,31 +223,31 @@ struct SendView: View {
         .sheet(item: $editing) { TemplateEditor(template: $0) }
     }
 
-    /// The empty slot at the end of the list, where the new card will be.
+    /// "+ New" on the Templates heading: a filled capsule, quieter than
+    /// a button with a ring, and says what it makes.
     private var newTemplate: some View {
         Button {
             editing = SendTemplate(name: "", instruction: "", content: .clean, format: .markdown)
         } label: {
-            HStack(spacing: 10) {
-                GlyphView(glyph: .plus, color: .jText2)
-                    .frame(width: 16, height: 16)
-                Text("New template")
-                    .font(.rowTitle)
-                    .foregroundStyle(Color.jText2)
-                Spacer(minLength: 0)
+            HStack(spacing: 5) {
+                GlyphView(glyph: .plus, color: .jText)
+                    .frame(width: 13, height: 13)
+                Text("New")
+                    .font(.scaled(15, .medium, relativeTo: .subheadline))
+                    .foregroundStyle(Color.jText)
             }
-            .padding(.horizontal, 16)
-            .frame(height: 56)
-            .overlay(
-                RoundedRectangle(cornerRadius: 20)
-                    .strokeBorder(Color.jRing, style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 20))
+            .padding(.leading, 11)
+            .padding(.trailing, 14)
+            .frame(height: 32)
+            .background(Color.jFill, in: Capsule())
+            .contentShape(Capsule().inset(by: -6))
         }
         .buttonStyle(PressStyle())
+        .accessibilityLabel("New template")
     }
 
     /// Section titles here are headings, not labels: the page is two lists.
+    /// The add button sits on the list it adds to.
     private func sectionTitle<Trailing: View>(_ text: String, count: Int? = nil, top: CGFloat = 36,
                                               @ViewBuilder trailing: () -> Trailing = { EmptyView() }) -> some View {
         HStack(spacing: 6) {
