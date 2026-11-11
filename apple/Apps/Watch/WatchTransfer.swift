@@ -121,7 +121,16 @@ extension WatchTransfer: WCSessionDelegate {
         error: Error?
     ) {
         SpikeLog.shared.log("wc_activated", "state=\(activationState.rawValue) \(error?.localizedDescription ?? "")")
-        Task { @MainActor in self.refreshPending() }
+        let sent = History.parse(session.receivedApplicationContext)
+        Task { @MainActor in
+            self.refreshPending()
+            History.shared.phoneSent(sent)
+        }
+    }
+
+    nonisolated func session(_ session: WCSession, didReceiveApplicationContext context: [String: Any]) {
+        let sent = History.parse(context)
+        Task { @MainActor in History.shared.phoneSent(sent) }
     }
 
     nonisolated func sessionReachabilityDidChange(_ session: WCSession) {

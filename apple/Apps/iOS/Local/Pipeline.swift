@@ -44,11 +44,37 @@ final class Pipeline {
         run()
     }
 
+    // MARK: - From the phone's Live screen
+
+    /// Sections started on the phone, by recording: seconds from the start.
+    private(set) var openSections: [String: Double] = [:]
+    /// Longest a section runs before it closes itself, as on the watch.
+    static let sectionLimit: Double = 10 * 60
+
+    func markNow(_ id: String, startedAt: Date) {
+        marked(id, startedAt: startedAt, offset: Date.now.timeIntervalSince(startedAt))
+        changed()
+    }
+
+    func toggleSection(_ id: String, startedAt: Date) {
+        let now = Date.now.timeIntervalSince(startedAt)
+        if let start = openSections.removeValue(forKey: id) {
+            markedSection(id, startedAt: startedAt, start: start, end: min(now, start + Self.sectionLimit))
+            changed()
+        } else {
+            openSections[id] = now
+        }
+    }
+
     func finished(_ id: String, startedAt: Date, endedAt: Date, segmentCount: Int) {
+        if let start = openSections.removeValue(forKey: id) {
+            markedSection(id, startedAt: startedAt, start: start, end: min(endedAt.timeIntervalSince(startedAt), start + Self.sectionLimit))
+        }
         store.update(id, startedAt: startedAt) { r in
             r.endedAt = endedAt
             r.segmentCount = segmentCount
         }
+        Inbox.shared.syncHistory()
         changed()
         run()
     }
@@ -64,6 +90,24 @@ final class Pipeline {
             let section = LocalRecording.MarkedSection(start: start, end: end)
             if !(r.sections ?? []).contains(section) { r.sections = (r.sections ?? []) + [section] }
         }
+    }
+
+    /// Everything after the watch, again: language, text, clean-up and
+    /// title. For a recording heard in the wrong language.
+    func redo(_ id: String) {
+        guard let r = store.recordings[id], r.imported == nil else { return }
+        store.update(id, startedAt: r.startedAt) { r in
+            for i in r.segments.keys { r.segments[i]?.phrases = nil; r.segments[i]?.failed = nil }
+            r.locale = nil
+            r.clean = [:]
+            r.polishedAt = nil
+            r.describedAt = nil
+            r.notifiedAt = .now
+            if !r.titleByUser { r.title = nil; r.summary = nil; r.titleSuggestions = [] }
+        }
+        describeFailed.remove(id)
+        changed()
+        run()
     }
 
     // MARK: - Work
@@ -195,7 +239,16 @@ final class Pipeline {
                 if fixed { PhoneLog.shared.note("audio_repaired", "\(id) segment \(index)") }
             }
             do {
-                let phrases = try await OnDeviceTranscriber.shared.transcribe(url)
+                // The recording's language, decided once from its first part to arrive.
+                let locale: Locale
+                if let known = r.locale {
+                    locale = Locale(identifier: known)
+                } else {
+                    locale = try await OnDeviceTranscriber.shared.detect(url)
+                    store.update(id, startedAt: r.startedAt) { $0.locale = locale.identifier }
+                    PhoneLog.shared.note("asr_language", "\(id) \(locale.identifier)")
+                }
+                let phrases = try await OnDeviceTranscriber.shared.transcribe(url, locale: locale)
                 store.update(id, startedAt: r.startedAt) { $0.segments[index]?.phrases = phrases }
                 waiting = nil
                 PhoneLog.shared.note("asr_done", "segment \(index) \(String(format: "%.1f", Date.now.timeIntervalSince(began)))s phrases=\(phrases.count)")

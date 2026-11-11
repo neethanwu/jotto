@@ -25,6 +25,10 @@ struct TranscriptView: View {
     @FocusState private var titleFocused: Bool
     @State private var confirmDelete = false
     @State private var scrolledToStart = false
+    /// Bumped to start polling again after a redo.
+    @State private var polls = 0
+
+    private var isImported: Bool { LocalStore.shared.recordings[id]?.imported != nil }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -107,7 +111,7 @@ struct TranscriptView: View {
         } message: {
             Text(DeleteCopy.message(detail.map { title($0) } ?? "This recording"))
         }
-        .task { await poll() }
+        .task(id: polls) { await poll() }
         .onDisappear { player.stop() }
     }
 
@@ -144,6 +148,12 @@ struct TranscriptView: View {
             Spacer()
             Menu {
                 Button("Rename", systemImage: "pencil") { titleFocused = true }
+                if detail?.status == "ready", detail?.segments.contains(where: \.hasAudio) == true, !isImported {
+                    Button("Transcribe again", systemImage: "arrow.clockwise") {
+                        Pipeline.shared.redo(id)
+                        polls += 1
+                    }
+                }
                 Button("Delete", systemImage: "trash", role: .destructive) { confirmDelete = true }
             } label: {
                 CircleGlyph(glyph: .more)

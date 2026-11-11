@@ -50,6 +50,24 @@ final class Inbox: NSObject {
         try? FileManager.default.removeItem(at: item.url)
         reload()
     }
+
+    /// Tells the watch which recordings the phone has from the last week,
+    /// so its "2 today · 4 min" line drops ones deleted here. The latest
+    /// context replaces any earlier one still on its way.
+    func syncHistory() {
+        guard WCSession.isSupported(), WCSession.default.activationState == .activated,
+              WCSession.default.isPaired, WCSession.default.isWatchAppInstalled else { return }
+        let weekAgo = Date.now.addingTimeInterval(-7 * 86_400)
+        let items: [[String: Double]] = LocalStore.shared.recordings.values.compactMap { r in
+            guard r.startedAt > weekAgo, let ended = r.endedAt else { return nil }
+            return ["startedAt": r.startedAt.timeIntervalSince1970, "length": ended.timeIntervalSince(r.startedAt)]
+        }
+        do {
+            try WCSession.default.updateApplicationContext(["history": items, "at": Date.now.timeIntervalSince1970])
+        } catch {
+            PhoneLog.shared.note("history_sync_failed", error.localizedDescription)
+        }
+    }
 }
 
 extension Inbox: WCSessionDelegate {
@@ -60,7 +78,10 @@ extension Inbox: WCSessionDelegate {
     ) {
         let status = error?.localizedDescription
             ?? (session.isPaired ? (session.isWatchAppInstalled ? "watch app installed" : "watch app not installed") : "no paired watch")
-        Task { @MainActor in self.watchStatus = status }
+        Task { @MainActor in
+            self.watchStatus = status
+            self.syncHistory()
+        }
     }
 
     /// The file is deleted when this returns, so move it synchronously.

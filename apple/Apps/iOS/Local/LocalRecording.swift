@@ -25,6 +25,9 @@ struct LocalRecording: Codable, Identifiable, Hashable {
     /// Set once a title and summary have been written (may lag polish:
     /// the on-device model is rate-limited in the background).
     var describedAt: Date?
+    /// The language it was heard in (a locale identifier), decided from
+    /// the first part; nil until then.
+    var locale: String?
     /// When the "ready" notice went out (or was skipped), so it goes once.
     var notifiedAt: Date?
     /// Segments given up on after the recording ended (see `Pipeline`).

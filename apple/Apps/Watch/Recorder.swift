@@ -410,22 +410,32 @@ final class LevelMeter: @unchecked Sendable {
     }
 }
 
-/// Recordings made on this watch, for the "4 today · 3 h 18" line.
-@MainActor
+/// Recordings for the "4 today · 3 h 18" line: the phone's list (so ones
+/// deleted there go), plus ones made here that the phone may not have yet.
+@MainActor @Observable
 final class History {
     static let shared = History()
     private let key = "history"
+    private let phoneKey = "historyFromPhone"
 
     struct Item: Codable {
         let startedAt: Date
         let length: TimeInterval
     }
 
-    private(set) var items: [Item]
+    private struct FromPhone: Codable {
+        var items: [Item]
+        var at: Date
+    }
+
+    /// Made on this watch, the last week.
+    private var items: [Item]
+    private var phone: FromPhone?
 
     private init() {
-        items = (UserDefaults.standard.data(forKey: key))
-            .flatMap { try? JSONDecoder().decode([Item].self, from: $0) } ?? []
+        let defaults = UserDefaults.standard
+        items = defaults.data(forKey: key).flatMap { try? JSONDecoder().decode([Item].self, from: $0) } ?? []
+        phone = defaults.data(forKey: phoneKey).flatMap { try? JSONDecoder().decode(FromPhone.self, from: $0) }
     }
 
     func add(startedAt: Date, length: TimeInterval) {
@@ -434,5 +444,33 @@ final class History {
         UserDefaults.standard.set(try? JSONEncoder().encode(items), forKey: key)
     }
 
-    var today: [Item] { items.filter { Calendar.current.isDateInToday($0.startedAt) } }
+    /// The phone's list, read from its application context.
+    nonisolated static func parse(_ context: [String: Any]) -> (items: [Item], at: Date)? {
+        guard let raw = context["history"] as? [[String: Double]], let at = context["at"] as? Double else { return nil }
+        let list = raw.compactMap { d -> Item? in
+            guard let s = d["startedAt"], let l = d["length"] else { return nil }
+            return Item(startedAt: Date(timeIntervalSince1970: s), length: l)
+        }
+        return (list, Date(timeIntervalSince1970: at))
+    }
+
+    func phoneSent(_ sent: (items: [Item], at: Date)?) {
+        guard let sent else { return }
+        phone = FromPhone(items: sent.items, at: sent.at)
+        UserDefaults.standard.set(try? JSONEncoder().encode(phone), forKey: phoneKey)
+    }
+
+    var today: [Item] {
+        var all = items
+        if let phone {
+            // Ours that ended before the phone's list and aren't on it were deleted there.
+            let known = phone.items.map(\.startedAt.timeIntervalSince1970)
+            let ours = items.filter { item in
+                !known.contains { abs($0 - item.startedAt.timeIntervalSince1970) < 2 }
+                    && item.startedAt.addingTimeInterval(item.length) > phone.at.addingTimeInterval(-60)
+            }
+            all = phone.items + ours
+        }
+        return all.filter { Calendar.current.isDateInToday($0.startedAt) }
+    }
 }

@@ -1,14 +1,23 @@
 import SwiftUI
 
 /// A recording in progress. Always dark: the timer, the breathing dot,
-/// and the latest transcript as it arrives (a couple of minutes behind,
-/// since the watch sends audio in two-minute parts).
+/// Mark and Section (the same as the watch's star and [ ]), and the latest
+/// transcript as it arrives (a couple of minutes behind, since the watch
+/// sends audio in two-minute parts). Stopping stays on the wrist.
 struct LiveView: View {
     let id: String
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var detail: SessionDetail?
+    /// The star turns orange for a moment after a mark, as on the watch.
+    @State private var justMarked = false
+    private var pipeline: Pipeline { .shared }
+    private var sectionOpen: Bool { pipeline.openSections[id] != nil }
+    private var highlightCount: Int {
+        let r = LocalStore.shared.recordings[id]
+        return (r?.marks.count ?? 0) + (r?.sections?.count ?? 0)
+    }
 
     private var entry: TimelineEntry? { Library.shared.entries.first { $0.id == id } }
     private var startedAt: Date? { detail?.startedAt ?? entry?.startedAt }
@@ -18,11 +27,6 @@ struct LiveView: View {
             HStack {
                 CircleIconButton(glyph: .down, label: "Close", fill: .ink950, color: .ink50, ring: .ink800) { dismiss() }
                 Spacer()
-                Text("Recording")
-                    .font(.label)
-                    .foregroundStyle(Color.jLive)
-                Spacer()
-                Color.clear.frame(width: 36, height: 36)
             }
             .padding(.horizontal, 16)
             .frame(height: 52)
@@ -40,10 +44,22 @@ struct LiveView: View {
                 .padding(.top, 36)
 
             if let startedAt {
-                Text("Since \(Format.time(startedAt)) · stop it on your wrist")
-                    .font(.metaSmall)
+                HStack(spacing: 10) {
+                    LivePill(label: "Mark", glyph: .star, accent: justMarked) { mark(startedAt) }
+                    LivePill(label: sectionOpen ? "End section" : "Section", glyph: .brackets, accent: sectionOpen) {
+                        pipeline.toggleSection(id, startedAt: startedAt)
+                    }
+                }
+                .padding(.top, 20)
+                .sensoryFeedback(.impact(weight: .medium), trigger: highlightCount)
+                .sensoryFeedback(.selection, trigger: sectionOpen)
+
+                Text(metaLine(startedAt))
+                    .font(.scaled(13, .medium, relativeTo: .footnote))
                     .foregroundStyle(Color.ink500)
-                    .padding(.top, 24)
+                    .contentTransition(.numericText())
+                    .padding(.top, 20)
+                    .animation(.easeOut(duration: 0.2), value: highlightCount)
             }
 
             Spacer(minLength: 24)
@@ -59,6 +75,22 @@ struct LiveView: View {
             // Finished on the watch: show the transcript instead.
             if let state, state != .live { dismiss() }
         }
+    }
+
+    private func mark(_ startedAt: Date) {
+        pipeline.markNow(id, startedAt: startedAt)
+        withAnimation(.easeOut(duration: 0.15)) { justMarked = true }
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            withAnimation(.easeOut(duration: 0.3)) { justMarked = false }
+        }
+    }
+
+    private func metaLine(_ startedAt: Date) -> String {
+        let count = highlightCount
+        if sectionOpen { return count == 0 ? "Section open" : "Section open · \(Format.plural(count, "mark"))" }
+        let lead = count == 0 ? "Since \(Format.time(startedAt))" : Format.plural(count, "mark")
+        return "\(lead) · stop it on your wrist"
     }
 
     private var lines: [String] {
@@ -146,5 +178,34 @@ private struct Particles: View {
             }
         }
         .accessibilityHidden(true)
+    }
+}
+
+/// Mark and Section on the Live screen: 44 high, ink-900 with a faint
+/// ring; orange while a section is open or just after a mark.
+private struct LivePill: View {
+    let label: String
+    let glyph: Glyph
+    let accent: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                GlyphView(glyph: glyph, color: accent ? .jLive : .ink50)
+                    .frame(width: 16, height: 16)
+                Text(label)
+                    .font(.scaled(15, .semibold, relativeTo: .subheadline))
+                    .foregroundStyle(accent ? Color.jLive : Color.ink50)
+                    .contentTransition(.interpolate)
+            }
+            .padding(.leading, 16)
+            .padding(.trailing, 20)
+            .frame(height: 44)
+            .background(Color.ink900, in: Capsule())
+            .overlay(Capsule().strokeBorder(accent ? Color.jLive.opacity(0.6) : Color(white: 0.18), lineWidth: 1))
+            .animation(.easeOut(duration: 0.2), value: accent)
+        }
+        .buttonStyle(PressStyle())
     }
 }

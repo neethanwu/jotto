@@ -101,26 +101,28 @@ struct ChoiceCard: View {
     }
 }
 
-/// The language on-device transcription listens for. Automatic follows
-/// the system's preferred languages.
+/// The language on-device transcription listens for. Automatic listens to
+/// the start of each recording and picks from the iPhone's languages and
+/// keyboards. "Downloaded" marks models already on the phone; others
+/// download when picked.
 struct LanguageView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var config: AppConfig = .shared
     @State private var locales: [Locale] = []
     @State private var installed: Set<String> = []
     @State private var loaded = false
-    /// What Automatic comes to on this iPhone.
+    /// The languages Automatic chooses between on this iPhone.
     @State private var automatic: String?
 
     private var automaticDetail: String {
-        guard let automatic else { return "Your iPhone's first language" }
-        return "Your iPhone's first language · \(Self.name(automatic))"
+        guard let automatic else { return "Hears which of your iPhone's languages each recording is in" }
+        return "Hears which one each recording is in: \(automatic)"
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                PageHeader(title: "Language", detail: "The language people mostly speak in your recordings. Other languages come out garbled.") { dismiss() }
+                PageHeader(title: "Language", detail: "The language people mostly speak in your recordings. A recording in mixed languages comes out in the main one.") { dismiss() }
 
                 SettingsGroup {
                     ChoiceRow(label: "Automatic", detail: automaticDetail, selected: config.transcriptionLocale.isEmpty) {
@@ -136,6 +138,11 @@ struct LanguageView: View {
                 }
                 .padding(.top, 24)
 
+                Text("Downloaded languages are already on your iPhone. Others download when you pick them, with Jotto open.")
+                    .font(.metaSmall)
+                    .foregroundStyle(Color.jText3)
+                    .padding(.top, 12)
+
                 if loaded && locales.isEmpty {
                     Text("On-device transcription isn't available on this iPhone.")
                         .font(.summary)
@@ -150,10 +157,13 @@ struct LanguageView: View {
         .background(Color.jBg)
         .toolbar(.hidden, for: .navigationBar)
         .sensoryFeedback(.selection, trigger: config.transcriptionLocale)
+        .onChange(of: Pipeline.shared.waiting) {
+            Task { installed = Set(await SpeechTranscriber.installedLocales.map(\.identifier)) }
+        }
         .task {
             let all = await SpeechTranscriber.supportedLocales
             installed = Set(await SpeechTranscriber.installedLocales.map(\.identifier))
-            automatic = await OnDeviceTranscriber.automaticLocale().identifier
+            automatic = await OnDeviceTranscriber.candidates().map { Self.name($0.identifier) }.joined(separator: ", ")
             locales = all.sorted { Self.name($0.identifier).localizedStandardCompare(Self.name($1.identifier)) == .orderedAscending }
             loaded = true
         }
@@ -167,7 +177,9 @@ struct LanguageView: View {
 
     private func detail(_ locale: Locale) -> String? {
         let here = Locale.current.localizedString(forIdentifier: locale.identifier)
-        let parts = [here == Self.name(locale.identifier) ? nil : here, installed.contains(locale.identifier) ? "Downloaded" : nil]
+        let state: String? = installed.contains(locale.identifier) ? "Downloaded"
+            : config.transcriptionLocale == locale.identifier ? (Pipeline.shared.waiting == nil ? "Downloads when needed" : "Downloading") : nil
+        let parts = [here == Self.name(locale.identifier) ? nil : here, state]
         let text = parts.compactMap { $0 }.joined(separator: " · ")
         return text.isEmpty ? nil : text
     }

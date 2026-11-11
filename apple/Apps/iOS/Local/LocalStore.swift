@@ -77,6 +77,7 @@ final class LocalStore {
 
     func delete(_ id: String) {
         recordings[id] = nil
+        Inbox.shared.syncHistory()
         try? FileManager.default.removeItem(at: Self.directory.appending(path: "\(id).json"))
         try? FileManager.default.removeItem(at: AudioFiles.directory.appending(path: id))
     }

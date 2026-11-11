@@ -56,7 +56,7 @@ struct SettingsView: View {
         }
         .task { await library.refresh() }
         .onChange(of: config.notifiesWhenReady) { _, on in
-            if on { Task { await Notifier.shared.askIfNeeded(now: true) } }
+            if on { Task { await Notifier.shared.askIfNeeded(fromSwitch: true) } }
         }
     }
 }

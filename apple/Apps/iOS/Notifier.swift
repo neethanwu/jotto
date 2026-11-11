@@ -3,9 +3,8 @@ import UIKit
 import UserNotifications
 
 /// "Your recording is ready": its title and what it was about, once the
-/// phone has finished with it. Only for recordings the phone did itself,
-/// only while the app isn't in front (the list already shows it), and
-/// tapping one opens the transcript.
+/// phone has finished with it. A banner even with Jotto open, since you
+/// may be on another tab; tapping one opens the transcript.
 @MainActor @Observable
 final class Notifier: NSObject {
     static let shared = Notifier()
@@ -23,11 +22,18 @@ final class Notifier: NSObject {
         center.delegate = self
     }
 
-    /// Asks once, the first time the app is open with a recording in it:
-    /// the moment the notice makes sense.
-    func askIfNeeded(now: Bool = false) async {
-        guard AppConfig.shared.notifiesWhenReady, now || !LocalStore.shared.recordings.isEmpty else { return }
+    /// Asks once, the first time the app is in front: recordings arrive
+    /// while it's in the background, too late to ask then.
+    /// From the Settings switch, a "no" given earlier sends you to iOS
+    /// Settings, the only place it can be changed.
+    func askIfNeeded(fromSwitch: Bool = false) async {
+        guard AppConfig.shared.notifiesWhenReady else { return }
         let settings = await center.notificationSettings()
+        if fromSwitch, settings.authorizationStatus == .denied,
+           let url = URL(string: UIApplication.openNotificationSettingsURLString) {
+            await UIApplication.shared.open(url)
+            return
+        }
         guard settings.authorizationStatus == .notDetermined else { return }
         let granted = (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
         PhoneLog.shared.note("notify_permission", granted ? "granted" : "denied")
@@ -39,8 +45,7 @@ final class Notifier: NSObject {
         guard AppConfig.shared.notifiesWhenReady, let r = store.recordings[id],
               r.notifiedAt == nil, r.imported == nil, let ended = r.endedAt else { return }
         store.update(id, startedAt: r.startedAt) { $0.notifiedAt = .now }
-        guard Date.now.timeIntervalSince(ended) < Self.freshFor,
-              UIApplication.shared.applicationState != .active else { return }
+        guard Date.now.timeIntervalSince(ended) < Self.freshFor else { return }
 
         let content = UNMutableNotificationContent()
         content.title = r.title ?? "Recording ready"
@@ -76,7 +81,6 @@ extension Notifier: UNUserNotificationCenterDelegate {
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter, willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        // In front, the recording shows up in the list by itself.
-        []
+        [.banner, .list, .sound]
     }
 }

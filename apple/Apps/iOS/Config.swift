@@ -7,7 +7,7 @@ final class AppConfig {
     static let shared = AppConfig()
 
     /// The language on-device transcription listens for; empty means
-    /// follow the system languages. Read by `OnDeviceTranscriber`.
+    /// let each recording pick from the iPhone's languages. Read by `OnDeviceTranscriber`.
     var transcriptionLocale: String {
         didSet { UserDefaults.standard.set(transcriptionLocale.isEmpty ? nil : transcriptionLocale, forKey: "transcriptionLocale") }
     }
