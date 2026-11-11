@@ -11,16 +11,11 @@ struct SettingsView: View {
     private var library: Library { .shared }
 
     var body: some View {
-        ScrollView {
+        // No large title: the tab bar already says Settings.
+        TabPage {
             VStack(alignment: .leading, spacing: 0) {
-                BrandBar()
-                Text("Settings")
-                    .dayTitleStyle()
-                    .padding(.top, 20)
-                    .accessibilityAddTraits(.isHeader)
-
                 MonthCard(entries: library.entries)
-                    .padding(.top, 24)
+                    .padding(.top, 16)
 
                 SettingsSection("Transcribe and polish") {
                     NavigationLink(value: Route.processing) {
@@ -55,25 +50,15 @@ struct SettingsView: View {
                     }
                 }
 
-                VStack(spacing: 10) {
-                    Image("Wordmark")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(height: 28)
-                        .accessibilityLabel("Jotto")
-                    Text("Jotto \(Bundle.main.version) · built by neethan")
-                        .font(.scaled(11, .medium, relativeTo: .caption2).monospacedDigit())
-                        .foregroundStyle(Color.jText4)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.top, 48)
+                Text("Jotto \(Bundle.main.version) · built by neethan")
+                    .font(.scaled(11, .medium, relativeTo: .caption2).monospacedDigit())
+                    .foregroundStyle(Color.jText4)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 48)
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 140)
         }
-        .statusBarCover()
-        .background(Color.jBg)
-        .toolbar(.hidden, for: .navigationBar)
         .task { await library.refresh() }
     }
 }

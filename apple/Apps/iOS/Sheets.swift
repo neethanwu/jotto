@@ -21,6 +21,7 @@ struct SendPanel: View {
     @State private var copied = false
     @State private var presenting = false
     @State private var editing: SendTemplate?
+    @State private var listHeight: CGFloat = 0
 
     private var template: SendTemplate {
         templates.all.first { $0.id == selectedID } ?? templates.preferred
@@ -49,7 +50,6 @@ struct SendPanel: View {
             ScrollView {
                 VStack(spacing: 0) {
                     ForEach(templates.all) { row($0) }
-                        .animation(.spring(duration: 0.38, bounce: 0.08), value: selectedID)
                     Button {
                         editing = SendTemplate(name: "", instruction: "", content: .clean, format: .markdown)
                     } label: {
@@ -63,7 +63,10 @@ struct SendPanel: View {
                     }
                     .buttonStyle(.plain)
                 }
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listHeight = $0 }
             }
+            // As tall as the list, so the drawer fits it; scrolls past that.
+            .frame(maxHeight: listHeight > 0 ? listHeight : nil)
             .scrollBounceBehavior(.basedOnSize)
             .padding(.top, 8)
 
@@ -138,62 +141,49 @@ struct SendPanel: View {
 
     private func select(_ id: UUID) {
         guard id != selectedID else { return }
-        withAnimation(.spring(duration: 0.38, bounce: 0.08)) { selectedID = id }
+        withAnimation(.snappy(duration: 0.2)) { selectedID = id }
         templates.lastUsed = id
     }
 
+    /// Every row is the same shape whether picked or not: the check fills
+    /// in, nothing grows or changes weight. The second line is what the
+    /// template asks for, cut to one line.
     private func row(_ t: SendTemplate) -> some View {
         let on = t.id == selectedID
+        let instruction = t.instruction.trimmingCharacters(in: .whitespacesAndNewlines)
         return Button { select(t.id) } label: {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 12) {
-                    ZStack {
-                        Circle().strokeBorder(Color.jText5, lineWidth: 1.5).opacity(on ? 0 : 1)
-                        Circle().fill(Color.jText).opacity(on ? 1 : 0)
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 10, weight: .heavy))
-                            .foregroundStyle(Color.jBg)
-                            .opacity(on ? 1 : 0)
-                    }
-                    .frame(width: 22, height: 22)
-                    Text(t.name)
-                        .font(.scaled(17, on ? .semibold : .regular, relativeTo: .body))
-                        .foregroundStyle(Color.jText)
-                        .lineLimit(1)
-                    Spacer(minLength: 8)
-                    Text(t.summary).font(.metaSmall).foregroundStyle(Color.jText3)
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    Circle().strokeBorder(Color.jText5, lineWidth: 1.5).opacity(on ? 0 : 1)
+                    Circle().fill(Color.jText).opacity(on ? 1 : 0)
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .heavy))
+                        .foregroundStyle(Color.jBg)
+                        .opacity(on ? 1 : 0)
                 }
-                if on {
-                    Text(preview)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(Color.jText2)
-                        .lineSpacing(2)
-                        .lineLimit(7)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(Color.jSheetWell, in: RoundedRectangle(cornerRadius: 12))
-                        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.jSheetHairline, lineWidth: 1))
-                        .padding(.leading, 34)
-                        .transition(.asymmetric(
-                            insertion: .opacity.combined(with: .offset(y: -8)).animation(.easeOut(duration: 0.25).delay(0.06)),
-                            removal: .opacity.animation(.easeOut(duration: 0.12))
-                        ))
+                .frame(width: 22, height: 22)
+                .scaleEffect(on ? 1 : 0.92)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(t.name)
+                            .font(.reading)
+                            .foregroundStyle(Color.jText)
+                            .lineLimit(1)
+                        Spacer(minLength: 8)
+                        Text(t.summary).font(.metaSmall).foregroundStyle(Color.jText3)
+                    }
+                    Text(instruction.isEmpty ? "No instruction" : instruction.replacingOccurrences(of: "\n", with: " "))
+                        .font(.metaSmall)
+                        .foregroundStyle(Color.jText3)
+                        .lineLimit(1)
                 }
             }
             .padding(.vertical, 12)
             .contentShape(Rectangle())
-            .clipped()
             .overlay(alignment: .bottom) { Rectangle().fill(Color.jSheetHairline).frame(height: 1) }
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(on ? .isSelected : [])
-    }
-
-    /// The first lines of what goes out with the chosen template.
-    private var preview: String {
-        let lines = markdown.split(separator: "\n", omittingEmptySubsequences: true)
-        return lines.prefix(7).joined(separator: "\n")
     }
 
     private var audioDetail: String {

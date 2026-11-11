@@ -78,6 +78,7 @@ private struct DrawerCover<Panel: View>: View {
     @State private var open = false
     @State private var drag: CGFloat = 0
     @State private var closing = false
+    @State private var panelHeight: CGFloat = 0
 
     private let radius: CGFloat = 32
     private static var space: String { "drawer" }
@@ -87,10 +88,10 @@ private struct DrawerCover<Panel: View>: View {
 
     var body: some View {
         GeometryReader { geo in
-            let height = (geo.size.height * 0.8).rounded()
+            let height = (geo.size.height * 0.9).rounded()
             ZStack(alignment: .bottom) {
                 Color.black
-                    .opacity(open ? 0.3 * max(0, 1 - drag / height) : 0)
+                    .opacity(open ? 0.3 * max(0, 1 - drag / max(panelHeight, 1)) : 0)
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
                     .onTapGesture { close() }
@@ -107,7 +108,9 @@ private struct DrawerCover<Panel: View>: View {
                             .environment(\.closeDrawer, close)
                     }
                     .frame(maxWidth: .infinity)
-                    .frame(height: height, alignment: .top)
+                    // As tall as its content, up to nine tenths of the screen.
+                    .modifier(CapHeight(height: height))
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { panelHeight = $0 }
                     .background {
                         // Runs on past the bottom edge, so a pull upward
                         // never shows a gap beneath it.
@@ -118,7 +121,7 @@ private struct DrawerCover<Panel: View>: View {
                             .ignoresSafeArea(edges: .bottom)
                     }
                     .offset(y: drag)
-                    .simultaneousGesture(pull(height: height, top: geo.size.height - height))
+                    .simultaneousGesture(pull(height: panelHeight, top: geo.size.height - panelHeight))
                     .transition(.move(edge: .bottom))
                     .accessibilityAction(.escape) { close() }
                 }
@@ -159,5 +162,28 @@ private struct DrawerCover<Panel: View>: View {
         } completion: {
             onGone()
         }
+    }
+}
+
+/// Offers the panel no more than `height` and takes the size it asks for,
+/// so a short panel stays short and a long one stops below the top.
+private struct CapHeight: ViewModifier {
+    let height: CGFloat
+
+    func body(content: Content) -> some View {
+        CapLayout(height: height) { content }
+    }
+}
+
+private struct CapLayout: Layout {
+    let height: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let capped = ProposedViewSize(width: proposal.width, height: min(proposal.height ?? height, height))
+        return subviews.first?.sizeThatFits(capped) ?? .zero
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
     }
 }

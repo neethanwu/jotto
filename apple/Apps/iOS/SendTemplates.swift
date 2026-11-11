@@ -185,16 +185,10 @@ struct SendView: View {
     @State private var editing: SendTemplate?
 
     var body: some View {
-        ScrollView {
+        // No large title: the tab bar already says Send.
+        TabPage {
             VStack(alignment: .leading, spacing: 0) {
-                BrandBar()
-
-                Text("Send")
-                    .dayTitleStyle()
-                    .padding(.top, 20)
-                    .accessibilityAddTraits(.isHeader)
-
-                sectionTitle("Automations", top: 28)
+                sectionTitle("Automations", top: 16)
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(alignment: .firstTextBaseline) {
                         Text("When a transcript is ready").font(.rowTitle).foregroundStyle(Color.jText)
@@ -230,9 +224,6 @@ struct SendView: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 140)
         }
-        .statusBarCover()
-        .background(Color.jBg)
-        .toolbar(.hidden, for: .navigationBar)
         .sheet(item: $editing) { TemplateEditor(template: $0) }
     }
 

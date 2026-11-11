@@ -40,3 +40,46 @@ struct BarPillStyle: ButtonStyle {
             .sensoryFeedback(.impact(weight: .light), trigger: configuration.isPressed) { _, pressed in pressed }
     }
 }
+
+/// A tab's page under a wordmark bar that stays put. The page scrolls
+/// beneath it, and a hairline appears once anything has gone under.
+struct TabPage<Trailing: View, Content: View>: View {
+    let trailing: Trailing
+    let content: Content
+    @State private var scrolled = false
+
+    init(@ViewBuilder trailing: () -> Trailing = { EmptyView() }, @ViewBuilder content: () -> Content) {
+        self.trailing = trailing()
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            BrandBar { trailing }
+                .padding(.horizontal, 20)
+                .background(Color.jBg)
+                .overlay(alignment: .bottom) { ScrollEdgeLine(visible: scrolled) }
+                .zIndex(1)
+            ScrollView { content }
+                .scrollIndicators(.hidden)
+                .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top > 0.5 } action: { _, now in
+                    scrolled = now
+                }
+        }
+        .statusBarCover()
+        .background(Color.jBg)
+        .toolbar(.hidden, for: .navigationBar)
+    }
+}
+
+/// The hairline under a fixed header, shown once content scrolls under it.
+struct ScrollEdgeLine: View {
+    let visible: Bool
+
+    var body: some View {
+        Rectangle().fill(Color.jHairline).frame(height: 1)
+            .opacity(visible ? 1 : 0)
+            .animation(.easeOut(duration: 0.15), value: visible)
+            .accessibilityHidden(true)
+    }
+}

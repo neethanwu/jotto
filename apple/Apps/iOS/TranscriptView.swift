@@ -40,9 +40,6 @@ struct TranscriptView: View {
                             .padding(.horizontal, 20)
                             .padding(.top, 20)
                             .padding(.bottom, 140)
-                            .opacity(renaming ? 0.3 : 1)
-                            .allowsHitTesting(!renaming)
-                            .animation(.easeOut(duration: 0.2), value: renaming)
                     } else if let error {
                         Text(error).font(.summary).foregroundStyle(Color.jText3).padding(20)
                     } else {
@@ -50,6 +47,16 @@ struct TranscriptView: View {
                     }
                 }
                 .scrollIndicators(.hidden)
+                // While the title is being edited the transcript steps back.
+                // A veil over it rather than changing the rows themselves:
+                // touching the selectable text's modifiers rebuilt it, and
+                // it slid into place as the keyboard went.
+                .overlay {
+                    Color.jBg
+                        .opacity(renaming ? 0.7 : 0)
+                        .allowsHitTesting(renaming)
+                        .accessibilityHidden(true)
+                }
                 .onChange(of: detail?.blocks.count) { _, _ in scrollToStart(proxy) }
                 .onChange(of: currentBlock) { _, block in
                     let scrubbing = player.scrubTime != nil
@@ -77,17 +84,22 @@ struct TranscriptView: View {
             if let detail { PlayerBar(player: player, hasAudio: !detail.segments.isEmpty) }
         }
         .toolbar(.hidden, for: .navigationBar)
+        // Only the title is ever typed into, and it sits above the
+        // keyboard; letting the keyboard resize the page made the
+        // transcript jump as it came and went.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .drawer(isPresented: $sharing) {
             if let detail { SendPanel(detail: detail, title: title(detail)) }
         }
-        .onChange(of: renaming) { _, editing in
-            if editing, let detail {
-                draftTitle = title(detail)
-                titleFocused = true
-            }
+        // The title is always the field; focusing it is what starts a rename.
+        .onChange(of: titleFocused) { _, focused in
+            if focused, !renaming { withAnimation(Self.editMotion) { renaming = true } }
+        }
+        .onChange(of: detail.map { title($0) } ?? "", initial: true) { _, current in
+            if !renaming { draftTitle = current }
         }
         .onChange(of: detail == nil) { _, missing in
-            if !missing, startsRenaming, !renaming { renaming = true }
+            if !missing, startsRenaming, !renaming { titleFocused = true }
         }
         .confirmationDialog("Delete this recording?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete recording and audio", role: .destructive) { Task { await delete() } }
@@ -100,22 +112,29 @@ struct TranscriptView: View {
 
     // MARK: - Top bar
 
-    @ViewBuilder
+    /// One curve for everything that changes when a rename starts or ends.
+    static let editMotion = Animation.smooth(duration: 0.32)
+
+    /// Both bars are always there and cross-fade, so nothing reflows.
     private var topBar: some View {
-        if renaming {
-            HStack {
-                Button("Cancel") { finishRenaming(save: false) }
-                    .font(.label)
-                    .foregroundStyle(Color.jText2)
-                Spacer()
-                Button("Done") { finishRenaming(save: true) }
-                    .buttonStyle(PrimaryPillStyle(height: 36))
+        ZStack {
+            if renaming {
+                HStack {
+                    Button("Cancel") { finishRenaming(save: false) }
+                        .font(.label)
+                        .foregroundStyle(Color.jText2)
+                    Spacer()
+                    Button("Done") { finishRenaming(save: true) }
+                        .buttonStyle(PrimaryPillStyle(height: 36))
+                }
+                .padding(.horizontal, 20)
+                .transition(.opacity)
+            } else {
+                browsingBar
+                    .transition(.opacity)
             }
-            .padding(.horizontal, 20)
-            .frame(height: 52)
-        } else {
-            browsingBar
         }
+        .frame(height: 52)
     }
 
     private var browsingBar: some View {
@@ -123,7 +142,7 @@ struct TranscriptView: View {
             CircleIconButton(glyph: .back, label: "Back") { dismiss() }
             Spacer()
             Menu {
-                Button("Rename", systemImage: "pencil") { renaming = true }
+                Button("Rename", systemImage: "pencil") { titleFocused = true }
                 Button("Delete", systemImage: "trash", role: .destructive) { confirmDelete = true }
             } label: {
                 CircleGlyph(glyph: .more)
@@ -146,31 +165,32 @@ struct TranscriptView: View {
                 .foregroundStyle(Color.jText3)
                 .padding(.top, 12)
 
-            if renaming {
-                titleEditor(detail)
-            } else {
-                Button { renaming = true } label: {
-                    Text(title(detail))
-                        .font(.transcriptTitle)
-                        .tracking(-0.68)
-                        .foregroundStyle(Color.jText)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
+            titleField
+
+            // The hint and the underline share one slot, so starting a
+            // rename changes nothing below the title.
+            ZStack(alignment: .topLeading) {
+                if detail.titleByUser != true {
+                    Button { titleFocused = true } label: {
+                        Label(detail.title == nil ? "Jotto names it once there is enough to go on" : "Title by Jotto · tap to rename",
+                              systemImage: "pencil")
+                            .font(.metaSmall)
+                            .foregroundStyle(Color.jText3)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 10)
+                    .opacity(renaming ? 0 : 1)
+                    .disabled(renaming)
                 }
-                .buttonStyle(.plain)
-                .padding(.top, 8)
-                .accessibilityHint("Rename")
+                Rectangle().fill(Color.jText).frame(height: 1.5)
+                    .padding(.top, 8)
+                    .opacity(renaming ? 1 : 0)
+                    .accessibilityHidden(true)
             }
 
-            if detail.titleByUser != true, !renaming {
-                Button { renaming = true } label: {
-                    Label(detail.title == nil ? "Jotto names it once there is enough to go on" : "Title by Jotto · tap to rename",
-                          systemImage: "pencil")
-                        .font(.metaSmall)
-                        .foregroundStyle(Color.jText3)
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 10)
+            if renaming {
+                suggestions(detail)
+                    .transition(.opacity)
             }
 
             Group {
@@ -182,45 +202,53 @@ struct TranscriptView: View {
             // While the title is being edited, the rest steps back.
             .opacity(renaming ? 0.3 : 1)
             .allowsHitTesting(!renaming)
-            .animation(.easeOut(duration: 0.2), value: renaming)
         }
     }
 
-    /// The title becomes a field in place, with Jotto's suggestions under it.
-    private func titleEditor(_ detail: SessionDetail) -> some View {
-        let suggestions = ([detail.titleByUser == true ? nil : detail.title] + (detail.titleSuggestions ?? []).map { $0 })
-            .compactMap { $0 }
-            .reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
-        return VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center, spacing: 10) {
-                TextField("Title", text: $draftTitle, axis: .vertical)
-                    .font(.transcriptTitle)
-                    .tracking(-0.68)
-                    .foregroundStyle(Color.jText)
-                    .tint(Color.jLive)
-                    .focused($titleFocused)
-                    .submitLabel(.done)
-                    // Wraps like a paragraph, but Return means Done.
-                    .onChange(of: draftTitle) { _, text in
-                        if text.contains("\n") {
-                            draftTitle = text.replacingOccurrences(of: "\n", with: "")
-                            finishRenaming(save: true)
-                        }
-                    }
-                if !draftTitle.isEmpty {
+    /// The title is a field all the time, styled as the title, so tapping
+    /// it puts the cursor in place without swapping views. Room for the
+    /// clear button is kept even when it is hidden, so the text never
+    /// rewraps.
+    private var titleField: some View {
+        TextField("Title", text: $draftTitle, axis: .vertical)
+            .font(.transcriptTitle)
+            .tracking(-0.68)
+            .foregroundStyle(Color.jText)
+            .tint(Color.jLive)
+            .focused($titleFocused)
+            .submitLabel(.done)
+            // Wraps like a paragraph, but Return means Done.
+            .onChange(of: draftTitle) { _, text in
+                if text.contains("\n") {
+                    draftTitle = text.replacingOccurrences(of: "\n", with: "")
+                    finishRenaming(save: true)
+                }
+            }
+            .padding(.trailing, 32)
+            .overlay(alignment: .trailing) {
+                if renaming, !draftTitle.isEmpty {
                     Button { draftTitle = "" } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 20))
                             .foregroundStyle(Color.jText4)
+                            .frame(width: 32, height: 44)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Clear title")
+                    .transition(.opacity)
                 }
             }
             .padding(.top, 8)
-            .padding(.bottom, 8)
-            Rectangle().fill(Color.jText).frame(height: 1.5)
-            if !suggestions.isEmpty {
+            .accessibilityHint(renaming ? "" : "Rename")
+    }
+
+    @ViewBuilder
+    private func suggestions(_ detail: SessionDetail) -> some View {
+        let suggestions = ([detail.titleByUser == true ? nil : detail.title] + (detail.titleSuggestions ?? []).map { $0 })
+            .compactMap { $0 }
+            .reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+        if !suggestions.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
                 Text("Jotto suggests")
                     .font(.metaSmall)
                     .foregroundStyle(Color.jText3)
@@ -242,7 +270,6 @@ struct TranscriptView: View {
                 .padding(.top, 10)
             }
         }
-        .transition(.opacity)
     }
 
     private func finishRenaming(save: Bool) {
@@ -250,8 +277,9 @@ struct TranscriptView: View {
         if save, let detail, !newTitle.isEmpty, newTitle != title(detail) {
             Task { await rename(to: newTitle) }
         }
+        if !save || newTitle.isEmpty, let detail { draftTitle = title(detail) }
         titleFocused = false
-        withAnimation(.easeOut(duration: 0.2)) { renaming = false }
+        withAnimation(Self.editMotion) { renaming = false }
     }
 
     private func viewSwitch(_ detail: SessionDetail) -> some View {

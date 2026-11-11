@@ -9,8 +9,8 @@ struct DaysView: View {
     let router: Router
     @State private var day = Calendar.current.startOfDay(for: .now)
     @State private var scroll = ScrollPosition(edge: .top)
-    /// The week strip has reached the top and is pinned there.
-    @State private var stripPinned = false
+    /// The recordings have scrolled under the fixed header.
+    @State private var listScrolled = false
     @State private var picking = false
     /// The row swiped open, if any; one at a time.
     @State private var swiped: String?
@@ -28,8 +28,10 @@ struct DaysView: View {
     private var config: AppConfig { .shared }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: .sectionHeaders) {
+        VStack(spacing: 0) {
+            // Wordmark, the day and the week strip stay put; only the
+            // recordings scroll, under a hairline.
+            VStack(alignment: .leading, spacing: 0) {
                 Group {
                     if searching {
                         searchBar
@@ -61,38 +63,37 @@ struct DaysView: View {
                         .padding(.bottom, 12)
                 }
 
-                Section {
-                    Group {
-                        if searching { searchContent } else { content }
-                    }
-                    .padding(.top, searching ? 12 : 28)
-                } header: {
-                    // Stays at the top while the day scrolls under it.
-                    WeekStrip(
-                        selection: searching ? searchStripBinding : $day,
-                        marked: searching && results != nil ? matchedDays : library.daysWithRecordings,
-                        liveDay: searching ? nil : liveDay,
-                        earliest: library.earliest,
-                        showsSelection: !searching || searchDay != nil,
-                        fadesUnmarked: searching && results != nil
-                    )
-                        .padding(.vertical, 8)
-                        .background(Color.jBg)
-                        .overlay(alignment: .bottom) {
-                            Rectangle().fill(Color.jHairline).frame(height: 1)
-                                .opacity(stripPinned ? 1 : 0)
-                        }
-                        .onGeometryChange(for: Bool.self) { $0.frame(in: .scrollView).minY <= 0.5 } action: { stripPinned = $0 }
-                        .animation(.easeOut(duration: 0.15), value: stripPinned)
-                }
+                WeekStrip(
+                    selection: searching ? searchStripBinding : $day,
+                    marked: searching && results != nil ? matchedDays : library.daysWithRecordings,
+                    liveDay: searching ? nil : liveDay,
+                    earliest: library.earliest,
+                    showsSelection: !searching || searchDay != nil,
+                    fadesUnmarked: searching && results != nil
+                )
+                .padding(.vertical, 8)
             }
-            .padding(.bottom, 140)
+            .background(Color.jBg)
+            .overlay(alignment: .bottom) { ScrollEdgeLine(visible: listScrolled) }
+            .zIndex(1)
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if searching { searchContent } else { content }
+                }
+                .padding(.top, searching ? 12 : 20)
+                .padding(.bottom, 140)
+            }
+            .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top > 0.5 } action: { _, now in
+                listScrolled = now
+            }
+            .scrollPosition($scroll)
+            .onScrollPhaseChange { _, phase in
+                if phase == .interacting, swiped != nil { withAnimation(.spring(duration: 0.3)) { swiped = nil } }
+            }
+            .scrollIndicators(.hidden)
+            .refreshable { await library.refresh() }
         }
-        .scrollPosition($scroll)
-        .onScrollPhaseChange { _, phase in
-            if phase == .interacting, swiped != nil { withAnimation(.spring(duration: 0.3)) { swiped = nil } }
-        }
-        .scrollIndicators(.hidden)
         .statusBarCover()
         .background(Color.jBg)
         .onChange(of: router.daysReselected) { goToToday() }
@@ -111,7 +112,6 @@ struct DaysView: View {
             get: { actionError != nil }, set: { if !$0 { actionError = nil } }
         )) {} message: { Text(actionError ?? "") }
         .toolbar(.hidden, for: .navigationBar)
-        .refreshable { await library.refresh() }
         .task {
             // Fast while anything is recording or processing, slow otherwise.
             while !Task.isCancelled {
