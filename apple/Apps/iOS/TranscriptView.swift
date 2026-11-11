@@ -101,10 +101,11 @@ struct TranscriptView: View {
         .onChange(of: detail == nil) { _, missing in
             if !missing, startsRenaming, !renaming { titleFocused = true }
         }
-        .confirmationDialog("Delete this recording?", isPresented: $confirmDelete, titleVisibility: .visible) {
-            Button("Delete recording and audio", role: .destructive) { Task { await delete() } }
+        .alert("Delete this recording?", isPresented: $confirmDelete) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) { Task { await delete() } }
         } message: {
-            Text("The text and audio are removed from your iPhone and the server")
+            Text(DeleteCopy.message(detail.map { title($0) } ?? "This recording"))
         }
         .task { await poll() }
         .onDisappear { player.stop() }
@@ -322,11 +323,15 @@ struct TranscriptView: View {
 
     @ViewBuilder
     private func status(_ detail: SessionDetail) -> some View {
+        let working = detail.status == "processing"
+        let heard = detail.segments.filter { $0.status == "done" || $0.status == "failed" }.count
         let note: String? = switch detail.status {
         case "recording": "Still recording. Text arrives a couple of minutes behind"
         case "processing":
-            if let total = detail.segmentCount, total > 0 {
-                "Transcribing · \(detail.segments.filter { $0.status == "done" || $0.status == "failed" }.count) of \(total) parts"
+            if let waiting = Pipeline.shared.waiting, AppConfig.shared.processesLocally, heard < (detail.segmentCount ?? 1) {
+                waiting
+            } else if let total = detail.segmentCount, total > 0 {
+                heard >= total ? "Cleaning up" : "Transcribing · \(heard) of \(total) parts"
             } else { "Transcribing" }
         default:
             (detail.missingSegments ?? 0) > 0
@@ -334,16 +339,39 @@ struct TranscriptView: View {
                 : nil
         }
         if let note {
-            Text(note)
-                .font(.metaSmall)
-                .foregroundStyle(Color.jText3)
-                .padding(.top, 16)
+            HStack(spacing: 8) {
+                if working { ProcessingRing(size: 12) }
+                Text(note)
+                    .font(.metaSmall)
+                    .foregroundStyle(Color.jText3)
+                    .contentTransition(.numericText())
+            }
+            .padding(.top, 16)
+            .animation(.easeOut(duration: 0.2), value: note)
         }
     }
 
     @ViewBuilder
     private func paragraphs(_ detail: SessionDetail) -> some View {
-        if tab == .highlights {
+        if detail.blocks.isEmpty {
+            if detail.status == "ready" {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Nothing to write down")
+                        .font(.rowTitle)
+                        .foregroundStyle(Color.jText)
+                    Text(AppConfig.shared.processesLocally
+                         ? "Jotto couldn't make out any words. If people spoke another language, change it in Settings → Language."
+                         : "No words were heard in this recording.")
+                        .font(.summary)
+                        .foregroundStyle(Color.jText2)
+                        .lineSpacing(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                PendingLines()
+            }
+        } else if tab == .highlights {
             highlightList(detail)
         } else {
             LazyVStack(alignment: .leading, spacing: 22) {
@@ -931,5 +959,35 @@ struct Waveform: View {
     private func bubbleX(_ x: CGFloat, in geo: GeometryProxy) -> CGFloat {
         let halfBubble: CGFloat = player.duration >= 3600 ? 85 : 66
         return max(x, 16 + halfBubble - geo.frame(in: .global).minX)
+    }
+}
+
+/// Where the text will be, while it is being written: a few faint
+/// lines that breathe. Still with Reduce Motion.
+struct PendingLines: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dim = false
+    private static let widths: [CGFloat] = [1, 0.92, 0.97, 0.6, 0, 1, 0.85, 0.4]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(Array(Self.widths.enumerated()), id: \.offset) { _, width in
+                if width == 0 {
+                    Color.clear.frame(height: 8)
+                } else {
+                    GeometryReader { geo in
+                        Capsule().fill(Color.jFill).frame(width: geo.size.width * width)
+                    }
+                    .frame(height: 12)
+                }
+            }
+        }
+        .opacity(dim ? 0.45 : 1)
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { dim = true }
+        }
+        .accessibilityElement()
+        .accessibilityLabel("The text is on its way")
     }
 }

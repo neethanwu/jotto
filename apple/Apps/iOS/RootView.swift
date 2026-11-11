@@ -61,6 +61,14 @@ struct RootView: View {
         .ignoresSafeArea(.keyboard)
         .background(Color.jBg)
         .fullScreenCover(item: $router.live) { LiveView(id: $0.id) }
+        // A "ready" notice was tapped.
+        .onChange(of: Notifier.shared.opening, initial: true) { _, id in
+            guard let id else { return }
+            router.live = nil
+            router.tab = .days
+            router.days = [.transcript(id: id)]
+            Notifier.shared.opening = nil
+        }
     }
 
     @ViewBuilder

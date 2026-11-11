@@ -25,6 +25,8 @@ struct LocalRecording: Codable, Identifiable, Hashable {
     /// Set once a title and summary have been written (may lag polish:
     /// the on-device model is rate-limited in the background).
     var describedAt: Date?
+    /// When the "ready" notice went out (or was skipped), so it goes once.
+    var notifiedAt: Date?
     /// Segments given up on after the recording ended (see `Pipeline`).
     var missing: Int = 0
     /// The transcript as the test server made it, for recordings imported

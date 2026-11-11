@@ -51,6 +51,11 @@ final class AppConfig {
         didSet { UserDefaults.standard.set(writesTitles, forKey: "writesTitles") }
     }
 
+    /// A notice when a recording is ready, with its title and summary.
+    var notifiesWhenReady: Bool {
+        didSet { UserDefaults.standard.set(notifiesWhenReady, forKey: "notifiesWhenReady") }
+    }
+
     private init() {
         serverURL = UserDefaults.standard.string(forKey: Self.urlKey) ?? ""
         token = Keychain.get(account: Self.tokenAccount) ?? ""
@@ -61,6 +66,7 @@ final class AppConfig {
         keepAudioDays = defaults.object(forKey: "keepAudioDays") as? Int ?? 30
         opensOriginal = defaults.bool(forKey: "opensOriginal")
         writesTitles = defaults.object(forKey: "writesTitles") as? Bool ?? true
+        notifiesWhenReady = defaults.object(forKey: "notifiesWhenReady") as? Bool ?? true
         #if DEBUG
         // Simulator runs: `SIMCTL_CHILD_JOTTO_SERVER_URL=… xcrun simctl launch …`
         let env = ProcessInfo.processInfo.environment

@@ -11,6 +11,7 @@ struct JottoApp: App {
         _ = Inbox.shared
         _ = Uploader.shared
         _ = Library.shared
+        MainActor.assumeIsolated { Notifier.shared.start() }
         #if DEBUG
         Uploader.shared.enqueueDemoRecordingIfRequested()
         MainActor.assumeIsolated { Pipeline.shared.simulateRecordingIfRequested() }
@@ -25,7 +26,10 @@ struct JottoApp: App {
             PhoneLog.shared.note("scene", "\(phase)")
             // Coming to the foreground is a good moment to skip any backoff.
             if phase == .active {
-                if AppConfig.shared.processesLocally { Pipeline.shared.run() }
+                if AppConfig.shared.processesLocally {
+                    Pipeline.shared.run()
+                    Task { await Notifier.shared.askIfNeeded() }
+                }
                 Uploader.shared.retryAll()
                 Task { await Library.shared.refresh() }
             }

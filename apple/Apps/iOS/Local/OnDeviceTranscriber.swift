@@ -34,7 +34,7 @@ actor OnDeviceTranscriber {
     }
 
     /// Downloads the language model if needed. Call while in the foreground.
-    func prepare() async {
+    func prepare(status: @MainActor @escaping (String?) -> Void = { _ in }) async {
         let locale = await Self.preferredLocale()
         let supported = await SpeechTranscriber.supportedLocales
         await PhoneLog.shared.noteAsync("asr_prepare", "locale=\(locale.identifier) supported=\(supported.count) available=\(SpeechTranscriber.isAvailable)")
@@ -42,10 +42,14 @@ actor OnDeviceTranscriber {
         do {
             if let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
                 await PhoneLog.shared.noteAsync("asr_download", locale.identifier)
+                await status("Downloading the speech model")
                 try await request.downloadAndInstall()
+                await PhoneLog.shared.noteAsync("asr_downloaded", locale.identifier)
             }
+            await status(nil)
         } catch {
             await PhoneLog.shared.noteAsync("asr_download_failed", error.localizedDescription)
+            await status("Couldn't download the speech model. Open Jotto on Wi-Fi to try again")
         }
     }
 
@@ -55,6 +59,9 @@ actor OnDeviceTranscriber {
         // one `<segment index>.json` of [Phrase] per segment.
         if let dir = ProcessInfo.processInfo.environment["JOTTO_FAKE_ASR"],
            let index = Int(url.deletingPathExtension().lastPathComponent) {
+            if let delay = ProcessInfo.processInfo.environment["JOTTO_FAKE_ASR_DELAY"].flatMap(Double.init) {
+                try await Task.sleep(for: .seconds(delay))
+            }
             let data = try Data(contentsOf: URL(fileURLWithPath: dir).appending(path: "\(index).json"))
             return try JSONDecoder().decode([Phrase].self, from: data)
         }

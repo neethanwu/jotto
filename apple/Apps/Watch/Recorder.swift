@@ -218,6 +218,7 @@ final class Recorder {
             return false
         }
 
+        note("engine_format", "\(Int(format.sampleRate)) Hz \(format.channelCount) ch")
         input.removeTap(onBus: 0)
         input.installTap(onBus: 0, bufferSize: 4096, format: format, block: Self.tap(writer: writer, meter: meter))
         do {

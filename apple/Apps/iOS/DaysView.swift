@@ -9,8 +9,8 @@ struct DaysView: View {
     let router: Router
     @State private var day = Calendar.current.startOfDay(for: .now)
     @State private var scroll = ScrollPosition(edge: .top)
-    /// The recordings have scrolled under the fixed header.
-    @State private var listScrolled = false
+    /// The week the strip shows; may differ from `day` after a swipe.
+    @State private var stripWeek: Date?
     @State private var picking = false
     /// The row swiped open, if any; one at a time.
     @State private var swiped: String?
@@ -30,7 +30,7 @@ struct DaysView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Wordmark, the day and the week strip stay put; only the
-            // recordings scroll, under a hairline.
+            // recordings scroll.
             VStack(alignment: .leading, spacing: 0) {
                 Group {
                     if searching {
@@ -38,7 +38,7 @@ struct DaysView: View {
                     } else {
                         BrandBar {
                             HStack(spacing: 8) {
-                                if !isToday {
+                                if showsToday {
                                     Button("Today", action: goToToday)
                                         .buttonStyle(BarPillStyle())
                                         .transition(.opacity.combined(with: .scale(scale: 0.9)))
@@ -46,7 +46,7 @@ struct DaysView: View {
                                 CircleIconButton(glyph: .search, label: "Search") { startSearching() }
                             }
                         }
-                        .animation(.easeOut(duration: 0.2), value: isToday)
+                        .animation(.easeOut(duration: 0.2), value: showsToday)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -69,12 +69,12 @@ struct DaysView: View {
                     liveDay: searching ? nil : liveDay,
                     earliest: library.earliest,
                     showsSelection: !searching || searchDay != nil,
-                    fadesUnmarked: searching && results != nil
+                    fadesUnmarked: searching && results != nil,
+                    week: $stripWeek
                 )
                 .padding(.vertical, 8)
             }
             .background(Color.jBg)
-            .overlay(alignment: .bottom) { ScrollEdgeLine(visible: listScrolled) }
             .zIndex(1)
 
             ScrollView {
@@ -83,9 +83,6 @@ struct DaysView: View {
                 }
                 .padding(.top, searching ? 12 : 20)
                 .padding(.bottom, 140)
-            }
-            .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top > 0.5 } action: { _, now in
-                listScrolled = now
             }
             .scrollPosition($scroll)
             .onScrollPhaseChange { _, phase in
@@ -101,12 +98,13 @@ struct DaysView: View {
             SendPanel(detail: detail, title: detail.title ?? Format.provisionalTitle(detail.startedAt))
         }
         .task(id: query) { await search() }
-        .confirmationDialog("Delete this recording?", isPresented: Binding(
+        .alert("Delete this recording?", isPresented: Binding(
             get: { deleting != nil }, set: { if !$0 { deleting = nil } }
-        ), titleVisibility: .visible, presenting: deleting) { entry in
-            Button("Delete recording and audio", role: .destructive) { Task { await delete(entry.id) } }
-        } message: { _ in
-            Text(config.processesLocally ? "The text and audio are removed from your iPhone" : "The text and audio are removed from your iPhone and the server")
+        ), presenting: deleting) { entry in
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) { Task { await delete(entry.id) } }
+        } message: { entry in
+            Text(DeleteCopy.message(entry.title))
         }
         .alert("Couldn't do that", isPresented: Binding(
             get: { actionError != nil }, set: { if !$0 { actionError = nil } }
@@ -367,11 +365,21 @@ struct DaysView: View {
 
     private var isToday: Bool { Calendar.current.isDateInToday(day) }
 
+    /// Off today, or the strip swiped to another week: a way straight back.
+    private var showsToday: Bool {
+        let thisWeek = Calendar.current.dateInterval(of: .weekOfYear, for: .now)?.start
+        return !isToday || (stripWeek != nil && stripWeek != thisWeek)
+    }
+
     /// Back to today and the top, from the Today button or tapping Days again.
     private func goToToday() {
         withAnimation(.spring(duration: 0.35, bounce: 0.12)) {
             day = Calendar.current.startOfDay(for: .now)
             scroll.scrollTo(edge: .top)
+        }
+        // Today may already be picked with the strip swiped elsewhere.
+        withAnimation(.smooth(duration: 0.35)) {
+            stripWeek = Calendar.current.dateInterval(of: .weekOfYear, for: .now)?.start
         }
     }
 
@@ -468,7 +476,8 @@ struct WeekStrip: View {
     let earliest: Date?
     var showsSelection = true
     var fadesUnmarked = false
-    @State private var week: Date?
+    /// The week in view, shared so Days knows when it's been swiped away.
+    @Binding var week: Date?
     @State private var weeks: [Week] = []
     @Namespace private var highlight
 
@@ -667,21 +676,27 @@ struct SwipeRow<Content: View>: View {
     }
 
     var body: some View {
-        ZStack(alignment: .trailing) {
-            content.offset(x: offset)
-            // Only there while the row is moved, so hidden ones can't be hit.
-            if enabled, offset < 0 {
-                HStack(spacing: 12) {
-                    action("Send", glyph: .send, fill: .jText, ink: .jBg, run: send)
-                    action("Delete", glyph: .trash, fill: .jDestructive, ink: .white, run: delete)
+        content
+            .offset(x: offset)
+            // An overlay, so the 40-pt buttons never make a one-line row
+            // taller and push the rows below it down.
+            .overlay(alignment: .trailing) {
+                // Only there while the row is moved, so hidden ones can't be hit.
+                if enabled, offset < 0 {
+                    HStack(spacing: 12) {
+                        action("Send", glyph: .send, fill: .jText, ink: .jBg, run: send)
+                        action("Delete", glyph: .trash, fill: .jDestructive, ink: .white, run: delete)
+                    }
+                    // Centred on the row's text: the row ends in 28 of space.
+                    .padding(.bottom, 28)
+                    // A one-line row is shorter than the buttons: centre on its title.
+                    .frame(minHeight: 68, maxHeight: .infinity)
+                    // They come in from the edge with the row, not appear in place.
+                    .offset(x: max(0, Self.reveal + offset))
+                    .opacity(min(1, Double(-offset / Self.reveal) * 1.6))
                 }
-                // Centred on the row's text: the row ends in 28 of space.
-                .padding(.bottom, 28)
-                // They come in from the edge with the row, not appear in place.
-                .offset(x: max(0, Self.reveal + offset))
-                .opacity(min(1, Double(-offset / Self.reveal) * 1.6))
             }
-        }
+
         .gesture(HorizontalPan(
             enabled: enabled,
             changed: { dx in
@@ -878,6 +893,7 @@ struct TimelineRow: View {
     }
 
     private func processingText(done: Int, total: Int?, polishing: Bool) -> String {
+        if !polishing, let waiting = Pipeline.shared.waiting, AppConfig.shared.processesLocally { return waiting }
         guard let total, total > 0 else { return "Transcribing" }
         return polishing ? "Cleaning up" : "Transcribing · \(min(done, total)) of \(total) parts"
     }
@@ -895,8 +911,29 @@ struct TimelineRow: View {
     }
 }
 
-/// The timeline mark: live (orange with halo), waiting (dashed ring),
-/// done (solid ring). The same marks appear on the watch.
+/// The dashed ring, turning: the phone is working on it. Still when
+/// Reduce Motion is on.
+struct ProcessingRing: View {
+    var size: CGFloat = 12
+    var color: Color = .jText3
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.animation(paused: reduceMotion)) { context in
+            // One turn every 2.4 s.
+            let turns = context.date.timeIntervalSinceReferenceDate / 2.4
+            Circle()
+                .strokeBorder(color, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [2.5, 2.2]))
+                .rotationEffect(.degrees(reduceMotion ? 0 : turns.truncatingRemainder(dividingBy: 1) * 360))
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+}
+
+/// The timeline mark: live (orange with halo), working (turning dashed
+/// ring), waiting on the watch (still dashed ring), done (solid ring).
+/// The same marks appear on the watch.
 struct StateDot: View {
     let state: TimelineEntry.State
 
@@ -906,7 +943,9 @@ struct StateDot: View {
             case .live:
                 Circle().fill(Color.jLiveHalo).frame(width: 20, height: 20)
                 BreathingDot(size: 12)
-            case .processing, .onWatch:
+            case .processing:
+                ProcessingRing(size: 12)
+            case .onWatch:
                 Circle()
                     .strokeBorder(Color.jText4, style: StrokeStyle(lineWidth: 1.5, dash: [2.5, 2.2]))
                     .frame(width: 12, height: 12)
@@ -969,5 +1008,13 @@ struct EmptyDay<Actions: View>: View {
         .frame(maxWidth: .infinity)
         .padding(.top, 52 - 28)
         .padding(.horizontal, 20)
+    }
+}
+
+/// What deleting takes with it, said once for Days and the transcript.
+enum DeleteCopy {
+    @MainActor static func message(_ title: String) -> String {
+        let place = AppConfig.shared.processesLocally ? "this iPhone" : "this iPhone and the server"
+        return "\u{201C}\(title)\u{201D} and its audio are removed from \(place). This can't be undone."
     }
 }

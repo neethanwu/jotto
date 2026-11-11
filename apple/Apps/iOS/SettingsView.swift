@@ -28,6 +28,7 @@ struct SettingsView: View {
                         if Describer.isAvailable {
                             SettingsToggle("Titles and summaries", isOn: Bindable(config).writesTitles)
                         }
+                        SettingsToggle("Notify when ready", isOn: Bindable(config).notifiesWhenReady)
                     }
                 }
 
@@ -60,6 +61,9 @@ struct SettingsView: View {
             .padding(.bottom, 140)
         }
         .task { await library.refresh() }
+        .onChange(of: config.notifiesWhenReady) { _, on in
+            if on { Task { await Notifier.shared.askIfNeeded(now: true) } }
+        }
     }
 }
 

@@ -8,16 +8,20 @@ import UIKit
 /// Runs whenever there is work: on arrival (the system wakes the app for
 /// watch transfers), on launch and on coming to the foreground. Each step
 /// asks for background time, so a locked phone keeps going for a while.
-@MainActor
+@MainActor @Observable
 final class Pipeline {
     static let shared = Pipeline()
 
-    private var store: LocalStore { .shared }
-    private var running = false
+    /// Why recordings are waiting rather than being transcribed, for the
+    /// screens: the speech model is downloading, or can't be had.
+    private(set) var waiting: String?
+
+    @ObservationIgnored private var store: LocalStore { .shared }
+    @ObservationIgnored private var running = false
     /// Titles that failed this run (rate limit, refusal); retried next run.
-    private var describeFailed: Set<String> = []
+    @ObservationIgnored private var describeFailed: Set<String> = []
     /// Transcription can't run yet (model not downloaded); retried next run.
-    private var transcriberNotReady = false
+    @ObservationIgnored private var transcriberNotReady = false
 
     /// Give up on segments that haven't arrived this long after the end.
     private static let missingTimeout: TimeInterval = 30 * 60
@@ -78,6 +82,7 @@ final class Pipeline {
                 describeFailed = []
                 transcriberNotReady = false
                 await prepareIfNeeded()
+                await redoSlowedRecordings()
                 store.purgeAudio(keepingDays: AppConfig.shared.keepAudioDays)
                 while let step = nextStep() {
                     await perform(step)
@@ -87,9 +92,38 @@ final class Pipeline {
         }
     }
 
-    private var rerun = false
+    @ObservationIgnored private var rerun = false
 
-    private var prepared = false
+    /// Recordings from the watch build that wrote slowed audio (see
+    /// `AudioRepair`) came out with no text. Mend their audio and do them
+    /// again. Once per install.
+    private func redoSlowedRecordings() async {
+        let key = "redidSlowedRecordings"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        for r in store.recordings.values where r.imported == nil {
+            var redo: [Int] = []
+            for s in r.segments.values {
+                let url = Uploader.audioURL(session: r.id, index: s.index)
+                let duration = s.duration
+                let fixed = await Task.detached(priority: .utility) { AudioRepair.fix(url, expected: duration) }.value
+                if fixed { redo.append(s.index) }
+            }
+            guard !redo.isEmpty else { continue }
+            PhoneLog.shared.note("audio_repaired", "\(r.id) segments=\(redo)")
+            store.update(r.id, startedAt: r.startedAt) { r in
+                for i in redo { r.segments[i]?.phrases = nil; r.segments[i]?.failed = nil }
+                r.clean = [:]
+                r.polishedAt = nil
+                r.describedAt = nil
+                r.notifiedAt = nil
+                if !r.titleByUser { r.title = nil; r.summary = nil }
+            }
+        }
+        UserDefaults.standard.set(true, forKey: key)
+        changed()
+    }
+
+    @ObservationIgnored private var prepared = false
 
     /// The transcription language changed: fetch its model, then retry
     /// anything that was waiting for it.
@@ -102,7 +136,7 @@ final class Pipeline {
     private func prepareIfNeeded() async {
         guard !prepared, UIApplication.shared.applicationState == .active else { return }
         prepared = true
-        await OnDeviceTranscriber.shared.prepare()
+        await OnDeviceTranscriber.shared.prepare { self.waiting = $0 }
     }
 
     private enum Step {
@@ -124,9 +158,12 @@ final class Pipeline {
             && !r.segments.values.contains(where: { $0.phrases == nil && $0.failed == nil }) {
             if r.allTranscribed || giveUpOnMissing(r) { return .polish(id: r.id) }
         }
-        // Titles: the on-device model is rate-limited in the background.
-        if Describer.isAvailable, AppConfig.shared.writesTitles, UIApplication.shared.applicationState != .background {
-            for r in all where r.polishedAt != nil && r.describedAt == nil && !r.titleByUser && !describeFailed.contains(r.id) {
+        // Titles. The on-device model is rate-limited in the background:
+        // one try there (so the notice can carry a title), the rest in front.
+        if Describer.isAvailable, AppConfig.shared.writesTitles {
+            let inFront = UIApplication.shared.applicationState != .background
+            for r in all where r.polishedAt != nil && r.describedAt == nil && !r.titleByUser
+                && !describeFailed.contains(r.id) && (inFront || r.notifiedAt == nil) {
                 return .describe(id: r.id)
             }
         }
@@ -152,12 +189,19 @@ final class Pipeline {
             guard let r = store.recordings[id] else { return }
             let url = Uploader.audioURL(session: id, index: index)
             let began = Date.now
+            if let expected = r.segments[index]?.duration {
+                // From a watch that hasn't updated yet.
+                let fixed = await Task.detached(priority: .utility) { AudioRepair.fix(url, expected: expected) }.value
+                if fixed { PhoneLog.shared.note("audio_repaired", "\(id) segment \(index)") }
+            }
             do {
                 let phrases = try await OnDeviceTranscriber.shared.transcribe(url)
                 store.update(id, startedAt: r.startedAt) { $0.segments[index]?.phrases = phrases }
+                waiting = nil
                 PhoneLog.shared.note("asr_done", "segment \(index) \(String(format: "%.1f", Date.now.timeIntervalSince(began)))s phrases=\(phrases.count)")
             } catch OnDeviceTranscriber.Failure.notReady(let why) {
                 transcriberNotReady = true
+                if waiting == nil { waiting = why }
                 PhoneLog.shared.note("asr_not_ready", why)
             } catch {
                 store.update(id, startedAt: r.startedAt) { $0.segments[index]?.failed = error.localizedDescription }
@@ -175,12 +219,18 @@ final class Pipeline {
                 $0.polishedAt = .now
             }
             PhoneLog.shared.note("polished", id)
+            // No title coming: the notice goes now.
+            if !(Describer.isAvailable && AppConfig.shared.writesTitles) || r.titleByUser {
+                Notifier.shared.ready(id)
+            }
 
         case let .describe(id):
             guard let r = store.recordings[id] else { return }
             let paragraphs = LocalStore.blocks(r).filter { !$0.backchannel }.map { r.clean[$0.text] ?? $0.text }
             guard !paragraphs.joined().isEmpty else {
                 store.update(id, startedAt: r.startedAt) { $0.describedAt = .now }
+                Notifier.shared.ready(id)
+                changed()
                 return
             }
             do {
@@ -191,10 +241,13 @@ final class Pipeline {
                     $0.summary = d.summary
                     $0.describedAt = .now
                 }
+                Notifier.shared.ready(id)
             } catch {
-                // Rate-limited or refused: try again next time we're in front.
+                // Rate-limited or refused: try again next time we're in front,
+                // and send the notice without a title.
                 describeFailed.insert(id)
                 PhoneLog.shared.note("describe_failed", error.localizedDescription)
+                Notifier.shared.ready(id)
                 return
             }
         }
