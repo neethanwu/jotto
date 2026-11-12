@@ -22,38 +22,45 @@ struct RecordingLiveActivity: Widget {
                 .widgetURL(Self.url(context))
         } dynamicIsland: { context in
             DynamicIsland {
+                // Leading and trailing sit beside the camera; anything in
+                // .center goes below it and pushes the rest out of the island.
                 DynamicIslandExpandedRegion(.leading) {
-                    Circle().fill(orange).frame(width: 40, height: 40).padding(.leading, 4).padding(.top, 4)
-                }
-                // Title and the clock share the centre, so the clock has room.
-                DynamicIslandExpandedRegion(.center) {
-                    HStack(alignment: .center, spacing: 8) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Recording").font(.system(size: 17, weight: .semibold)).foregroundStyle(ink50)
-                            Text(Self.meta(context, short: true)).font(.system(size: 13, weight: .medium).monospacedDigit()).foregroundStyle(ink500)
-                                .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 7) {
+                            Circle().fill(orange).frame(width: 10, height: 10)
+                            Text("Recording").font(.system(size: 16, weight: .semibold)).foregroundStyle(ink50)
                         }
-                        Spacer(minLength: 4)
-                        Text(context.attributes.startedAt, style: .timer)
-                            .font(.system(size: 28, weight: .medium).monospacedDigit())
-                            .foregroundStyle(ink50)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 84, alignment: .trailing)
+                        Text(Self.meta(context, short: true))
+                            .font(.system(size: 12, weight: .medium).monospacedDigit())
+                            .foregroundStyle(ink500)
+                            .lineLimit(1)
+                            .padding(.leading, 17)
                     }
-                    .padding(.top, 4)
+                    .fixedSize()
+                    .padding(.leading, 6)
+                    .frame(maxHeight: .infinity, alignment: .center)
+                }
+                DynamicIslandExpandedRegion(.trailing) {
+                    Text(context.attributes.startedAt, style: .timer)
+                        .font(.system(size: 28, weight: .medium).monospacedDigit())
+                        .foregroundStyle(ink50)
+                        .multilineTextAlignment(.trailing)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                        .padding(.trailing, 6)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        // The latest line once there is one; until then, the sound.
-                        if let line = context.state.lastLine {
-                            Text("…" + line).font(.system(size: 14)).foregroundStyle(ink500).lineLimit(1)
-                                .frame(height: 18)
-                        } else {
-                            SoundLine().frame(height: 18)
-                        }
-                        Controls(context: context)
+                    VStack(alignment: .leading, spacing: 10) {
+                        // The latest line once there is one. A Live Activity
+                        // can't animate, so no level bars pretending to move.
+                        Text(context.state.lastLine.map { "…" + $0 } ?? "Listening. Text arrives a couple of minutes behind")
+                            .font(.system(size: 14))
+                            .foregroundStyle(ink500)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Controls(context: context, compact: true)
                     }
-                    .padding(.horizontal, 4)
+                    .padding(.horizontal, 6)
+                    .padding(.top, 6)
                 }
             } compactLeading: {
                 Circle().fill(orange).frame(width: 12, height: 12).padding(.leading, 4)
@@ -104,8 +111,7 @@ private struct LockScreenView: View {
                     .multilineTextAlignment(.trailing)
                     .frame(maxWidth: 120, alignment: .trailing)
             }
-            // No transcript on the lock screen (anyone can see it): the sound instead.
-            SoundLine().frame(height: 18)
+            // No transcript on the lock screen: anyone can see it.
             Controls(context: context)
         }
         .padding(16)
@@ -115,6 +121,8 @@ private struct LockScreenView: View {
 /// The wordmark, then Mark and Section, as on the phone's Live screen.
 private struct Controls: View {
     let context: ActivityViewContext<RecordingActivity>
+    /// Shorter pills in the island, where height is tight.
+    var compact = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -126,7 +134,7 @@ private struct Controls: View {
                     Text("Mark")
                 }
             }
-            .buttonStyle(Pill(accent: false))
+            .buttonStyle(Pill(accent: false, height: compact ? 30 : 34))
             Button(intent: ToggleSectionIntent(sessionID: context.attributes.sessionID)) {
                 HStack(spacing: 6) {
                     Brackets().stroke(style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
@@ -134,20 +142,21 @@ private struct Controls: View {
                     Text(context.state.sectionOpen ? "End section" : "Section")
                 }
             }
-            .buttonStyle(Pill(accent: context.state.sectionOpen))
+            .buttonStyle(Pill(accent: context.state.sectionOpen, height: compact ? 30 : 34))
         }
     }
 }
 
 private struct Pill: ButtonStyle {
     let accent: Bool
+    let height: CGFloat
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 14, weight: .semibold))
             .foregroundStyle(accent ? orange : ink50)
             .padding(.horizontal, 12)
-            .frame(height: 34)
+            .frame(height: height)
             .background(ink800, in: Capsule())
             .opacity(configuration.isPressed ? 0.7 : 1)
     }
@@ -163,28 +172,5 @@ private struct Brackets: Shape {
         p.move(to: CGPoint(x: 15 * u, y: 4.5 * u)); p.addLine(to: CGPoint(x: 18.5 * u, y: 4.5 * u))
         p.addLine(to: CGPoint(x: 18.5 * u, y: 19.5 * u)); p.addLine(to: CGPoint(x: 15 * u, y: 19.5 * u))
         return p
-    }
-}
-
-/// Level bars, drawn still (a Live Activity can't move them): older on the
-/// left and dimmer, the newest orange, as on the watch.
-private struct SoundLine: View {
-    private static let heights: [CGFloat] = [0.25, 0.4, 0.3, 0.55, 0.35, 0.7, 0.45, 0.3, 0.6, 0.4, 0.8, 0.5, 0.35, 0.65,
-                                             0.45, 0.9, 0.4, 0.6, 0.3, 0.7, 0.5, 0.85, 0.4, 0.55, 0.35, 0.75, 0.5, 0.6,
-                                             0.4, 0.95, 0.55, 0.7, 0.45, 0.8, 0.5, 1]
-    var body: some View {
-        GeometryReader { geo in
-            HStack(alignment: .center, spacing: 0) {
-                ForEach(Array(Self.heights.enumerated()), id: \.offset) { i, h in
-                    let age = Double(i) / Double(Self.heights.count - 1)
-                    Capsule()
-                        .fill(i == Self.heights.count - 1 ? orange : ink50.opacity(0.18 + 0.5 * age))
-                        .frame(width: 2.5, height: max(2.5, h * geo.size.height))
-                        .frame(maxWidth: .infinity)
-                }
-            }
-            .frame(maxHeight: .infinity)
-        }
-        .accessibilityHidden(true)
     }
 }

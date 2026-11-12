@@ -17,9 +17,12 @@ final class LiveActivities {
     /// Start one for the recording going on now, if there is one and
     /// none is showing. Safe to call often.
     func sync() {
-        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         let live = LocalStore.shared.recordings.values.filter { $0.endedAt == nil && $0.imported == nil }
             .max { $0.startedAt < $1.startedAt }
+        #if DEBUG
+        PhoneLog.shared.note("live_activity_sync", "enabled=\(ActivityAuthorizationInfo().areActivitiesEnabled) live=\(live?.id ?? "-") showing=\(current?.attributes.sessionID ?? "-")")
+        #endif
+        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         // Activities for recordings that have ended (or were deleted) go.
         let keep = live?.id
         Task { await Self.end { $0 != keep } }

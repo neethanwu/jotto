@@ -6,8 +6,10 @@ enum Cleanup {
     private static let rules: [(NSRegularExpression, String)] = [
         // Chinese fillers anywhere, with the comma that follows them.
         (#"[嗯呃额]+[，,、]?"#, ""),
-        // 啊/哦 opening a clause.
-        (#"(^|[，。！？,.!?；;\s])(啊|哦|噢)[，,]"#, "$1"),
+        // 啊/哦 opening a clause, with or without a comma.
+        (#"(^|[，。！？,.!?；;\s])(啊|哦|噢|诶|欸)[，,]?"#, "$1"),
+        // A particle trailing off mid-sentence: "我觉得啊，" → "我觉得，".
+        (#"(\p{Han})(啊|呀|哈)(?=[，,])"#, "$1"),
         // Filler 就是/然后/那个 doubled up: 就是就是 → 就是.
         (#"(\p{Han}{2,4})\1+"#, "$1"),
         // English fillers.

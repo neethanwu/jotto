@@ -60,7 +60,10 @@ struct RootView: View {
         .animation(.easeOut(duration: 0.2), value: router.showsTabBar)
         .ignoresSafeArea(.keyboard)
         .background(Color.jBg)
-        .fullScreenCover(item: $router.live) { LiveView(id: $0.id) }
+        .fullScreenCover(item: $router.live) {
+            // Clear behind it, so pulling it down shows the app underneath.
+            LiveView(id: $0.id).presentationBackground(.clear)
+        }
         // The lock-screen activity or the island was tapped: jotto://live/<id>.
         .onOpenURL { url in
             guard url.scheme == "jotto", url.host() == "live" else { return }

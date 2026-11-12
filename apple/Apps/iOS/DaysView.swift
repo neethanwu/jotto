@@ -632,7 +632,7 @@ struct Timeline: View {
                     .contextMenu {
                         if finished {
                             Button("Send", systemImage: "paperplane") { actions.send(entry) }
-                            Button("Rename", systemImage: "pencil") { actions.rename(entry) }
+                            Button { actions.rename(entry) } label: { Label { Text("Rename") } icon: { Glyph.pen.image() } }
                             Button("Delete", systemImage: "trash", role: .destructive) { actions.delete(entry) }
                         }
                     }

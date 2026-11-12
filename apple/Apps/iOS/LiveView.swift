@@ -16,6 +16,8 @@ struct LiveView: View {
     @State private var holding = false
     /// When the phone asked the watch to stop, until the recording ends.
     @State private var stopAskedAt: Date?
+    /// How far the screen has been pulled down to close it.
+    @State private var pull: CGFloat = 0
     private var pipeline: Pipeline { .shared }
     private var sectionOpen: Bool { pipeline.openSections[id] != nil }
     private var highlightCount: Int {
@@ -73,7 +75,31 @@ struct LiveView: View {
                 .padding(.horizontal, 24)
                 .padding(.bottom, 48)
         }
-        .background(Color.ink950.ignoresSafeArea())
+        .background {
+            // Rounded at the top once it's being pulled, like a card.
+            UnevenRoundedRectangle(topLeadingRadius: pull > 0 ? 44 : 0, topTrailingRadius: pull > 0 ? 44 : 0, style: .continuous)
+                .fill(Color.ink950)
+                .ignoresSafeArea()
+                .animation(.easeOut(duration: 0.15), value: pull > 0)
+        }
+        .offset(y: pull)
+        // Pull down anywhere to close, like a sheet; the recording carries on.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 16)
+                .onChanged { value in
+                    let dy = value.translation.height
+                    guard dy > 0, dy > abs(value.translation.width), !holding else { return }
+                    pull = dy
+                }
+                .onEnded { value in
+                    guard pull > 0 else { return }
+                    if pull > 140 || value.predictedEndTranslation.height > 420 {
+                        dismiss()
+                    } else {
+                        withAnimation(.spring(duration: 0.3, bounce: 0.1)) { pull = 0 }
+                    }
+                }
+        )
         .preferredColorScheme(.dark)
         .toolbar(.hidden, for: .navigationBar)
         .task { await poll() }

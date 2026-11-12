@@ -15,7 +15,14 @@ struct TranscriptView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var detail: SessionDetail?
     @State private var error: String?
+    /// The tab the switch shows; `shown` is the one on the page, which
+    /// changes once the old page has slid out.
     @State private var tab: Tab = AppConfig.shared.opensOriginal ? .original : .clean
+    @State private var shown: Tab = AppConfig.shared.opensOriginal ? .original : .clean
+    /// How far the page is pushed sideways while swiping between tabs.
+    @State private var slide: CGFloat = 0
+    @State private var swipeAxis: Axis?
+    @State private var pageWidth: CGFloat = 400
     /// A highlight was tapped in the Highlights tab: scroll here in Clean.
     @State private var jumpTarget: Int?
     @State private var player = RecordingPlayer()
@@ -57,6 +64,7 @@ struct TranscriptView: View {
                                     .padding(.horizontal, 20)
                                     .padding(.top, 20)
                                     .padding(.bottom, 140)
+                                    .offset(x: slide)
                                     // While the title is being edited the transcript
                                     // steps back. A veil over it rather than changing
                                     // the rows themselves: touching the selectable
@@ -82,23 +90,19 @@ struct TranscriptView: View {
                 .onScrollGeometryChange(for: Bool.self) { geo in
                     geo.contentOffset.y + geo.contentInsets.top > headHeight - 1
                 } action: { _, now in pinned = now }
-                // Swipe sideways to move between Clean, Original and Highlights.
-                // Not from the left edge, which goes back.
-                .simultaneousGesture(DragGesture(minimumDistance: 30).onEnded { value in
-                    let dx = value.translation.width, dy = value.translation.height
-                    guard value.startLocation.x > 32, abs(dx) > 70, abs(dx) > abs(dy) * 2, let detail else { return }
-                    let tabs: [Tab] = (detail.highlights ?? []).isEmpty ? [.clean, .original] : [.clean, .original, .highlights]
-                    guard let i = tabs.firstIndex(of: tab) else { return }
-                    let next = dx < 0 ? i + 1 : i - 1
-                    guard tabs.indices.contains(next) else { return }
-                    withAnimation(.easeInOut(duration: 0.22)) { tab = tabs[next] }
-                })
+                // Swipe sideways to move between the tabs: the page follows
+                // the finger and slides over. Not from the left edge, which
+                // goes back, and not past the first or last tab.
+                .simultaneousGesture(DragGesture(minimumDistance: 14)
+                    .onChanged { value in swipeChanged(value) }
+                    .onEnded { value in swipeEnded(value) })
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pageWidth = $0 }
                 .sensoryFeedback(.selection, trigger: tab)
                 .onChange(of: detail?.blocks.count) { _, _ in scrollToStart(proxy) }
                 .onChange(of: currentBlock) { _, block in
                     let scrubbing = player.scrubTime != nil
                     // Not right after a tap on the text: it's already in view.
-                    guard tab != .highlights, player.isPlaying || scrubbing, Date.now > followPausedUntil,
+                    guard shown != .highlights, player.isPlaying || scrubbing, Date.now > followPausedUntil,
                           let block, let detail else { return }
                     // The paragraph's top a third of the way down, so all of it shows.
                     withAnimation(.easeInOut(duration: scrubbing ? 0.15 : 0.3)) {
@@ -189,7 +193,7 @@ struct TranscriptView: View {
             CircleIconButton(glyph: .back, label: "Back") { dismiss() }
             Spacer()
             Menu {
-                Button("Rename", systemImage: "pencil") { titleFocused = true }
+                Button { titleFocused = true } label: { Label { Text("Rename") } icon: { Glyph.pen.image() } }
                 if detail?.status == "ready", detail?.segments.contains(where: \.hasAudio) == true, !isImported {
                     // Pick the language right here; no trip to Settings.
                     Menu("Transcribe again", systemImage: "arrow.clockwise") {
@@ -227,7 +231,9 @@ struct TranscriptView: View {
                 CircleGlyph(glyph: .more)
             }
             .accessibilityLabel("More")
-            CircleIconButton(glyph: .sendFilled, label: "Send", fill: .jText, color: .jBg) { sharing = true }
+            // The same circle as Back and More: the player's play button is
+            // this screen's one inverted control.
+            CircleIconButton(glyph: .sendFilled, label: "Send") { sharing = true }
                 .disabled(detail == nil)
         }
         .padding(.horizontal, 20)
@@ -253,10 +259,12 @@ struct TranscriptView: View {
             ZStack(alignment: .topLeading) {
                 if detail.titleByUser != true {
                     Button { titleFocused = true } label: {
-                        Label(detail.title == nil ? "Jotto names it once there is enough to go on" : "Title by Jotto · tap to rename",
-                              systemImage: "pencil")
-                            .font(.metaSmall)
-                            .foregroundStyle(Color.jText3)
+                        HStack(spacing: 6) {
+                            GlyphView(glyph: .pen, color: .jText3).frame(width: 14, height: 14)
+                            Text(detail.title == nil ? "Jotto names it once there is enough to go on" : "Title by Jotto · tap to rename")
+                        }
+                        .font(.metaSmall)
+                        .foregroundStyle(Color.jText3)
                     }
                     .buttonStyle(.plain)
                     .padding(.top, 10)
@@ -369,6 +377,69 @@ struct TranscriptView: View {
         withAnimation(Self.editMotion) { renaming = false }
     }
 
+    // MARK: - Moving between tabs
+
+    private func tabs(_ detail: SessionDetail) -> [Tab] {
+        (detail.highlights ?? []).isEmpty ? [.clean, .original] : [.clean, .original, .highlights]
+    }
+
+    /// The switch moves at once; the page slides out the way the finger
+    /// went (or toward the tab picked), and the new one slides in behind it.
+    private func go(to next: Tab, then: (() -> Void)? = nil) {
+        guard let detail, next != shown else {
+            tab = next
+            withAnimation(.spring(duration: 0.3, bounce: 0.1)) { slide = 0 }
+            then?()
+            return
+        }
+        let order = tabs(detail)
+        let forward = (order.firstIndex(of: next) ?? 0) > (order.firstIndex(of: shown) ?? 0)
+        let width = pageWidth
+        tab = next
+        withAnimation(.easeIn(duration: 0.14)) {
+            slide = forward ? -width : width
+        } completion: {
+            var still = Transaction()
+            still.disablesAnimations = true
+            withTransaction(still) {
+                shown = next
+                slide = forward ? width * 0.6 : -width * 0.6
+            }
+            withAnimation(.spring(duration: 0.34, bounce: 0.08)) { slide = 0 }
+            then?()
+        }
+    }
+
+    private func swipeChanged(_ value: DragGesture.Value) {
+        guard let detail, value.startLocation.x > 32 else { return }
+        let dx = value.translation.width, dy = value.translation.height
+        // Decide once per swipe whether it's sideways or a scroll.
+        if swipeAxis == nil || hypot(dx, dy) < 20 {
+            swipeAxis = abs(dx) > abs(dy) * 1.5 ? .horizontal : .vertical
+        }
+        guard swipeAxis == .horizontal, tab == shown else { return }
+        let order = tabs(detail)
+        let i = order.firstIndex(of: shown) ?? 0
+        let more = dx < 0 ? i + 1 < order.count : i > 0
+        // Nothing further that way: it gives a little and springs back.
+        slide = more ? dx : dx * 0.18
+    }
+
+    private func swipeEnded(_ value: DragGesture.Value) {
+        defer { swipeAxis = nil }
+        guard swipeAxis == .horizontal, let detail, tab == shown else { return }
+        let dx = value.translation.width
+        let flung = value.predictedEndTranslation.width
+        let order = tabs(detail)
+        let i = order.firstIndex(of: shown) ?? 0
+        let next = dx < 0 ? i + 1 : i - 1
+        if order.indices.contains(next), abs(dx) > 70 || (abs(flung) > pageWidth * 0.4 && flung.sign == dx.sign) {
+            go(to: order[next])
+        } else {
+            withAnimation(.spring(duration: 0.3, bounce: 0.1)) { slide = 0 }
+        }
+    }
+
     private func viewSwitch(_ detail: SessionDetail) -> some View {
         // Original strikes out what the rules took; the model's rewording
         // isn't counted.
@@ -378,10 +449,10 @@ struct TranscriptView: View {
         let marked = detail.highlights?.count ?? 0
         return VStack(spacing: 0) {
             HStack(spacing: 20) {
-                tabButton("Clean", selected: tab == .clean) { tab = .clean }
-                tabButton("Original", selected: tab == .original) { tab = .original }
+                tabButton("Edited", selected: tab == .clean) { go(to: .clean) }
+                tabButton("Original", selected: tab == .original) { go(to: .original) }
                 if marked > 0 {
-                    tabButton("Highlights", count: marked, selected: tab == .highlights) { tab = .highlights }
+                    tabButton("Highlights", count: marked, selected: tab == .highlights) { go(to: .highlights) }
                 }
                 Spacer(minLength: 8)
                 if fillers > 0 {
@@ -469,7 +540,7 @@ struct TranscriptView: View {
             } else {
                 PendingLines()
             }
-        } else if tab == .highlights {
+        } else if shown == .highlights {
             highlightList(detail)
         } else {
             let rows = rows(detail)
@@ -554,41 +625,50 @@ struct TranscriptView: View {
         let spoken = detail.blocks.filter { $0.backchannel != true }
         return VStack(alignment: .leading, spacing: 30) {
             ForEach(highlights) { h in
-                let said = spoken.filter(h.covers)
-                Button {
-                    tab = .clean
-                    player.seek(to: h.start, play: false)
-                    jumpTarget = said.first?.id
-                } label: {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 8) {
-                            HighlightChip(highlight: h)
-                            Text(h.isSection
-                                 ? "Section · \(Format.length(h.end - h.start))"
-                                 : "Moment · \(Format.clock(h.start)) – \(Format.clock(h.end))")
-                                .font(.metaSmall)
-                                .foregroundStyle(Color.jText3)
-                        }
-                        if said.isEmpty {
-                            Text("Nothing was said here").font(.reading).foregroundStyle(Color.jText3)
-                        }
-                        VStack(alignment: .leading, spacing: 16) {
-                            ForEach(said) { block in
-                                (Text(block.speaker == nil ? "" : Format.speaker(block.speaker) + "  ").font(.speaker)
-                                    + Text(block.clean ?? block.text).font(.reading))
-                                    .foregroundStyle(Color.jText)
-                                    .lineSpacing(11)
-                                    .multilineTextAlignment(.leading)
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityHint("Shows it in the transcript")
+                highlightItem(h, said: spoken.filter(h.covers))
             }
         }
+    }
+
+    private func highlightItem(_ h: Highlight, said: [TranscriptBlock]) -> some View {
+        let open = {
+            player.seek(to: h.start, play: false)
+            go(to: .clean) { jumpTarget = said.first?.id }
+        }
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                HighlightChip(highlight: h)
+                Text(h.isSection
+                     ? "Section · \(Format.length(h.end - h.start))"
+                     : "Moment · \(Format.clock(h.start)) – \(Format.clock(h.end))")
+                    .font(.metaSmall)
+                    .foregroundStyle(Color.jText3)
+            }
+            if said.isEmpty {
+                Text("Nothing was said here").font(.reading).foregroundStyle(Color.jText3)
+            }
+            VStack(alignment: .leading, spacing: 16) {
+                ForEach(said) { block in highlightLine(block) }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        // A tap rather than a button: a sideways swipe across it should
+        // change tabs, not open it.
+        .onTapGesture(perform: open)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { open() }
+        .accessibilityHint("Shows it in the transcript")
+    }
+
+    private func highlightLine(_ block: TranscriptBlock) -> some View {
+        let speaker: Text = block.speaker == nil ? Text("") : Text(Format.speaker(block.speaker) + "  ").font(.speaker)
+        let said: Text = Text(block.clean ?? block.text).font(.reading)
+        return (speaker + said)
+            .foregroundStyle(Color.jText)
+            .lineSpacing(11)
+            .multilineTextAlignment(.leading)
     }
 
     // MARK: - Data
@@ -603,7 +683,7 @@ struct TranscriptView: View {
     /// The scroll target for a paragraph: itself.
     private func groupID(of block: Int, in detail: SessionDetail) -> Int { block }
 
-    private var showOriginal: Bool { tab == .original }
+    private var showOriginal: Bool { shown == .original }
 
     private func rows(_ detail: SessionDetail) -> [Row] {
         let visible = detail.blocks.filter { showOriginal || $0.backchannel != true }
@@ -730,9 +810,9 @@ struct PlayerBar: View {
             Button(action: player.toggle) {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(Color.ink950)
+                    .foregroundStyle(Color.jBg)
                     .frame(width: 48, height: 48)
-                    .background(Color.ink50, in: Circle())
+                    .background(Color.jText, in: Circle())
             }
             .buttonStyle(.plain)
             .disabled(player.availability != .ready)
@@ -747,15 +827,15 @@ struct PlayerBar: View {
                 HStack(spacing: 8) {
                     Text(Format.clock(player.time))
                         .font(.metaSmall)
-                        .foregroundStyle(Color.ink400)
+                        .foregroundStyle(Color.jText3)
                         .fixedSize()
                         .frame(minWidth: 36, alignment: .trailing)
                     Button(action: player.cycleRate) {
                         Text(rateLabel)
                             .font(.system(size: 13, weight: .semibold).monospacedDigit())
-                            .foregroundStyle(Color.ink50)
+                            .foregroundStyle(Color.jText)
                             .frame(width: 46, height: 36)
-                            .background(Color.ink800, in: Capsule())
+                            .background(Color.jSheetFill, in: Capsule())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Playback speed")
@@ -766,17 +846,17 @@ struct PlayerBar: View {
                 .sensoryFeedback(.selection, trigger: player.rate)
             case .loading:
                 Text(hasAudio ? "Loading audio" : "No audio yet")
-                    .font(.metaSmall).foregroundStyle(Color.ink400)
+                    .font(.metaSmall).foregroundStyle(Color.jText3)
                 Spacer()
             case let .unavailable(reason):
-                Text(reason).font(.metaSmall).foregroundStyle(Color.ink400)
+                Text(reason).font(.metaSmall).foregroundStyle(Color.jText3)
                 Spacer()
             }
         }
         .padding(.leading, 7)
         .padding(.trailing, 10)
         .frame(height: 62)
-        .chromePill()
+        .playerPill()
         .padding(.horizontal, 16)
         .padding(.top, 28)
         .padding(.bottom, 34)
@@ -859,7 +939,7 @@ struct Waveform: View {
                         let x = CGFloat((Double(i) * layout.secondsPerBar - left) * layout.scale) + (layout.step - barWidth) / 2
                         let rect = CGRect(x: x, y: (size.height - height) / 2, width: barWidth, height: height)
                         let played = Double(i) * layout.secondsPerBar < shown
-                        context.fill(Capsule().path(in: rect), with: .color(played ? .ink50 : .ink600))
+                        context.fill(Capsule().path(in: rect), with: .color(played ? .jText : .jWaveRest))
                     }
                 }
                 .scaleEffect(y: scrubbing ? 1.25 : 1)
@@ -875,8 +955,8 @@ struct Waveform: View {
 
                 // The line, with a knob that says it can be dragged.
                 VStack(spacing: 0) {
-                    Circle().fill(Color.ink50).frame(width: 8, height: 8)
-                    Capsule().fill(Color.ink50).frame(width: 2, height: scrubbing ? 40 : 32)
+                    Circle().fill(Color.jText).frame(width: 8, height: 8)
+                    Capsule().fill(Color.jText).frame(width: 2, height: scrubbing ? 40 : 32)
                 }
                 .offset(x: headX - 4, y: scrubbing ? 3 : 7)
                 .opacity(headX < -2 || headX > geo.size.width + 2 ? 0 : 1)

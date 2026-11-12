@@ -37,7 +37,7 @@ struct SettingsView: View {
                         SettingsRow("Keep audio", value: KeepAudio.label(config.keepAudioDays))
                     }
                     NavigationLink(value: Route.openIn) {
-                        SettingsRow("Open transcripts in", value: config.opensOriginal ? "Original" : "Clean")
+                        SettingsRow("Open transcripts in", value: config.opensOriginal ? "Original" : "Edited")
                     }
                 }
 
@@ -270,7 +270,7 @@ struct OpenInView: View {
             VStack(alignment: .leading, spacing: 0) {
                 PageHeader(title: "Open transcripts in", detail: "You can always switch between them on the transcript.") { dismiss() }
                 SettingsGroup {
-                    ChoiceRow(label: "Clean", detail: "Tidied into sentences, fillers taken out", selected: !config.opensOriginal) { config.opensOriginal = false }
+                    ChoiceRow(label: "Edited", detail: "Tidied into sentences, fillers taken out", selected: !config.opensOriginal) { config.opensOriginal = false }
                     ChoiceRow(label: "Original", detail: "Every word, with the cuts struck through", selected: config.opensOriginal) { config.opensOriginal = true }
                 }
                 .padding(.top, 24)

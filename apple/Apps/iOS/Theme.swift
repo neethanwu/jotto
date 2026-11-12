@@ -50,6 +50,13 @@ extension Color {
     static let jChrome = pair(Ink.i950, Ink.i900)
     /// Inner stroke of chrome pills; only drawn in dark.
     static let jChromeStroke = pair(.clear, Ink.darkStroke)
+    /// The player: white with a hairline and a soft shadow in light, the
+    /// chrome's dark in dark. Its play button is the screen's one inverted
+    /// control.
+    static let jPlayer = pair(Ink.i0, Ink.i900)
+    static let jPlayerStroke = pair(Ink.i200, Ink.darkStroke)
+    /// The part of the waveform not played yet.
+    static let jWaveRest = pair(Ink.i300, Ink.i600)
     static let jChromeOn = Color(Ink.i50)
     static let jOnChromeOn = Color(Ink.i950)
     // Sheets sit one step above the page in dark, so their own fills and
@@ -132,8 +139,21 @@ extension View {
 /// off-centre in a circle).
 enum Glyph {
     case back, down, close, more, share, search, trash, star, brackets, send, plus
+    /// Rename: a pen with a rounded end and a band.
+    case pen
     /// The plane filled in: Send when it's where you are or the main action.
     case sendFilled
+}
+
+extension Glyph {
+    /// For menus, which take an image rather than a view: drawn once,
+    /// tinted by the menu like a symbol.
+    @MainActor func image(size: CGFloat = 20) -> Image {
+        let renderer = ImageRenderer(content: GlyphView(glyph: self, color: .black).frame(width: size, height: size))
+        renderer.scale = 3
+        let image = renderer.uiImage?.withRenderingMode(.alwaysTemplate) ?? UIImage()
+        return Image(uiImage: image)
+    }
 }
 
 struct GlyphView: View {
@@ -220,6 +240,15 @@ struct GlyphView: View {
             case .plus:
                 p.move(to: CGPoint(x: 12, y: 5)); p.addLine(to: CGPoint(x: 12, y: 19))
                 p.move(to: CGPoint(x: 5, y: 12)); p.addLine(to: CGPoint(x: 19, y: 12))
+            case .pen:
+                p.move(to: CGPoint(x: 4.5, y: 19.5))
+                p.addLine(to: CGPoint(x: 5.4, y: 15.4))
+                p.addLine(to: CGPoint(x: 15, y: 5.8))
+                p.addArc(center: CGPoint(x: 16.6, y: 7.4), radius: 2.26,
+                         startAngle: .degrees(225), endAngle: .degrees(45), clockwise: false)
+                p.addLine(to: CGPoint(x: 8.6, y: 18.6))
+                p.closeSubpath()
+                p.move(to: CGPoint(x: 13, y: 7.8)); p.addLine(to: CGPoint(x: 16.2, y: 11))
             }
             context.stroke(p, with: .color(color), style: style)
         }
@@ -331,8 +360,22 @@ struct ChromePill: ViewModifier {
     }
 }
 
+/// The player's pill: light in light mode, so the transcript's only
+/// dark thing is its play button; the same as the chrome in dark.
+struct PlayerPill: ViewModifier {
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        content
+            .background(Color.jPlayer, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.jPlayerStroke, lineWidth: 1))
+            .shadow(color: scheme == .dark ? .clear : Color.ink950.opacity(0.08), radius: 16, y: 6)
+    }
+}
+
 extension View {
     func chromePill() -> some View { modifier(ChromePill()) }
+    func playerPill() -> some View { modifier(PlayerPill()) }
 }
 
 extension View {
