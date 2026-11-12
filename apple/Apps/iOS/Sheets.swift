@@ -16,6 +16,7 @@ struct SendPanel: View {
     private var templates: SendTemplates { .shared }
     @State private var selectedID = SendTemplates.shared.preferred.id
     @State private var withAudio = false
+    @State private var marksHighlights = true
     @State private var audioFile: URL?
     @State private var exporting = false
     @State private var copied = false
@@ -69,6 +70,19 @@ struct SendPanel: View {
             .frame(maxHeight: listHeight > 0 ? listHeight : nil)
             .scrollBounceBehavior(.basedOnSize)
             .padding(.top, 8)
+
+            if !(detail.highlights ?? []).isEmpty, template.content != .highlights {
+                Rectangle().fill(Color.jSheetHairline).frame(height: 1)
+                Toggle(isOn: $marksHighlights) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Mark the highlights").font(.rowTitle).foregroundStyle(Color.jText)
+                        Text("\(Format.plural(detail.highlights?.count ?? 0, "highlight")), quoted with ★ or [ ] and the time")
+                            .font(.metaSmall).foregroundStyle(Color.jText3)
+                    }
+                }
+                .toggleStyle(JottoToggleStyle())
+                .padding(.vertical, 12)
+            }
 
             if !detail.segments.isEmpty {
                 Rectangle().fill(Color.jSheetHairline).frame(height: 1)
@@ -199,7 +213,7 @@ struct SendPanel: View {
     }
 
     var markdown: String {
-        Composer.compose(detail, title: title, with: template)
+        Composer.compose(detail, title: title, with: template, marksHighlights: marksHighlights)
     }
 
     /// One m4a of the whole recording, built from its segments.

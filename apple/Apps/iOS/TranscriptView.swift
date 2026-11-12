@@ -444,20 +444,26 @@ struct TranscriptView: View {
             let marked = Set(rows.filter { r in highlights.contains { $0.covers(r.block) } }.map(\.id))
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
-                    // A highlight reads as one stretch: after its first
-                    // paragraph, the rest go without a time and sit closer.
-                    let carriesOn = marked.contains(row.id) && starts[row.id] == nil
-                        && i > 0 && marked.contains(rows[i - 1].id) && !row.newSection
-                    ParagraphView(row: row, starting: starts[row.id] ?? [],
-                                  marked: marked.contains(row.id), carriesOn: carriesOn,
-                                  showOriginal: showOriginal, isCurrent: currentBlock == row.block.id) {
-                        player.seek(to: row.block.start)
-                    }
-                    .padding(.top, i == 0 ? 0 : carriesOn ? 12 : 22)
+                    ParagraphView(
+                        row: row, starting: starts[row.id] ?? [], marked: marked.contains(row.id),
+                        isLast: i == rows.count - 1,
+                        showOriginal: showOriginal, isCurrent: currentBlock == row.block.id,
+                        play: { player.seek(to: row.block.start) },
+                        // Tapping the text moves the playhead; it only plays if it already was.
+                        moveHere: { player.seek(to: row.block.start, play: player.isPlaying) },
+                        highlight: { highlightParagraph(row.block) }
+                    )
                     .id(row.id)
                 }
             }
         }
+    }
+
+    /// "Highlight" in the text's menu: the paragraph becomes a section.
+    private func highlightParagraph(_ block: TranscriptBlock) {
+        guard let detail else { return }
+        Pipeline.shared.markedSection(id, startedAt: detail.startedAt, start: block.start, end: block.end)
+        Task { self.detail = try? await API.session(id) }
     }
 
     /// Each highlight with what was said in it, in order. Tapping one
@@ -602,86 +608,188 @@ struct TranscriptView: View {
 
 struct ParagraphView: View {
     let row: TranscriptView.Row
-    /// Highlights that start here: a chip in place of the time.
+    /// Highlights that start here: chips over the text.
     var starting: [Highlight] = []
     /// Inside a highlight: the text is shaded, like a highlighter.
     var marked = false
-    /// Inside the same highlight as the paragraph before: no time row
-    /// (only the speaker, when it changes).
-    var carriesOn = false
+    /// The thread in the gutter stops at the last paragraph.
+    var isLast = false
     let showOriginal: Bool
     let isCurrent: Bool
-    let seek: () -> Void
+    let play: () -> Void
+    let moveHere: () -> Void
+    let highlight: () -> Void
+
+    static let gutter: CGFloat = 44
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if row.newSection {
                 Rectangle().fill(Color.jHairline).frame(height: 1).padding(.bottom, 22)
             }
-            // The time sits over the paragraph, so the text has the full
-            // width. Where a highlight starts, its chip takes the time's place.
-            if !carriesOn || row.showSpeaker {
-                Button(action: seek) {
-                    HStack(spacing: 8) {
-                        // With speakers (your own API key), who comes first.
-                        if row.showSpeaker {
-                            Text(Format.speaker(row.block.speaker)).foregroundStyle(Color.jText).fontWeight(.semibold)
+            HStack(alignment: .top, spacing: 0) {
+                // The time in a gutter of its own, with a dashed thread down
+                // to the next one, so every paragraph has its time and the
+                // text keeps its column. The whole gutter plays from here.
+                Button(action: play) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(Format.clock(row.block.start))
+                            .font(.metaSmall)
+                            .fontWeight(isCurrent ? .semibold : .medium)
+                            .foregroundStyle(isCurrent ? Color.jText : Color.jText3)
+                            .frame(height: 28)
+                        if !isLast {
+                            DashedThread().frame(width: 1).frame(maxHeight: .infinity).padding(.leading, 12)
                         }
-                        if !starting.isEmpty {
-                            ForEach(starting) { HighlightChip(highlight: $0) }
-                        } else if !carriesOn {
-                            Text(Format.clock(row.block.start))
-                                .foregroundStyle(isCurrent ? Color.jText : Color.jText3)
-                                .fontWeight(isCurrent ? .semibold : .medium)
-                        }
-                        Spacer(minLength: 0)
                     }
-                    .font(.metaSmall)
-                    .lineLimit(1)
-                    .frame(minHeight: 22)
+                    .frame(width: Self.gutter, alignment: .leading)
+                    .frame(maxHeight: .infinity, alignment: .top)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Play from \(Format.clock(row.block.start))")
-                .padding(.bottom, 4)
-            }
 
-            text
-                .font(.reading)
-                .lineSpacing(11)
-                .textSelection(.enabled)
+                VStack(alignment: .leading, spacing: 6) {
+                    // With speakers (your own API key), who is talking.
+                    if row.showSpeaker {
+                        Text(Format.speaker(row.block.speaker))
+                            .font(.speaker)
+                            .foregroundStyle(Color.jText)
+                            .frame(height: 22)
+                    }
+                    if !starting.isEmpty {
+                        HStack(spacing: 6) { ForEach(starting) { HighlightChip(highlight: $0) } }
+                            .padding(.top, 3)
+                    }
+                    TranscriptText(text: text, time: row.block.start, onTap: moveHere, onHighlight: highlight)
+                        .padding(.top, row.showSpeaker || !starting.isEmpty ? 0 : 3)
+                }
+                .padding(.bottom, 22)
+            }
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private var text: Text {
+    private var text: NSAttributedString {
         let block = row.block
+        let out = NSMutableAttributedString()
+        func add(_ string: String, _ color: Color, struck: Bool = false) {
+            var attributes = TranscriptText.base
+            attributes[.foregroundColor] = UIColor(color)
+            if struck { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
+            if marked { attributes[.backgroundColor] = UIColor(Color.jMarker) }
+            out.append(NSAttributedString(string: string, attributes: attributes))
+        }
         if block.backchannel == true {
-            return Text(block.text).foregroundStyle(Color.jText4)
-        }
-        guard let clean = block.clean else {
+            add(block.text, .jText4)
+        } else if let clean = block.clean {
+            if showOriginal {
+                for piece in Fillers.diff(raw: block.text, clean: block.trimmed ?? clean).pieces {
+                    add(piece.text, piece.removed ? .jText4 : .jText, struck: piece.removed)
+                }
+            } else {
+                add(clean, .jText)
+            }
+        } else {
             // Not cleaned up yet: show what was said, a step quieter.
-            return Text(block.text).foregroundStyle(Color.jText2)
+            add(block.text, .jText2)
         }
-        guard showOriginal else {
-            var out = AttributedString(clean)
-            out.foregroundColor = Color.jText
-            if marked { out.backgroundColor = Color.jMarker }
-            return Text(out)
+        return out
+    }
+}
+
+/// The dashed line that links one paragraph's time to the next.
+private struct DashedThread: View {
+    var body: some View {
+        GeometryReader { geo in
+            Path { p in
+                p.move(to: CGPoint(x: 0.5, y: 0))
+                p.addLine(to: CGPoint(x: 0.5, y: geo.size.height))
+            }
+            .stroke(Color.jText5, style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// A paragraph as UIKit text, so it can be selected word by word and its
+/// menu can carry our own actions: Copy with time and Highlight, beside
+/// the system's Copy, Look Up and Share. A tap (not a selection) moves the
+/// playhead to the paragraph.
+struct TranscriptText: UIViewRepresentable {
+    let text: NSAttributedString
+    let time: Double
+    let onTap: () -> Void
+    let onHighlight: () -> Void
+
+    static var base: [NSAttributedString.Key: Any] {
+        let style = NSMutableParagraphStyle()
+        style.lineSpacing = 11
+        return [
+            .font: UIFontMetrics(forTextStyle: .body).scaledFont(for: .systemFont(ofSize: 17)),
+            .paragraphStyle: style,
+        ]
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> UITextView {
+        let view = UITextView()
+        view.isEditable = false
+        view.isSelectable = true
+        view.isScrollEnabled = false
+        view.backgroundColor = .clear
+        view.textContainerInset = .zero
+        view.textContainer.lineFragmentPadding = 0
+        view.dataDetectorTypes = []
+        view.adjustsFontForContentSizeCategory = true
+        view.tintColor = UIColor(Color.jText)
+        view.delegate = context.coordinator
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:)))
+        tap.cancelsTouchesInView = false
+        tap.delegate = context.coordinator
+        view.addGestureRecognizer(tap)
+        return view
+    }
+
+    func updateUIView(_ view: UITextView, context: Context) {
+        context.coordinator.parent = self
+        if view.attributedText != text { view.attributedText = text }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
+        let width = proposal.width ?? 320
+        let size = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        return CGSize(width: width, height: ceil(size.height))
+    }
+
+    final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
+        var parent: TranscriptText
+        init(_ parent: TranscriptText) { self.parent = parent }
+
+        @objc func tapped(_ tap: UITapGestureRecognizer) {
+            guard let view = tap.view as? UITextView, view.selectedRange.length == 0 else { return }
+            parent.onTap()
         }
 
-        var out = AttributedString()
-        for piece in Fillers.diff(raw: block.text, clean: block.trimmed ?? clean).pieces {
-            var part = AttributedString(piece.text)
-            if piece.removed {
-                part.foregroundColor = Color.jText4
-                part.strikethroughStyle = .single
-            } else {
-                part.foregroundColor = Color.jText
+        func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+
+        func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
+            let selected = (textView.text as NSString).substring(with: range)
+            let time = Format.clock(parent.time)
+            let copyWithTime = UIAction(title: "Copy with time", image: UIImage(systemName: "clock")) { _ in
+                UIPasteboard.general.string = "[\(time)] \(selected)"
             }
-            if marked { part.backgroundColor = Color.jMarker }
-            out += part
+            let highlight = UIAction(title: "Highlight", image: UIImage(systemName: "highlighter")) { [weak self] _ in
+                self?.parent.onHighlight()
+                textView.selectedRange = NSRange(location: 0, length: 0)
+            }
+            // After the system's Copy (first), before Look Up, Share and the rest.
+            var children = suggestedActions
+            children.insert(contentsOf: [copyWithTime, highlight], at: min(1, children.count))
+            return UIMenu(children: children)
         }
-        return Text(out)
     }
 }
 

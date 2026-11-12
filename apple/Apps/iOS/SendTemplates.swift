@@ -116,7 +116,10 @@ final class SendTemplates {
 // MARK: - Putting it together
 
 enum Composer {
-    static func compose(_ detail: SessionDetail, title: String, with template: SendTemplate) -> String {
+    /// `marksHighlights`: in Clean and Original, the marked stretches are
+    /// quoted, each under its star or [ ] and time, so whoever reads it
+    /// (a person or an agent) sees what was marked.
+    static func compose(_ detail: SessionDetail, title: String, with template: SendTemplate, marksHighlights: Bool = true) -> String {
         let md = template.format == .markdown
         var out = ""
 
@@ -136,7 +139,8 @@ enum Composer {
 
         switch template.content {
         case .clean, .original:
-            out += paragraphs(detail.blocks, original: template.content == .original, markdown: md)
+            out += paragraphs(detail.blocks, original: template.content == .original, markdown: md,
+                              highlights: marksHighlights ? detail.highlights ?? [] : [])
         case .highlights:
             let highlights = detail.highlights ?? []
             if highlights.isEmpty {
@@ -156,11 +160,24 @@ enum Composer {
         return out
     }
 
-    private static func paragraphs(_ blocks: [TranscriptBlock], original: Bool, markdown md: Bool, times: Bool = true) -> String {
+    private static func paragraphs(_ blocks: [TranscriptBlock], original: Bool, markdown md: Bool, times: Bool = true,
+                                   highlights: [Highlight] = []) -> String {
         var out = ""
         var previous: TranscriptBlock?
-        for block in blocks where original || block.backchannel != true {
-            let text = original ? block.text : (block.clean ?? block.text)
+        let shown = blocks.filter { original || $0.backchannel != true }
+        // Each highlight is labelled at the first paragraph it covers.
+        let starts = Dictionary(grouping: highlights) { h in shown.first { h.covers($0) }?.id ?? -1 }
+        for block in shown {
+            var text = original ? block.text : (block.clean ?? block.text)
+            if highlights.contains(where: { $0.covers(block) }) {
+                let labels = (starts[block.id] ?? []).map { h in
+                    let label = h.isSection
+                        ? "[ ] \(Format.clock(h.start)) – \(Format.clock(h.end)) · Section"
+                        : "★ \(Format.clock(h.at)) · Moment"
+                    return md ? "> **\(label)**\n" : "> \(label)\n"
+                }
+                text = labels.joined() + "> " + text
+            }
             let newSpeaker = previous == nil || block.speaker != previous?.speaker
             if newSpeaker {
                 var head: [String] = []
