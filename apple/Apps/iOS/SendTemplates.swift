@@ -238,20 +238,26 @@ struct SendView: View {
             VStack(alignment: .leading, spacing: 0) {
                 sectionTitle("Automations", top: 16)
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text("When a transcript is ready").font(.rowTitle).foregroundStyle(Color.jText)
-                        Spacer(minLength: 8)
-                        Text("Coming soon")
-                            .font(.scaled(12, .semibold, relativeTo: .caption1))
-                            .foregroundStyle(Color.jText2)
-                            .padding(.horizontal, 10)
-                            .frame(height: 24)
-                            .background(Color.jFill, in: Capsule())
-                    }
-                    Text("Jotto posts a notice. A Shortcuts automation can pick it up and send the transcript to ChatGPT, Notes, Things or a webhook, with any template.")
+                    Text("When a transcript is ready").font(.rowTitle).foregroundStyle(Color.jText)
+                    Text("Jotto posts a notice when a recording is ready. In Shortcuts, make an automation for it: Get Latest Transcript with a template, then send it anywhere.")
                         .font(.summary)
                         .foregroundStyle(Color.jText2)
                         .fixedSize(horizontal: false, vertical: true)
+                    Button {
+                        if let url = URL(string: "shortcuts://") { UIApplication.shared.open(url) }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text("Open Shortcuts").font(.scaled(15, .medium, relativeTo: .subheadline))
+                            Image(systemName: "arrow.up.right").font(.system(size: 11, weight: .semibold))
+                        }
+                        .foregroundStyle(Color.jText)
+                        .padding(.leading, 14)
+                        .padding(.trailing, 12)
+                        .frame(height: 34)
+                        .background(Color.jFill, in: Capsule())
+                    }
+                    .buttonStyle(PressStyle())
+                    .padding(.top, 4)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(16)

@@ -86,4 +86,7 @@ struct Phrase: Codable, Hashable {
     let start: Double
     let end: Double
     let text: String
+    /// Who said it, when a service with your own key tells speakers apart.
+    /// Numbered per part: two-minute parts are heard separately.
+    var speaker: String? = nil
 }

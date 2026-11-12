@@ -35,6 +35,8 @@ final class Recorder {
     static let sectionLimit: TimeInterval = 600
 
     static let levelCount = 30
+    /// Shorter than this is taken for a mistake (as on the phone, `Pipeline.shortest`).
+    static let shortest: TimeInterval = 3
     private let meter = LevelMeter()
     private var meterTask: Task<Void, Never>?
 
@@ -182,8 +184,13 @@ final class Recorder {
             WatchTransfer.shared.sendFinish(
                 session: sessionID, startedAt: startedAt, endedAt: endedAt, segmentCount: segmentCount
             )
-            History.shared.add(startedAt: startedAt, length: endedAt.timeIntervalSince(startedAt))
-            justSaved = (endedAt.timeIntervalSince(startedAt), WatchTransfer.shared.isPhoneReachable)
+            let length = endedAt.timeIntervalSince(startedAt)
+            // A few seconds is a tap by mistake: the phone drops it, and it
+            // isn't counted or shown as saved here.
+            if length >= Self.shortest {
+                History.shared.add(startedAt: startedAt, length: length)
+                justSaved = (length, WatchTransfer.shared.isPhoneReachable)
+            }
         }
         WKInterfaceDevice.current().play(.stop)
         meterTask?.cancel()

@@ -43,8 +43,13 @@ struct TimelineEntry: Identifiable, Hashable {
 final class Library {
     static let shared = Library()
 
-    private(set) var stored: [SessionSummary] = []
-    private(set) var local: [String: LocalSession] = [:]
+    private(set) var stored: [SessionSummary] = [] { didSet { rebuild() } }
+    private(set) var local: [String: LocalSession] = [:] { didSet { rebuild() } }
+    /// Every row, newest first; worked out when what's known changes, not
+    /// each time a screen asks (Days asks a dozen times a frame).
+    private(set) var entries: [TimelineEntry] = []
+    /// Days that have at least one recording, as start-of-day dates.
+    private(set) var daysWithRecordings: Set<Date> = []
     private(set) var loadError: String?
     private(set) var loadedOnce = false
 
@@ -54,6 +59,7 @@ final class Library {
     private static let localFile = URL.documentsDirectory.appending(path: "local-sessions.json")
 
     private init() {
+        defer { rebuild() }
         if let data = try? Data(contentsOf: Self.localFile),
            let saved = try? JSONDecoder().decode([String: LocalSession].self, from: data) {
             local = saved
@@ -103,7 +109,9 @@ final class Library {
         }
         #endif
         do {
-            stored = try await API.sessions()
+            let fresh = try await API.sessions()
+            // Unchanged: leave it, so nothing on screen redraws.
+            if fresh != stored { stored = fresh }
             loadError = nil
             saveLocal()
         } catch {
@@ -135,7 +143,7 @@ final class Library {
 
     // MARK: - Timeline
 
-    var entries: [TimelineEntry] {
+    private func rebuild() {
         var out: [String: TimelineEntry] = [:]
         for s in stored {
             out[s.id] = makeEntry(stored: s, local: local[s.id])
@@ -143,17 +151,15 @@ final class Library {
         for (id, l) in local where out[id] == nil {
             out[id] = makeEntry(local: l)
         }
-        return out.values.sorted { $0.startedAt > $1.startedAt }
+        let sorted = out.values.sorted { $0.startedAt > $1.startedAt }
+        if sorted != entries { entries = sorted }
+        let days = Set(sorted.map { Calendar.current.startOfDay(for: $0.startedAt) })
+        if days != daysWithRecordings { daysWithRecordings = days }
     }
 
     func entries(on day: Date) -> [TimelineEntry] {
         let calendar = Calendar.current
         return entries.filter { calendar.isDate($0.startedAt, inSameDayAs: day) }
-    }
-
-    /// Days that have at least one recording, as start-of-day dates.
-    var daysWithRecordings: Set<Date> {
-        Set(entries.map { Calendar.current.startOfDay(for: $0.startedAt) })
     }
 
     var liveEntry: TimelineEntry? { entries.first { $0.state == .live } }

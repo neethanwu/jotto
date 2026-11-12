@@ -80,7 +80,18 @@ struct DaysView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    if searching { searchContent } else { content }
+                    if searching {
+                        searchContent
+                    } else {
+                        // Another day: the list cross-fades in place, quickly,
+                        // instead of its rows springing along with the strip.
+                        ZStack(alignment: .topLeading) {
+                            content
+                                .id(day)
+                                .transition(.opacity)
+                        }
+                        .animation(.easeOut(duration: 0.16), value: day)
+                    }
                 }
                 .padding(.top, searching ? 12 : 20)
                 .padding(.bottom, 140)

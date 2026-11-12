@@ -29,6 +29,8 @@ struct TranscriptParagraph: Equatable {
 /// then the system's Look Up, Share and the rest.
 struct TranscriptBody: UIViewRepresentable {
     let paragraphs: [TranscriptParagraph]
+    /// Bumped by the caller whenever `paragraphs` changes.
+    let version: Int
     let current: Int?
     let play: (Int) -> Void
     let moveHere: (Int) -> Void
@@ -40,7 +42,7 @@ struct TranscriptBody: UIViewRepresentable {
 
     func updateUIView(_ view: TranscriptBodyView, context: Context) {
         view.handlers = (play, moveHere, highlight, anchors)
-        view.show(paragraphs, current: current)
+        view.show(paragraphs, version: version, current: current)
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: TranscriptBodyView, context: Context) -> CGSize? {
@@ -68,8 +70,11 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
     private var timeLabels: [UILabel] = []
     /// Top of each paragraph's first row (speaker, chips or text), in this view.
     private var tops: [CGFloat] = []
-    /// Bottom of each paragraph's last line.
+    /// Top of each paragraph's first line of text, and bottom of its last.
+    private var textTops: [CGFloat] = []
     private var bottoms: [CGFloat] = []
+    /// Any version: playing (or tapped) shows only once the body says so.
+    private var version = -1
     /// A soft band behind the paragraph playing, or where the playhead is.
     private let band = UIView()
     private var reportedAnchors: [Int: CGFloat] = [:]
@@ -93,8 +98,12 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
         textView.textContainer.lineFragmentPadding = 0
         textView.dataDetectorTypes = []
         textView.delegate = self
-        band.backgroundColor = UIColor(Color.jFill)
-        band.layer.cornerRadius = 14
+        // A faint tint of the text colour, a little stronger in the dark.
+        band.backgroundColor = UIColor { traits in
+            UIColor(Color.jText).resolvedColor(with: traits)
+                .withAlphaComponent(traits.userInterfaceStyle == .dark ? 0.08 : 0.045)
+        }
+        band.layer.cornerRadius = 10
         band.layer.cornerCurve = .continuous
         band.alpha = 0
         band.isUserInteractionEnabled = false
@@ -111,13 +120,18 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
 
     // MARK: Content
 
-    func show(_ new: [TranscriptParagraph], current: Int?) {
-        if new != paragraphs {
-            paragraphs = new
-            rebuildText()
-            laidOutWidth = 0
-            invalidateIntrinsicContentSize()
-            setNeedsLayout()
+    /// `version` changes whenever the paragraphs do, so an unchanged page
+    /// (most updates, and every frame of a slide) isn't compared in full.
+    func show(_ new: [TranscriptParagraph], version: Int, current: Int?) {
+        if version != self.version {
+            self.version = version
+            if new != paragraphs {
+                paragraphs = new
+                rebuildText()
+                laidOutWidth = 0
+                invalidateIntrinsicContentSize()
+                setNeedsLayout()
+            }
         }
         if current != self.current {
             self.current = current
@@ -175,6 +189,7 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
         overlays = []
         timeLabels = []
         tops = []
+        textTops = []
         bottoms = []
         guard let layout = textView.textLayoutManager else { return }
         layout.ensureLayout(for: layout.documentRange)
@@ -228,6 +243,7 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
                 add(label)
             }
             tops.append(top)
+            textTops.append(textTop)
             let firstRow = top == textTop ? lineHeight : Self.chipRow
 
             let time = UILabel(frame: CGRect(x: 0, y: top, width: Self.gutter, height: firstRow))
@@ -270,7 +286,7 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
         for (i, label) in timeLabels.enumerated() {
             let isCurrent = paragraphs[i].id == current
             label.font = isCurrent ? Self.currentTimeFont : Self.timeFont
-            label.textColor = UIColor(isCurrent ? Color.jText : Color.jText3)
+            label.textColor = UIColor(isCurrent ? Color.jLive : Color.jText3)
         }
     }
 
@@ -278,17 +294,19 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
     /// paragraph reads as picked out, with its time inside.
     private func placeBand(animated: Bool) {
         guard let current, let i = paragraphs.firstIndex(where: { $0.id == current }),
-              i < tops.count, i < bottoms.count else {
+              i < textTops.count, i < bottoms.count else {
             UIView.animate(withDuration: animated ? 0.2 : 0) { self.band.alpha = 0 }
             return
         }
-        let frame = CGRect(x: -12, y: tops[i] - 9, width: bounds.width + 24, height: bottoms[i] - tops[i] + 17)
-        let wasHidden = band.alpha == 0
-        if wasHidden || !animated {
+        // Around the words only: the time stays out in the gutter, in orange.
+        let frame = CGRect(x: Self.gutter - 12, y: textTops[i] - 7,
+                           width: bounds.width - Self.gutter + 24, height: bottoms[i] - textTops[i] + 14)
+        if band.alpha == 0 || !animated {
             band.frame = frame
             UIView.animate(withDuration: animated ? 0.2 : 0) { self.band.alpha = 1 }
         } else {
-            UIView.animate(withDuration: 0.32, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
+            UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0,
+                           options: [.allowUserInteraction, .beginFromCurrentState]) {
                 self.band.frame = frame
             }
         }

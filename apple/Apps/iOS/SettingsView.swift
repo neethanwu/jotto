@@ -33,7 +33,7 @@ struct SettingsView: View {
 
                 SettingsSection("Transcribe and polish") {
                     NavigationLink(value: Route.processing) {
-                        SettingsRow("Processing", value: "On this iPhone")
+                        SettingsRow("Processing", value: config.usesOwnKey ? "Your own key" : "On this iPhone")
                     }
                     NavigationLink(value: Route.language) {
                         SettingsRow("Languages", value: config.languages.count == 1

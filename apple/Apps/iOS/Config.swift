@@ -48,8 +48,32 @@ final class AppConfig {
         didSet { UserDefaults.standard.set(notifiesWhenReady, forKey: "notifiesWhenReady") }
     }
 
+    /// "Your own API key" chosen in Processing (the key is in the Keychain).
+    var usesOwnKey: Bool {
+        didSet { UserDefaults.standard.set(usesOwnKey, forKey: "usesOwnKey") }
+    }
+    var cloudService: Cloud.Service {
+        didSet { UserDefaults.standard.set(cloudService.rawValue, forKey: "cloudService") }
+    }
+    /// The address of an OpenAI-compatible service, up to /v1.
+    var cloudBaseURL: String {
+        didSet { UserDefaults.standard.set(cloudBaseURL, forKey: "cloudBaseURL") }
+    }
+    var transcribeModel: String {
+        didSet { UserDefaults.standard.set(transcribeModel, forKey: "transcribeModel") }
+    }
+    /// For titles, summaries and formatting.
+    var writeModel: String {
+        didSet { UserDefaults.standard.set(writeModel, forKey: "writeModel") }
+    }
+
     private init() {
         let defaults = UserDefaults.standard
+        usesOwnKey = defaults.bool(forKey: "usesOwnKey")
+        cloudService = defaults.string(forKey: "cloudService").flatMap(Cloud.Service.init(rawValue:)) ?? .openRouter
+        cloudBaseURL = defaults.string(forKey: "cloudBaseURL") ?? "https://api.openai.com/v1"
+        transcribeModel = defaults.string(forKey: "transcribeModel") ?? Cloud.defaultTranscribeModel
+        writeModel = defaults.string(forKey: "writeModel") ?? Cloud.defaultWriteModel
         // Before 2026-11-11 there was one language, or Automatic (none).
         mixesLanguages = defaults.bool(forKey: "mixesLanguages")
         languages = defaults.stringArray(forKey: "transcriptionLocales")

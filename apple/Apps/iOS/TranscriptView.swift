@@ -22,9 +22,13 @@ struct TranscriptView: View {
     /// How far the page is pushed sideways while swiping between tabs.
     @State private var slide: CGFloat = 0
     @State private var swipeAxis: Axis?
-    /// Pages drawn beside the shown one: the neighbour while swiping, and
-    /// every page on the way while sliding to a tab picked above.
-    @State private var passing: Set<Tab> = []
+    /// Each page's rows and paragraphs, worked out once per change to the
+    /// recording rather than on every frame of a slide.
+    @State private var models: [Tab: PageModel] = [:]
+    @State private var modelVersion = 0
+    @State private var fillersGone = 0
+    /// Bumped by Rename in the menu: scroll up to the title, then edit it.
+    @State private var renameRequests = 0
     @State private var pageWidth: CGFloat = 400
     /// A highlight was tapped in the Highlights tab: scroll here in Clean.
     @State private var jumpTarget: Int?
@@ -107,11 +111,16 @@ struct TranscriptView: View {
                 .sensoryFeedback(.selection, trigger: tab)
                 .onChange(of: detail?.blocks.count) { _, _ in scrollToStart(proxy) }
                 .onChange(of: currentBlock) { _, block in
-                    let scrubbing = player.scrubTime != nil
-                    // Not while the reader is scrolling about by hand.
-                    guard shown != .highlights, player.isPlaying || scrubbing, Date.now > followPausedUntil,
-                          let block else { return }
-                    reveal(block, proxy, fast: scrubbing)
+                    // Playing on: follow, unless the reader is scrolling about by hand.
+                    guard shown != .highlights, player.isPlaying, player.scrubTime == nil,
+                          Date.now > followPausedUntil, let block else { return }
+                    reveal(block, proxy)
+                }
+                .onChange(of: player.seeks) {
+                    // Moved by hand (the wave, the line, the text): always show where it went.
+                    followPausedUntil = .distantPast
+                    guard shown != .highlights, let block = currentBlock else { return }
+                    reveal(block, proxy, fast: player.scrubTime != nil)
                 }
                 .onChange(of: revealTarget) { _, target in
                     guard let target else { return }
@@ -135,9 +144,14 @@ struct TranscriptView: View {
                         jumpTarget = nil
                     }
                 }
-                .onChange(of: titleFocused) { _, focused in
-                    // Rename from the menu with the title scrolled away.
-                    if focused { withAnimation(Self.editMotion) { proxy.scrollTo(Self.headID, anchor: .top) } }
+                .onChange(of: renameRequests) {
+                    // Rename from the menu with the title scrolled away: the
+                    // field isn't there to focus until it's back on screen.
+                    withAnimation(Self.editMotion) { proxy.scrollTo(Self.headID, anchor: .top) }
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(350))
+                        titleFocused = true
+                    }
                 }
                 .sensoryFeedback(.selection, trigger: currentBlock) { _, _ in player.scrubTime != nil }
             }
@@ -207,8 +221,14 @@ struct TranscriptView: View {
             CircleIconButton(glyph: .back, label: "Back") { dismiss() }
             Spacer()
             Menu {
-                Button { titleFocused = true } label: { Label { Text("Rename") } icon: { Glyph.pen.image() } }
-                if detail?.status == "ready", detail?.segments.contains(where: \.hasAudio) == true, !isImported {
+                Button { renameRequests += 1 } label: { Label { Text("Rename") } icon: { Glyph.pen.image() } }
+                if detail?.status == "ready", detail?.segments.contains(where: \.hasAudio) == true, !isImported, Cloud.isOn {
+                    // Your own key's service hears the language itself.
+                    Button("Transcribe again", systemImage: "arrow.clockwise") {
+                        Pipeline.shared.redo(id)
+                        polls += 1
+                    }
+                } else if detail?.status == "ready", detail?.segments.contains(where: \.hasAudio) == true, !isImported {
                     // Pick the language right here; no trip to Settings.
                     Menu("Transcribe again", systemImage: "arrow.clockwise") {
                         ForEach(AppConfig.shared.languages, id: \.self) { language in
@@ -404,15 +424,13 @@ struct TranscriptView: View {
     private func go(to next: Tab, then: (() -> Void)? = nil) {
         guard let detail, next != shown else {
             tab = next
-            withAnimation(.spring(duration: 0.3, bounce: 0.1)) { slide = 0 } completion: { passing = [] }
+            withAnimation(.spring(duration: 0.3, bounce: 0.1)) { slide = 0 }
             then?()
             return
         }
         let order = tabs(detail)
         let from = order.firstIndex(of: shown) ?? 0
         let to = order.firstIndex(of: next) ?? 0
-        // Everything between comes along, so nothing slides in empty.
-        passing = Set(order[min(from, to)...max(from, to)])
         tab = next
         withAnimation(.spring(duration: 0.38, bounce: 0.06)) {
             slide = -CGFloat(to - from) * pageWidth
@@ -423,7 +441,6 @@ struct TranscriptView: View {
             withTransaction(still) {
                 shown = next
                 slide = 0
-                passing = []
             }
             then?()
         }
@@ -441,7 +458,6 @@ struct TranscriptView: View {
         let i = order.firstIndex(of: shown) ?? 0
         let n = dx < 0 ? i + 1 : i - 1
         if order.indices.contains(n) {
-            if !passing.contains(order[n]) { passing = [order[n]] }
             slide = dx
         } else {
             // Nothing further that way: it gives a little and springs back.
@@ -460,18 +476,14 @@ struct TranscriptView: View {
         if order.indices.contains(next), abs(dx) > pageWidth * 0.3 || (abs(flung) > pageWidth * 0.5 && flung.sign == dx.sign) {
             go(to: order[next])
         } else {
-            withAnimation(.spring(duration: 0.3, bounce: 0.1)) { slide = 0 } completion: {
-                if slide == 0 { passing = [] }
-            }
+            withAnimation(.spring(duration: 0.3, bounce: 0.1)) { slide = 0 }
         }
     }
 
     private func viewSwitch(_ detail: SessionDetail) -> some View {
         // Original strikes out what the rules took; the model's rewording
         // isn't counted.
-        let fillers = tab == .original ? detail.blocks.reduce(0) { n, b in
-            n + ((b.trimmed ?? b.clean).map { Fillers.diff(raw: b.text, clean: $0).removedRuns } ?? 0)
-        } : 0
+        let fillers = tab == .original ? fillersGone : 0
         let marked = detail.highlights?.count ?? 0
         return VStack(spacing: 0) {
             HStack(spacing: 20) {
@@ -554,17 +566,53 @@ struct TranscriptView: View {
         }
     }
 
-    /// The shown page, with its neighbours beside it while they slide.
+    /// One page's paragraphs, ready for the body.
+    struct PageModel {
+        let rows: [Row]
+        let items: [TranscriptParagraph]
+    }
+
+    /// Works out both text pages from the recording. Runs when the recording
+    /// changes (a poll, a rename, a highlight), not while sliding; the body
+    /// is only told about it if a paragraph actually changed.
+    private func rebuildModels(_ detail: SessionDetail) {
+        var next: [Tab: PageModel] = [:]
+        let highlights = detail.highlights ?? []
+        for t in [Tab.clean, .original] {
+            let original = t == .original
+            let rows = rows(detail, original: original)
+            // Each highlight is named on the first paragraph it covers.
+            let starts = Dictionary(grouping: highlights) { h in rows.first { h.covers($0.block) }?.id ?? -1 }
+            let marked = Set(rows.filter { r in highlights.contains { $0.covers(r.block) } }.map(\.id))
+            let items = rows.map { row in
+                TranscriptParagraph(
+                    id: row.id, start: row.block.start,
+                    speaker: row.showSpeaker ? Format.speaker(row.block.speaker) : nil,
+                    newSection: row.newSection, chips: starts[row.id] ?? [],
+                    text: Self.text(row.block, marked: marked.contains(row.id), original: original)
+                )
+            }
+            next[t] = PageModel(rows: rows, items: items)
+        }
+        let changed = [Tab.clean, .original].contains { models[$0]?.items != next[$0]?.items }
+        guard changed || models.isEmpty else { return }
+        models = next
+        modelVersion += 1
+        fillersGone = detail.blocks.reduce(0) { n, b in
+            n + ((b.trimmed ?? b.clean).map { Fillers.diff(raw: b.text, clean: $0).removedRuns } ?? 0)
+        }
+    }
+
+    /// Every page is always there, side by side a screen apart; only the
+    /// shown one sets the height. Nothing has to be built when a slide
+    /// starts, which is what made it catch before moving.
     private func pages(_ detail: SessionDetail) -> some View {
         let order = tabs(detail)
         let here = order.firstIndex(of: shown) ?? 0
-        let drawn = order.filter { $0 == shown || passing.contains($0) }
-        return ZStack(alignment: .topLeading) {
-            ForEach(drawn, id: \.self) { t in
-                let i = order.firstIndex(of: t) ?? here
+        return SlidingPages(slide: $slide, here: here, width: pageWidth) {
+            ForEach(order, id: \.self) { t in
                 page(detail, t, main: t == shown)
                     .padding(.horizontal, 20)
-                    .offset(x: slide + CGFloat(i - here) * pageWidth)
                     .allowsHitTesting(t == shown)
                     .accessibilityHidden(t != shown)
             }
@@ -591,32 +639,17 @@ struct TranscriptView: View {
             }
         } else if t == .highlights {
             highlightList(detail)
-        } else {
-            let original = t == .original
-            let rows = rows(detail, original: original)
-            let highlights = detail.highlights ?? []
-            // Each highlight is named on the first paragraph it covers.
-            let starts = Dictionary(grouping: highlights) { h in rows.first { h.covers($0.block) }?.id ?? -1 }
-            let marked = Set(rows.filter { r in highlights.contains { $0.covers(r.block) } }.map(\.id))
-            let items = rows.map { row in
-                TranscriptParagraph(
-                    id: row.id, start: row.block.start,
-                    speaker: row.showSpeaker ? Format.speaker(row.block.speaker) : nil,
-                    newSection: row.newSection, chips: starts[row.id] ?? [],
-                    text: Self.text(row.block, marked: marked.contains(row.id), original: original)
-                )
-            }
+        } else if let model = models[t] {
+            let rows = model.rows
             ZStack(alignment: .topLeading) {
                 TranscriptBody(
-                    paragraphs: items, current: currentBlock,
+                    paragraphs: model.items, version: modelVersion, current: currentBlock(on: t),
                     play: { id in
-                        followPausedUntil = .distantPast
                         revealTarget = id
                         if let b = rows.first(where: { $0.id == id })?.block { player.seek(to: b.start) }
                     },
                     // Tapping the text moves the playhead; it only plays if it already was.
                     moveHere: { id in
-                        followPausedUntil = .distantPast
                         revealTarget = id
                         if let b = rows.first(where: { $0.id == id })?.block { player.seek(to: b.start, play: player.isPlaying) }
                     },
@@ -670,7 +703,10 @@ struct TranscriptView: View {
         guard let detail, let a = rows.first(where: { $0.id == first })?.block,
               let b = rows.first(where: { $0.id == last })?.block else { return }
         Pipeline.shared.markedSection(id, startedAt: detail.startedAt, start: a.start, end: max(a.end, b.end))
-        Task { self.detail = try? await API.session(id) }
+        Task {
+            self.detail = try? await API.session(id)
+            if let detail = self.detail { rebuildModels(detail) }
+        }
     }
 
     /// Each highlight with what was said in it, in order. Tapping one
@@ -753,9 +789,11 @@ struct TranscriptView: View {
 
     /// The paragraph playing, among those the shown page has: Formatted
     /// leaves out the "嗯"s, so one of those never counts there.
-    private var currentBlock: Int? {
+    private var currentBlock: Int? { currentBlock(on: shown) }
+
+    private func currentBlock(on t: Tab) -> Int? {
         guard let detail, player.shownTime > 0 else { return nil }
-        let original = shown == .original
+        let original = t == .original
         // A seek can land a hair before the paragraph it was aimed at.
         return detail.blocks.last { (original || $0.backchannel != true) && $0.start <= player.shownTime + 0.3 }?.id
     }
@@ -802,6 +840,7 @@ struct TranscriptView: View {
             do {
                 let fresh = try await API.session(id)
                 detail = fresh
+                rebuildModels(fresh)
                 error = nil
                 await player.load(fresh)
             } catch {
@@ -828,7 +867,9 @@ struct TranscriptView: View {
         do {
             try await API.rename(id, to: newTitle)
             Library.shared.applyRename(id, title: newTitle)
-            detail = try await API.session(id)
+            let fresh = try await API.session(id)
+            detail = fresh
+            rebuildModels(fresh)
         } catch {
             self.error = error.localizedDescription
         }
@@ -972,6 +1013,11 @@ struct Waveform: View {
     @State private var following = true
     @State private var drag: DragKind?
     @State private var refollow: Task<Void, Never>?
+    /// While scrubbing with the finger held at an end: which way the track
+    /// runs (−1, 0, 1), and where the finger is.
+    @State private var edge = 0
+    @State private var edgeRun: Task<Void, Never>?
+    @State private var fingerX: CGFloat = 0
 
     private enum DragKind {
         case undecided(left: Double)
@@ -1087,13 +1133,33 @@ struct Waveform: View {
         case let .scroll(start):
             left = layout.clampLeft(start - Double(value.translation.width) / layout.scale)
         case .scrub:
-            // Near an edge, the track moves along with the finger.
+            // The line stays on the track: the finger can wander off either
+            // end, but the line stops there, and held at an end the track
+            // runs on under it.
+            let x = min(max(value.location.x, 0), layout.width)
+            fingerX = x
             if layout.scrolls {
-                let edge: CGFloat = 16
-                if value.location.x > layout.width - edge { left = layout.clampLeft(left + layout.window * 0.02) }
-                if value.location.x < edge { left = layout.clampLeft(left - layout.window * 0.02) }
+                let inset: CGFloat = 20
+                let wanted = value.location.x > layout.width - inset ? 1 : value.location.x < inset ? -1 : 0
+                if wanted != edge {
+                    edge = wanted
+                    runAtEdge(layout)
+                }
             }
-            player.scrub(to: time(atX: value.location.x, layout: layout))
+            player.scrub(to: time(atX: x, layout: layout))
+        }
+    }
+
+    /// Moves the track along while the finger is held at an end.
+    private func runAtEdge(_ layout: Layout) {
+        edgeRun?.cancel()
+        guard edge != 0 else { return }
+        edgeRun = Task {
+            while !Task.isCancelled, edge != 0 {
+                left = layout.clampLeft(layout.clampLeft(left) + Double(edge) * layout.window * 0.015)
+                player.scrub(to: time(atX: fingerX, layout: layout))
+                try? await Task.sleep(for: .milliseconds(16))
+            }
         }
     }
 
@@ -1103,6 +1169,8 @@ struct Waveform: View {
             player.seek(to: time(atX: value.location.x, layout: layout), play: player.isPlaying)
             following = true
         case .scrub:
+            edge = 0
+            edgeRun?.cancel()
             player.endScrub()
             following = true
         case .scroll:
@@ -1182,5 +1250,46 @@ struct PendingLines: View {
         }
         .accessibilityElement()
         .accessibilityLabel("The text is on its way")
+    }
+}
+
+/// The transcript's pages in a row, a screen apart, moved together by
+/// `slide`. Sized by the page that's shown, so a longer neighbour adds no
+/// space below. Only this redraws as a finger drags the pages.
+private struct SlidingPages<Content: View>: View {
+    @Binding var slide: CGFloat
+    let here: Int
+    let width: CGFloat
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        PagesLayout(here: here, width: width, slide: slide) { content }
+    }
+}
+
+private struct PagesLayout: Layout, Animatable {
+    let here: Int
+    let width: CGFloat
+    var slide: CGFloat
+
+    /// So a slide set inside `withAnimation` moves the pages smoothly.
+    var animatableData: CGFloat {
+        get { slide }
+        set { slide = newValue }
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let w = proposal.width ?? width
+        guard subviews.indices.contains(here) else { return CGSize(width: w, height: 0) }
+        let h = subviews[here].sizeThatFits(ProposedViewSize(width: w, height: nil)).height
+        return CGSize(width: w, height: h)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for (i, subview) in subviews.enumerated() {
+            let size = subview.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
+            let x = bounds.minX + slide + CGFloat(i - here) * width
+            subview.place(at: CGPoint(x: x, y: bounds.minY), proposal: ProposedViewSize(width: bounds.width, height: size.height))
+        }
     }
 }

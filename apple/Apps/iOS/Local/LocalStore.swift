@@ -157,7 +157,7 @@ final class LocalStore {
         if let imported = r.imported { return imported }
         return blocks(r).map { b in
             TranscriptBlock(
-                id: b.id, section: b.section, speaker: nil, start: b.start, end: b.end, text: b.text,
+                id: b.id, section: b.section, speaker: b.speaker, start: b.start, end: b.end, text: b.text,
                 clean: b.backchannel ? b.text : (r.tidy?[b.text] ?? r.clean[b.text]), backchannel: b.backchannel,
                 trimmed: r.clean[b.text]
             )

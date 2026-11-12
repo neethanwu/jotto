@@ -104,9 +104,11 @@ struct LiveView: View {
         .preferredColorScheme(.dark)
         .toolbar(.hidden, for: .navigationBar)
         .task { await poll() }
-        .onChange(of: entry?.state) { _, state in
-            // Finished on the watch: show the transcript instead.
+        .onChange(of: entry?.state) { old, state in
+            // Finished on the watch: show the transcript instead. Gone
+            // altogether: stopped within a few seconds, taken for a mistake.
             if let state, state != .live { dismiss() }
+            if old != nil, state == nil { dismiss() }
         }
     }
 

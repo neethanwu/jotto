@@ -104,8 +104,13 @@ final class RecordingPlayer {
         isPlaying.toggle()
     }
 
+    /// Bumped on every jump and scrub, so the transcript can follow a
+    /// move made by hand even while paused.
+    private(set) var seeks = 0
+
     func seek(to seconds: Double, play: Bool = true) {
         guard let player else { return }
+        seeks += 1
         time = min(max(0, seconds), duration)
         seeking = true
         player.seek(to: CMTime(seconds: time, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
@@ -117,6 +122,7 @@ final class RecordingPlayer {
     /// The position follows the finger; the audio moves on release.
     func scrub(to seconds: Double) {
         scrubTime = min(max(0, seconds), duration)
+        seeks += 1
     }
 
     func endScrub() {

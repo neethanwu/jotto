@@ -36,9 +36,14 @@ enum Editor {
     static func tidy(_ rough: String) async throws -> String? {
         // A lone "嗯" or "OK": nothing to tidy.
         guard Sentences.units(rough) >= 4 else { return nil }
-        let session = LanguageModelSession(instructions: instructions)
-        let response = try await session.respond(to: rough, options: GenerationOptions(temperature: 0.2))
-        var out = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let reply: String
+        if await Cloud.isOn {
+            reply = try await Cloud.chat(system: instructions, user: rough)
+        } else {
+            let session = LanguageModelSession(instructions: instructions)
+            reply = try await session.respond(to: rough, options: GenerationOptions(temperature: 0.2)).content
+        }
+        var out = reply.trimmingCharacters(in: .whitespacesAndNewlines)
         for prefix in ["Clean:", "Clean：", "clean:"] where out.hasPrefix(prefix) {
             out = String(out.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
         }

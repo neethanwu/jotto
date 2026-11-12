@@ -87,7 +87,20 @@ final class Pipeline {
         }
     }
 
+    /// Shorter than this is taken for a tap by mistake, on the watch or
+    /// here, and dropped (as on the watch, `Recorder.shortest`).
+    static let shortest: TimeInterval = 3
+
     func finished(_ id: String, startedAt: Date, endedAt: Date, segmentCount: Int) {
+        if endedAt.timeIntervalSince(startedAt) < Self.shortest {
+            openSections[id] = nil
+            store.delete(id)
+            Library.shared.remove(id)
+            try? FileManager.default.removeItem(at: AudioFiles.directory.appending(path: id))
+            PhoneLog.shared.note("dropped_short", "\(id) \(String(format: "%.1f", endedAt.timeIntervalSince(startedAt)))s")
+            changed()
+            return
+        }
         if let start = openSections.removeValue(forKey: id) {
             markedSection(id, startedAt: startedAt, start: start, end: min(endedAt.timeIntervalSince(startedAt), start + Self.sectionLimit))
         }
@@ -280,7 +293,7 @@ final class Pipeline {
     /// Whether the on-device model will tidy this recording's text.
     private func willTidy(_ r: LocalRecording) -> Bool {
         r.polishedAt != nil && r.tidiedAt == nil && r.imported == nil
-            && Editor.isAvailable
+            && (Editor.isAvailable || Cloud.isOn)
     }
 
     /// Paragraphs tidied so far, for the transcript's status line.
@@ -308,15 +321,16 @@ final class Pipeline {
         }
         // Titles. The on-device model is rate-limited in the background:
         // one try there (so the notice can carry a title), the rest in front.
-        if Describer.isAvailable {
-            let inFront = UIApplication.shared.applicationState != .background
+        if Describer.isAvailable || Cloud.isOn {
+            // The on-device model is rate-limited in the background; a service isn't.
+            let inFront = UIApplication.shared.applicationState != .background || Cloud.isOn
             for r in all where r.polishedAt != nil && r.describedAt == nil && !r.titleByUser
                 && !describeFailed.contains(r.id) && (inFront || r.notifiedAt == nil) {
                 return .describe(id: r.id)
             }
         }
-        // Tidying, newest first (the one likely open), only in front.
-        if UIApplication.shared.applicationState != .background {
+        // Tidying, newest first (the one likely open); on this iPhone only in front.
+        if UIApplication.shared.applicationState != .background || Cloud.isOn {
             for r in all.reversed() where willTidy(r) && !tidyFailed.contains(r.id) {
                 return .tidy(id: r.id)
             }
@@ -347,6 +361,26 @@ final class Pipeline {
                 // From a watch that hasn't updated yet.
                 let fixed = await Task.detached(priority: .utility) { AudioRepair.fix(url, expected: expected) }.value
                 if fixed { PhoneLog.shared.note("audio_repaired", "\(id) segment \(index)") }
+            }
+            if Cloud.isOn {
+                do {
+                    let heard = try await Cloud.transcribe(url, duration: r.segments[index]?.duration ?? 120)
+                    store.update(id, startedAt: r.startedAt) { rec in
+                        rec.segments[index]?.phrases = heard.phrases
+                        if rec.locale == nil, let language = heard.language, language.count <= 3 { rec.locale = language }
+                    }
+                    waiting = nil
+                    PhoneLog.shared.note("cloud_asr_done", "segment \(index) \(String(format: "%.1f", Date.now.timeIntervalSince(began)))s phrases=\(heard.phrases.count)")
+                } catch let failure as Cloud.Failure where failure.isPassing {
+                    // Offline, busy or a key problem: wait, and say why.
+                    transcriberNotReady = true
+                    waiting = failure.localizedDescription
+                    PhoneLog.shared.note("cloud_asr_waiting", failure.localizedDescription)
+                } catch {
+                    store.update(id, startedAt: r.startedAt) { $0.segments[index]?.failed = error.localizedDescription }
+                    PhoneLog.shared.note("cloud_asr_failed", "segment \(index) \(error.localizedDescription)")
+                }
+                return
             }
             do {
                 // The recording's language, decided once from its first part to arrive.
@@ -394,7 +428,7 @@ final class Pipeline {
             }
             PhoneLog.shared.note("polished", id)
             // No title coming: the notice goes now.
-            if !Describer.isAvailable || r.titleByUser {
+            if !(Describer.isAvailable || Cloud.isOn) || r.titleByUser {
                 Notifier.shared.ready(id)
             }
 
@@ -411,7 +445,7 @@ final class Pipeline {
             changed()
             defer { describingNow = nil }
             do {
-                let d = try await Describer.describe(paragraphs)
+                let d = Cloud.isOn ? try await Cloud.describe(paragraphs) : try await Describer.describe(paragraphs).plain
                 store.update(id, startedAt: r.startedAt) {
                     if !$0.titleByUser { $0.title = d.title }
                     $0.titleSuggestions = d.suggestions
@@ -444,7 +478,7 @@ final class Pipeline {
         tidyingNow = id
         defer { tidyingNow = nil }
         for b in blocks where store.recordings[id]?.tidy?[b.text] == nil {
-            guard UIApplication.shared.applicationState != .background,
+            guard UIApplication.shared.applicationState != .background || Cloud.isOn,
                   store.recordings[id]?.tidiedAt == nil, store.recordings[id]?.polishedAt != nil else { return }
             let rough = r.clean[b.text] ?? Cleanup.clean(b.text)
             do {
@@ -452,7 +486,7 @@ final class Pipeline {
                 if tidied == nil { rejected += 1 } else { kept += 1 }
                 store.update(id, startedAt: r.startedAt) { $0.tidy = ($0.tidy ?? [:]).merging([b.text: tidied ?? rough]) { $1 } }
                 changed()
-            } catch where Editor.isAboutThisText(error) {
+            } catch where Editor.isAboutThisText(error) || (error as? Cloud.Failure).map({ !$0.isPassing }) == true {
                 // The model won't do this one paragraph (its guardrails,
                 // or too long): it keeps the rule-based text, and the rest
                 // carry on. Stopping here left the recording half done,

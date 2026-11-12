@@ -14,6 +14,9 @@ enum Describer {
         var suggestions: [String]
         @Guide(description: "One or two plain sentences on what was said or decided, under 200 characters.")
         var summary: String
+
+        /// What the pipeline keeps, whichever model wrote it.
+        var plain: (title: String, suggestions: [String], summary: String) { (title, suggestions, summary) }
     }
 
     static var isAvailable: Bool { SystemLanguageModel.default.availability == .available }

@@ -7,6 +7,7 @@ enum Paragraphs {
         let start: Double
         let end: Double
         let text: String
+        var speaker: String? = nil
     }
 
     struct Block {
@@ -16,6 +17,7 @@ enum Paragraphs {
         var end: Double
         var text: String
         var backchannel = false
+        var speaker: String? = nil
     }
 
     /// Pause that starts a new paragraph.
@@ -34,7 +36,7 @@ enum Paragraphs {
         segments.sorted { $0.index < $1.index }.flatMap { seg in
             (seg.phrases ?? []).compactMap { p in
                 let text = p.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                return text.isEmpty ? nil : Utterance(start: seg.offset + p.start, end: seg.offset + p.end, text: text)
+                return text.isEmpty ? nil : Utterance(start: seg.offset + p.start, end: seg.offset + p.end, text: text, speaker: p.speaker)
             }
         }
     }
@@ -52,7 +54,7 @@ enum Paragraphs {
             // No speaker labels on device, so a lone "嗯" only stands apart
             // when it's its own phrase; it doesn't end the paragraph.
             if isBackchannel(u.text), open != nil {
-                blocks.append(Block(id: blocks.count, section: section, start: u.start, end: u.end, text: u.text, backchannel: true))
+                blocks.append(Block(id: blocks.count, section: section, start: u.start, end: u.end, text: u.text, backchannel: true, speaker: u.speaker))
                 continue
             }
 
@@ -64,13 +66,14 @@ enum Paragraphs {
                 let start = u.start + span * Double(consumed) / total
                 consumed += piece.count
                 let end = u.start + span * Double(consumed) / total
-                if let o = open, i == 0, blocks[o].section == section,
+                // A new voice is a new paragraph.
+                if let o = open, i == 0, blocks[o].section == section, blocks[o].speaker == u.speaker,
                    start - blocks[o].end < paragraphGap,
                    Sentences.units(blocks[o].text) + Sentences.units(piece) <= maxBlockUnits {
                     blocks[o].text = join(blocks[o].text, piece)
                     blocks[o].end = end
                 } else {
-                    blocks.append(Block(id: blocks.count, section: section, start: start, end: end, text: piece))
+                    blocks.append(Block(id: blocks.count, section: section, start: start, end: end, text: piece, speaker: u.speaker))
                     open = blocks.count - 1
                 }
             }
