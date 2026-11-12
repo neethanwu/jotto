@@ -20,7 +20,8 @@ targets:
     type: application
     platform: iOS
     scheme: {}
-    sources: [Apps/iOS, Apps/PhoneShared]
+    # The watch's segment writer records on the phone too.
+    sources: [Apps/iOS, Apps/PhoneShared, Apps/Watch/SegmentWriter.swift]
     dependencies:
       - target: JottoWatch
       - target: JottoLiveActivity
@@ -33,6 +34,9 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
         NSSupportsLiveActivities: true
+        # Recording on the iPhone keeps going with the screen locked.
+        UIBackgroundModes: [audio]
+        NSMicrophoneUsageDescription: Jotto records through the microphone when you start a recording on your iPhone.
         # Opens a recording's Live screen from its lock-screen activity.
         CFBundleURLTypes:
           - CFBundleURLName: com.neethanwu.jotto

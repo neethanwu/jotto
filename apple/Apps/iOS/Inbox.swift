@@ -59,6 +59,47 @@ final class Inbox: NSObject {
         tellWatch(["kind": "stop", "session": session])
     }
 
+    /// Asks the watch to start recording, if its app is open and in reach
+    /// right now; waits a few seconds for it to say it has. The id of the
+    /// recording it started, or nil (record on the phone instead).
+    func askWatchToStart() async -> String? {
+        guard WCSession.isSupported(), WCSession.default.activationState == .activated,
+              WCSession.default.isPaired, WCSession.default.isWatchAppInstalled,
+              WCSession.default.isReachable else { return nil }
+        PhoneLog.shared.note("ask_watch_start")
+        guard let reply = await Self.request(["kind": "start"], timeout: 4),
+              let id = reply["session"] as? String,
+              let started = (reply["sessionStartedAt"] as? Double).map(Date.init(timeIntervalSince1970:)) else {
+            PhoneLog.shared.note("ask_watch_start_failed")
+            return nil
+        }
+        Library.shared.watchStarted(id, at: started)
+        Pipeline.shared.started(id, at: started)
+        return id
+    }
+
+    /// A live message with its reply, or nil on error or after `timeout`.
+    nonisolated private static func request(_ message: [String: Any], timeout: TimeInterval) async -> [String: Any]? {
+        final class Once: @unchecked Sendable {
+            private let lock = NSLock()
+            private var done = false
+            func claim() -> Bool { lock.lock(); defer { lock.unlock() }; if done { return false }; done = true; return true }
+        }
+        struct Reply: @unchecked Sendable { let value: [String: Any]? }
+        let once = Once()
+        let reply: Reply = await withCheckedContinuation { continuation in
+            WCSession.default.sendMessage(message, replyHandler: { @Sendable value in
+                if once.claim() { continuation.resume(returning: Reply(value: value)) }
+            }, errorHandler: { @Sendable _ in
+                if once.claim() { continuation.resume(returning: Reply(value: nil)) }
+            })
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                if once.claim() { continuation.resume(returning: Reply(value: nil)) }
+            }
+        }
+        return reply.value
+    }
+
     /// A mark or section made on the phone's Live screen, so the watch's
     /// count includes it.
     func tellWatchMarked(_ session: String, section: Bool) {

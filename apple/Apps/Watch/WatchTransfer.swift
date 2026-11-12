@@ -114,6 +114,11 @@ final class WatchTransfer: NSObject {
     }
 }
 
+/// WatchConnectivity's reply handler, carried to the main actor.
+private struct Reply: @unchecked Sendable {
+    let send: ([String: Any]) -> Void
+}
+
 extension WatchTransfer: WCSessionDelegate {
     nonisolated func session(
         _ session: WCSession,
@@ -132,6 +137,15 @@ extension WatchTransfer: WCSessionDelegate {
     /// moment or a section there. Live message when the watch app is
     /// reachable (with or without a reply wanted), else queued user info.
     nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any], replyHandler: @escaping ([String: Any]) -> Void) {
+        // The phone's record button: start here, and say which recording.
+        if message["kind"] as? String == "start" {
+            let reply = Reply(send: replyHandler)
+            Task { @MainActor in
+                Recorder.shared.start()
+                reply.send(Recorder.shared.sessionInfo)
+            }
+            return
+        }
         let command = (message["kind"] as? String, message["session"] as? String)
         Task { @MainActor in Self.handle(command) }
         replyHandler(["ok": true])

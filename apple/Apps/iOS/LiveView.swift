@@ -4,7 +4,8 @@ import SwiftUI
 /// Mark and Section (the same as the watch's star and [ ]), and the latest
 /// transcript as it arrives (a couple of minutes behind, since the watch
 /// sends audio in two-minute parts). Hold the dot for a second to stop,
-/// as on the watch; the phone asks the watch to stop.
+/// as on the watch: the phone asks the watch to stop, or stops itself when
+/// the recording is on the phone.
 struct LiveView: View {
     let id: String
 
@@ -118,13 +119,20 @@ struct LiveView: View {
         }
     }
 
+    private var onPhone: Bool { PhoneRecorder.shared.sessionID == id }
+
     private func stop() {
+        if onPhone {
+            PhoneRecorder.shared.stop()
+            return
+        }
         stopAskedAt = .now
         if !Inbox.shared.askWatchToStop(id) { stopAskedAt = .distantPast }
     }
 
     private func metaLine(_ startedAt: Date, now: Date) -> String {
         if holding { return "Keep holding to stop · let go to keep recording" }
+        if onPhone, PhoneRecorder.shared.interrupted { return "Paused while the microphone is in use · carries on after" }
         if let asked = stopAskedAt {
             return now.timeIntervalSince(asked) < 10 ? "Stopping on your watch" : "Couldn't reach your watch. Stop it on your wrist"
         }

@@ -8,8 +8,22 @@ import UIKit
 /// press menu): pick a template, see how it starts, then copy it or hand
 /// it to the system share sheet to choose the app.
 struct SendPanel: View {
-    let detail: SessionDetail
-    let title: String
+    /// One recording, or every one from a day (`day` set).
+    let items: [(detail: SessionDetail, title: String)]
+    var day: Date?
+
+    init(detail: SessionDetail, title: String) {
+        items = [(detail, title)]
+    }
+
+    init(day: Date, items: [(detail: SessionDetail, title: String)]) {
+        self.day = day
+        self.items = items
+    }
+
+    private var detail: SessionDetail { items[0].detail }
+    private var title: String { items[0].title }
+    private var highlightCount: Int { items.reduce(0) { $0 + ($1.detail.highlights?.count ?? 0) } }
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.closeDrawer) private var closeDrawer
@@ -32,7 +46,7 @@ struct SendPanel: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Send")
+                    Text(day == nil ? "Send" : "Send the day")
                         .font(.sheetTitle)
                         .tracking(-0.48)
                         .foregroundStyle(Color.jText)
@@ -71,12 +85,12 @@ struct SendPanel: View {
             .scrollBounceBehavior(.basedOnSize)
             .padding(.top, 8)
 
-            if !(detail.highlights ?? []).isEmpty, template.content != .highlights {
+            if highlightCount > 0, template.content != .highlights {
                 Rectangle().fill(Color.jSheetHairline).frame(height: 1)
                 Toggle(isOn: $marksHighlights) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Mark the highlights").font(.rowTitle).foregroundStyle(Color.jText)
-                        Text("\(Format.plural(detail.highlights?.count ?? 0, "highlight")), quoted with ★ or [ ] and the time")
+                        Text("\(Format.plural(highlightCount, "highlight")), quoted with ★ or [ ] and the time")
                             .font(.metaSmall).foregroundStyle(Color.jText3)
                     }
                 }
@@ -84,7 +98,7 @@ struct SendPanel: View {
                 .padding(.vertical, 12)
             }
 
-            if !detail.segments.isEmpty {
+            if day == nil, !detail.segments.isEmpty {
                 Rectangle().fill(Color.jSheetHairline).frame(height: 1)
                 Toggle(isOn: $withAudio) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -149,6 +163,11 @@ struct SendPanel: View {
     }
 
     private var subtitle: String {
+        if let day {
+            let total = items.compactMap { i in i.detail.endedAt.map { $0.timeIntervalSince(i.detail.startedAt) } }.reduce(0, +)
+            return [day.formatted(.dateTime.weekday(.wide).day().month(.abbreviated)), Format.plural(items.count, "recording"),
+                    total > 0 ? Format.length(total) : nil].compactMap { $0 }.joined(separator: " · ")
+        }
         let length = detail.endedAt.map { Format.length($0.timeIntervalSince(detail.startedAt)) }
         return [title, length].compactMap { $0 }.joined(separator: " · ")
     }
@@ -213,7 +232,10 @@ struct SendPanel: View {
     }
 
     var markdown: String {
-        Composer.compose(detail, title: title, with: template, marksHighlights: marksHighlights)
+        if let day {
+            return Composer.composeDay(items, day: day, with: template, marksHighlights: marksHighlights)
+        }
+        return Composer.compose(detail, title: title, with: template, marksHighlights: marksHighlights)
     }
 
     /// One m4a of the whole recording, built from its segments.

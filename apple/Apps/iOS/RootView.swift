@@ -51,9 +51,9 @@ struct RootView: View {
             tab(.settings) { SettingsView(router: router) }
 
             if router.showsTabBar {
-                TabBar(selection: $router.tab) { tab in
+                TabBar(selection: $router.tab, onReselect: { tab in
                     if tab == .days { router.daysReselected += 1 }
-                }
+                }, accessory: AnyView(RecordButton(router: router)))
                 .transition(.opacity)
             }
         }
@@ -156,7 +156,30 @@ struct TabBar: View {
     /// touch and the button's action isn't reliable enough to go by.
     @State private var changedAt = Date.distantPast
 
+    /// Beside the pill: the record button.
+    var accessory: AnyView? = nil
+
     var body: some View {
+        HStack(spacing: 10) {
+            pillBar
+            if let accessory { accessory }
+        }
+        .padding(.top, 28)
+        .padding(.bottom, 34)
+        .frame(maxWidth: .infinity)
+        .background(alignment: .bottom) {
+            // Page colour fades in behind the bar so content scrolls under it.
+            LinearGradient(
+                stops: [.init(color: .jBg.opacity(0), location: 0), .init(color: .jBg, location: 0.45)],
+                startPoint: .top, endPoint: .bottom
+            )
+            .frame(height: 124)
+            .allowsHitTesting(false)
+        }
+        .ignoresSafeArea(edges: .bottom)
+    }
+
+    private var pillBar: some View {
         HStack(spacing: 4) {
             item(.days, "Days") { DaysIcon(selected: $0) }
             // The selected tab's glyph fills in.
@@ -177,19 +200,6 @@ struct TabBar: View {
         .animation(.spring(duration: 0.38, bounce: 0.18), value: selection)
         .sensoryFeedback(.selection, trigger: selection)
         .onChange(of: selection) { changedAt = .now }
-        .padding(.top, 28)
-        .padding(.bottom, 34)
-        .frame(maxWidth: .infinity)
-        .background(alignment: .bottom) {
-            // Page colour fades in behind the bar so content scrolls under it.
-            LinearGradient(
-                stops: [.init(color: .jBg.opacity(0), location: 0), .init(color: .jBg, location: 0.45)],
-                startPoint: .top, endPoint: .bottom
-            )
-            .frame(height: 124)
-            .allowsHitTesting(false)
-        }
-        .ignoresSafeArea(edges: .bottom)
     }
 
     private func item<Icon: View>(_ tab: AppTab, _ label: String, @ViewBuilder icon: (Bool) -> Icon) -> some View {
@@ -267,6 +277,58 @@ struct DaysIcon: View {
     }
 }
 
+// MARK: - Record
+
+/// Beside the tab bar: the orange dot, as on the watch. Starts a recording
+/// (on the watch if its app is open and in reach, else on this iPhone)
+/// and opens Live. While one is going, it breathes and opens that one.
+struct RecordButton: View {
+    let router: Router
+    @State private var starting = false
+    @State private var failure: String?
+
+    var body: some View {
+        let live = Library.shared.liveEntry
+        Button {
+            if let live {
+                router.live = Router.Live(id: live.id)
+                return
+            }
+            guard !starting else { return }
+            starting = true
+            Task {
+                defer { starting = false }
+                do {
+                    let started = try await RecordStarter.start()
+                    await Library.shared.refresh()
+                    router.live = Router.Live(id: started.id)
+                } catch {
+                    failure = error.localizedDescription
+                }
+            }
+        } label: {
+            ZStack {
+                if live != nil {
+                    BreathingDot(size: 22)
+                } else {
+                    Circle().fill(Color.jLive).frame(width: 22, height: 22)
+                        .scaleEffect(starting ? 0.8 : 1)
+                        .animation(.spring(duration: 0.3), value: starting)
+                }
+            }
+            .frame(width: 62, height: 62)
+            .chromePill()
+            .contentShape(Circle())
+        }
+        .buttonStyle(PressStyle())
+        .sensoryFeedback(.impact(weight: .medium), trigger: starting) { _, now in now }
+        .accessibilityLabel(live != nil ? "Recording. Open it" : "Record")
+        .alert("Couldn't record", isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: { Text(failure ?? "") }
+    }
+}
+
 // MARK: - Swipe back with a hidden navigation bar
 
 /// Our screens draw their own top bars, which also disables UIKit's
@@ -279,5 +341,13 @@ extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
 
     public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         viewControllers.count > 1
+    }
+
+    /// A swipe from the edge goes back before anything on the page (the
+    /// transcript's sideways swipe between tabs, its scroll view) gets it.
+    /// The edge pan gives up at once for a touch away from the edge.
+    public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                                  shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
+        gestureRecognizer === interactivePopGestureRecognizer && viewControllers.count > 1
     }
 }

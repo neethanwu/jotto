@@ -51,7 +51,8 @@ final class LocalStore {
                 segmentsDone: r.transcribed.count, segmentsReceived: r.segments.count,
                 lastLine: Self.transcript(r).last { $0.backchannel != true }?.text,
                 highlights: r.marks.count + (r.sections?.count ?? 0),
-                formatting: Pipeline.shared.tidyProgress(r)
+                formatting: Pipeline.shared.tidyProgress(r),
+                naming: Pipeline.shared.describingNow == r.id
             )
         }
     }

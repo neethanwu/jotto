@@ -21,6 +21,8 @@ struct TimelineEntry: Identifiable, Hashable {
         case onWatch(parts: Int)
         /// Transcribed; the on-device model is still formatting the paragraphs.
         case formatting(done: Int, total: Int)
+        /// Transcribed; the on-device model is writing the title and summary.
+        case naming
         case done
     }
 
@@ -166,7 +168,9 @@ final class Library {
 
     private func makeEntry(stored s: SessionSummary, local l: LocalSession?) -> TimelineEntry {
         let state: TimelineEntry.State
-        if s.status == "ready", let f = s.formatting {
+        if s.status == "ready", s.naming {
+            state = .naming
+        } else if s.status == "ready", let f = s.formatting {
             state = .formatting(done: f.done, total: f.total)
         } else if s.status == "ready" {
             state = .done

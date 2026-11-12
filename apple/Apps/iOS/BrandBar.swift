@@ -30,7 +30,7 @@ struct BarPillStyle: ButtonStyle {
             .font(.scaled(15, .medium, relativeTo: .subheadline))
             .foregroundStyle(Color.jText)
             .padding(.horizontal, 16)
-            .frame(height: 40)
+            .frame(height: 44)
             .background(Color.jBg, in: Capsule())
             .overlay(Capsule().strokeBorder(Color.jRing, lineWidth: 1))
             .overlay { Capsule().fill(Color.jText.opacity(configuration.isPressed ? 0.07 : 0)) }

@@ -266,8 +266,8 @@ struct CircleGlyph: View {
     var fill: Color = .jFill
     var color: Color = .jText
     var ring: Color = .clear
-    /// 40 in top bars; 32 beside a section title.
-    var size: CGFloat = 40
+    /// 44 in top bars; 32 beside a section title.
+    var size: CGFloat = 44
 
     var body: some View {
         GlyphView(glyph: glyph, color: color)
@@ -300,7 +300,7 @@ struct CircleIconButton: View {
     var fill: Color = .jFill
     var color: Color = .jText
     var ring: Color = .clear
-    var size: CGFloat = 40
+    var size: CGFloat = 44
     let action: () -> Void
 
     var body: some View {

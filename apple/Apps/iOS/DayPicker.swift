@@ -3,7 +3,7 @@ import SwiftUI
 /// Month calendar for jumping far back, opened by tapping the day's name.
 /// Months run from the first recording (at least six months back) to this
 /// month, newest at the bottom where it opens. Dots mark days with
-/// recordings; days before the first recording and after today are muted.
+/// recordings; only days after today are muted.
 struct DayPicker: View {
     @Binding var selection: Date
     let marked: Set<Date>
@@ -121,8 +121,9 @@ struct DayPicker: View {
         let selected = calendar.isDate(date, inSameDayAs: selection)
         let isToday = calendar.isDateInToday(date)
         let future = date > now
-        let beforeFirst = firstDay.map { date < $0 } ?? false
-        let muted = future || beforeFirst
+        // Every day you can pick looks the same; the dot says which have
+        // recordings. Only days still to come are faint.
+        let muted = future
         let hasRecordings = marked.contains(date)
 
         return Button {
@@ -130,9 +131,11 @@ struct DayPicker: View {
             dismiss()
         } label: {
             VStack(spacing: 2) {
-                Text(date.formatted(.dateTime.day()))
-                    .font(.system(size: 16, weight: selected ? .semibold : .medium).monospacedDigit())
+                let number = date.formatted(.dateTime.day())
+                Text(number)
+                    .font(.system(size: 16, weight: selected ? .semibold : .medium))
                     .foregroundStyle(selected ? Color.jBg : muted ? Color.jText5 : Color.jText)
+                    .offset(x: OpticalCentre.nudge(number))
                 Circle()
                     .fill(selected && isToday ? Color.jLive : selected ? Color.jBg : Color.jText)
                     .frame(width: 4, height: 4)

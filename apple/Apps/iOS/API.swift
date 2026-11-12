@@ -20,6 +20,8 @@ struct SessionSummary: Decodable, Identifiable, Hashable {
     var highlights: Int? = nil
     /// Paragraphs formatted so far, while the on-device model works.
     var formatting: SessionDetail.Tidying? = nil
+    /// The on-device model is writing its title and summary right now.
+    var naming = false
 }
 
 struct SessionDetail: Decodable, Identifiable {

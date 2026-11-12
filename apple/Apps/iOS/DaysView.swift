@@ -15,6 +15,7 @@ struct DaysView: View {
     /// The row swiped open, if any; one at a time.
     @State private var swiped: String?
     @State private var sharing: SessionDetail?
+    @State private var sharingDay: DaySend?
     @State private var deleting: TimelineEntry?
     @State private var searching = false
     @State private var query = ""
@@ -96,6 +97,9 @@ struct DaysView: View {
         .onChange(of: router.daysReselected) { goToToday() }
         .drawer(item: $sharing) { detail in
             SendPanel(detail: detail, title: detail.title ?? Format.provisionalTitle(detail.startedAt))
+        }
+        .drawer(item: $sharingDay) { send in
+            SendPanel(day: send.day, items: send.items)
         }
         .task(id: query) { await search() }
         .alert("Delete this recording?", isPresented: Binding(
@@ -348,6 +352,23 @@ struct DaysView: View {
 
     // MARK: - Row actions
 
+    struct DaySend: Identifiable {
+        let day: Date
+        let items: [(detail: SessionDetail, title: String)]
+        var id: Date { day }
+    }
+
+    private func shareDay() async {
+        var items: [(detail: SessionDetail, title: String)] = []
+        for entry in entries where entry.state != .live {
+            // One where nothing was said would only be a heading.
+            guard let detail = try? await API.session(entry.id), !detail.blocks.isEmpty else { continue }
+            items.append((detail, detail.title ?? Format.provisionalTitle(detail.startedAt)))
+        }
+        guard !items.isEmpty else { return }
+        sharingDay = DaySend(day: day, items: items)
+    }
+
     private func share(_ id: String) async {
         do { sharing = try await API.session(id) } catch { actionError = error.localizedDescription }
     }
@@ -389,6 +410,19 @@ struct DaysView: View {
 
     /// The day's name; tapping it opens the month calendar.
     private var header: some View {
+        HStack(alignment: .center, spacing: 12) {
+            dayButton
+            if entries.contains(where: { $0.state != .live }) {
+                // Everything from this day in one go: the template's
+                // instruction once, then each recording in order.
+                CircleIconButton(glyph: .send, label: "Send the day") { Task { await shareDay() } }
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: entries.isEmpty)
+    }
+
+    private var dayButton: some View {
         Button { picking = true } label: {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
@@ -404,6 +438,7 @@ struct DaysView: View {
                     .font(.meta)
                     .foregroundStyle(Color.jText3)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -575,6 +610,7 @@ struct WeekStrip: View {
                 // slot, which pushed "12" off centre in the pill.
                 .font(.system(size: 16, weight: selected ? .semibold : .medium))
                 .foregroundStyle(dayColor)
+                .offset(x: OpticalCentre.nudge(day.number))
             Circle()
                 .fill(live ? Color.jLive : selected ? Color.jBg : Color.jText)
                 .frame(width: 4, height: 4)
@@ -599,6 +635,30 @@ struct WeekStrip: View {
         .accessibilityValue(hasRecordings ? "Has recordings" : future ? "Upcoming" : "")
         .accessibilityAddTraits(future ? [] : selected ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction { if !future { selection = day.date } }
+    }
+}
+
+/// Day numbers sit by their ink's weight, not its box. A "1" is a thin
+/// stem with its flag out to the left, so "11" or "14" centred by the box
+/// looks pushed right inside the pill; this moves each number back by most
+/// of the gap between its box centre and its ink centroid (SF Pro, 16 pt).
+enum OpticalCentre {
+    private static let offsets: [CGFloat] = [
+        1.01, 0.17, 0.57, 0.4, -0.08, -0.14, 0.28, 0, 0.15, 0.86,
+        1.01, 0.79, 1.03, 0.86, 0.82, 0.93, 0.26, 1.07, 1.12, 0.3,
+        0.33, 0.17, 0.38, 0.21, 0.25, 0.43, -0.44, 0.57, 0.59, 0.49, 0.57,
+    ]
+
+    static func nudge(_ number: String) -> CGFloat {
+        guard let n = Int(number), (1...31).contains(n) else { return 0 }
+        return -(offsets[n - 1] * 0.75).rounded(toPlaces: 2)
+    }
+}
+
+private extension CGFloat {
+    func rounded(toPlaces places: Int) -> CGFloat {
+        let k = pow(10, CGFloat(places))
+        return (self * k).rounded() / k
     }
 }
 
@@ -817,8 +877,12 @@ struct TimelineRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(entry.title)
                 .font(.rowTitle)
-                .foregroundStyle(Color.jText)
+                .foregroundStyle(entry.state == .naming ? Color.jText3 : Color.jText)
                 .lineLimit(2)
+                // The stand-in title shimmers while Jotto writes the real one.
+                .shimmering(entry.state == .naming)
+                .contentTransition(.opacity)
+                .animation(.easeOut(duration: 0.3), value: entry.title)
             Spacer(minLength: 8)
             if entry.state == .live {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -870,6 +934,10 @@ struct TimelineRow: View {
                     .foregroundStyle(Color.jText3)
                     .contentTransition(.numericText())
             }
+        case .naming:
+            Text("Writing a title and summary")
+                .font(.metaSmall)
+                .foregroundStyle(Color.jText3)
         case .done:
             VStack(alignment: .leading, spacing: 6) {
                 if let summary = entry.summary {
@@ -915,11 +983,44 @@ struct TimelineRow: View {
         case .live: parts.append("Recording")
         case .processing: parts.append("Processing")
         case .formatting: parts.append("Formatting")
+        case .naming: parts.append("Writing a title")
         case .onWatch: parts.append("On your watch")
         case .done: parts.append("Done")
         }
         return parts.joined(separator: ", ")
     }
+}
+
+/// A band of light passing over text, left to right, while it's being
+/// worked on. Still (and just quieter text) with Reduce Motion.
+struct Shimmer: ViewModifier {
+    let active: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        if active, !reduceMotion {
+            content.overlay {
+                TimelineView(.animation) { context in
+                    // One pass every 1.6 s, with a pause between passes.
+                    let t = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.6) / 1.2
+                    GeometryReader { geo in
+                        LinearGradient(colors: [.clear, Color.jText.opacity(0.9), .clear],
+                                       startPoint: .leading, endPoint: .trailing)
+                            .frame(width: geo.size.width * 0.45)
+                            .offset(x: (geo.size.width * 1.45) * t - geo.size.width * 0.45)
+                    }
+                }
+                .mask(content)
+                .allowsHitTesting(false)
+            }
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    func shimmering(_ active: Bool) -> some View { modifier(Shimmer(active: active)) }
 }
 
 /// The dashed ring, turning: the phone is working on it. Still when
@@ -954,7 +1055,7 @@ struct StateDot: View {
             case .live:
                 Circle().fill(Color.jLiveHalo).frame(width: 20, height: 20)
                 BreathingDot(size: 12)
-            case .processing, .formatting:
+            case .processing, .formatting, .naming:
                 ProcessingRing(size: 12)
             case .onWatch:
                 Circle()

@@ -46,6 +46,18 @@ enum Editor {
         return accept(out, rough: rough) ? out : nil
     }
 
+    /// An error about this passage rather than the model being busy: it
+    /// won't get better by asking again.
+    static func isAboutThisText(_ error: Error) -> Bool {
+        guard let error = error as? LanguageModelSession.GenerationError else { return false }
+        switch error {
+        case .guardrailViolation, .refusal, .exceededContextWindowSize, .unsupportedLanguageOrLocale, .decodingFailure:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Most of what was said is still there, in order, and little is new.
     static func accept(_ out: String, rough: String) -> Bool {
         guard !out.isEmpty, !out.contains("\n\n") else { return false }

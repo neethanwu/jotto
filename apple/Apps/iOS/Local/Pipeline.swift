@@ -22,6 +22,10 @@ final class Pipeline {
     @ObservationIgnored private var describeFailed: Set<String> = []
     /// Same for tidying the text.
     @ObservationIgnored private var tidyFailed: Set<String> = []
+    /// What the model is working on right now, for the timeline: a title
+    /// being written, or paragraphs being formatted.
+    @ObservationIgnored private(set) var describingNow: String?
+    @ObservationIgnored private var tidyingNow: String?
     /// Transcription can't run yet (model not downloaded); retried next run.
     @ObservationIgnored private var transcriberNotReady = false
 
@@ -282,7 +286,9 @@ final class Pipeline {
     /// Paragraphs tidied so far, for the transcript's status line.
     func tidyProgress(_ r: LocalRecording) -> SessionDetail.Tidying? {
         // Not while it's stuck (the model refused or is busy): say nothing.
-        guard willTidy(r), !tidyFailed.contains(r.id) else { return nil }
+        // One picked up again where it left off shows only once the model
+        // is on it, so a launch where it can't carry on doesn't flash it.
+        guard willTidy(r), !tidyFailed.contains(r.id), tidyingNow == r.id || r.tidy == nil else { return nil }
         let blocks = LocalStore.blocks(r).filter { !$0.backchannel }
         return .init(done: blocks.filter { r.tidy?[$0.text] != nil }.count, total: blocks.count)
     }
@@ -401,6 +407,9 @@ final class Pipeline {
                 changed()
                 return
             }
+            describingNow = id
+            changed()
+            defer { describingNow = nil }
             do {
                 let d = try await Describer.describe(paragraphs)
                 store.update(id, startedAt: r.startedAt) {
@@ -431,7 +440,9 @@ final class Pipeline {
         guard let r = store.recordings[id] else { return }
         let blocks = LocalStore.blocks(r).filter { !$0.backchannel }
         let began = Date.now
-        var kept = 0, rejected = 0
+        var kept = 0, rejected = 0, refused = 0
+        tidyingNow = id
+        defer { tidyingNow = nil }
         for b in blocks where store.recordings[id]?.tidy?[b.text] == nil {
             guard UIApplication.shared.applicationState != .background,
                   store.recordings[id]?.tidiedAt == nil, store.recordings[id]?.polishedAt != nil else { return }
@@ -441,14 +452,23 @@ final class Pipeline {
                 if tidied == nil { rejected += 1 } else { kept += 1 }
                 store.update(id, startedAt: r.startedAt) { $0.tidy = ($0.tidy ?? [:]).merging([b.text: tidied ?? rough]) { $1 } }
                 changed()
+            } catch where Editor.isAboutThisText(error) {
+                // The model won't do this one paragraph (its guardrails,
+                // or too long): it keeps the rule-based text, and the rest
+                // carry on. Stopping here left the recording half done,
+                // tried again and failing at every launch.
+                refused += 1
+                store.update(id, startedAt: r.startedAt) { $0.tidy = ($0.tidy ?? [:]).merging([b.text: rough]) { $1 } }
+                changed()
             } catch {
+                // Busy or rate-limited: try again next time.
                 tidyFailed.insert(id)
                 PhoneLog.shared.note("tidy_failed", "\(id) \(error.localizedDescription)")
                 return
             }
         }
         store.update(id, startedAt: r.startedAt) { $0.tidiedAt = .now }
-        PhoneLog.shared.note("tidied", "\(id) kept=\(kept) rejected=\(rejected) \(String(format: "%.1f", Date.now.timeIntervalSince(began)))s")
+        PhoneLog.shared.note("tidied", "\(id) kept=\(kept) rejected=\(rejected) refused=\(refused) \(String(format: "%.1f", Date.now.timeIntervalSince(began)))s")
     }
 
     private func changed() {

@@ -38,8 +38,13 @@ struct TranscriptView: View {
     @State private var pickingLanguages = false
     /// Where each paragraph starts in the body, for scrolling to it.
     @State private var paragraphTops: [Tab: [Int: CGFloat]] = [:]
-    /// Playback doesn't scroll the page for a moment after a tap on the text.
+    /// Playback doesn't scroll the page for a moment after a scroll by hand.
     @State private var followPausedUntil = Date.distantPast
+    /// A paragraph tapped in the text: brought into view if it isn't.
+    @State private var revealTarget: Int?
+    /// Where things are on screen, kept outside SwiftUI's state so that
+    /// following the scroll doesn't redraw the page every frame.
+    @State private var where_ = Whereabouts()
     /// The title has scrolled away and text runs under the view switch.
     @State private var pinned = false
     @State private var headHeight: CGFloat = 0
@@ -64,6 +69,7 @@ struct TranscriptView: View {
                                 .id(Self.headID)
                             Section {
                                 pages(detail)
+                                    .onGeometryChange(for: CGFloat.self) { $0.frame(in: .scrollView).minY } action: { where_.bodyTop = $0 }
                                     .padding(.top, 20)
                                     .padding(.bottom, 140)
                                     // While the title is being edited the transcript
@@ -102,14 +108,21 @@ struct TranscriptView: View {
                 .onChange(of: detail?.blocks.count) { _, _ in scrollToStart(proxy) }
                 .onChange(of: currentBlock) { _, block in
                     let scrubbing = player.scrubTime != nil
-                    // Not right after a tap on the text: it's already in view.
+                    // Not while the reader is scrolling about by hand.
                     guard shown != .highlights, player.isPlaying || scrubbing, Date.now > followPausedUntil,
-                          let block, let detail else { return }
-                    // The paragraph's top a third of the way down, so all of it shows.
-                    withAnimation(.easeInOut(duration: scrubbing ? 0.15 : 0.3)) {
-                        proxy.scrollTo(groupID(of: block, in: detail), anchor: UnitPoint(x: 0.5, y: 0.3))
-                    }
+                          let block else { return }
+                    reveal(block, proxy, fast: scrubbing)
                 }
+                .onChange(of: revealTarget) { _, target in
+                    guard let target else { return }
+                    reveal(target, proxy)
+                    revealTarget = nil
+                }
+                .onScrollPhaseChange { _, phase in
+                    // Scrolling by hand: playback leaves the page alone for a bit.
+                    if phase == .interacting { followPausedUntil = .now.addingTimeInterval(4) }
+                }
+                .onScrollGeometryChange(for: CGFloat.self) { $0.containerSize.height } action: { _, h in where_.viewport = h }
                 .onChange(of: jumpTarget) { _, target in
                     guard let target, let detail else { return }
                     Task {
@@ -296,6 +309,7 @@ struct TranscriptView: View {
         .padding(.top, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.jBg)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { where_.header = $0 }
         // While the title is being edited, the rest steps back.
         .opacity(renaming ? 0.3 : 1)
         .allowsHitTesting(!renaming)
@@ -596,12 +610,14 @@ struct TranscriptView: View {
                 TranscriptBody(
                     paragraphs: items, current: currentBlock,
                     play: { id in
-                        followPausedUntil = .now.addingTimeInterval(1.5)
+                        followPausedUntil = .distantPast
+                        revealTarget = id
                         if let b = rows.first(where: { $0.id == id })?.block { player.seek(to: b.start) }
                     },
                     // Tapping the text moves the playhead; it only plays if it already was.
                     moveHere: { id in
-                        followPausedUntil = .now.addingTimeInterval(1.5)
+                        followPausedUntil = .distantPast
+                        revealTarget = id
                         if let b = rows.first(where: { $0.id == id })?.block { player.seek(to: b.start, play: player.isPlaying) }
                     },
                     highlight: { first, last in highlight(from: first, to: last, in: rows) },
@@ -735,10 +751,37 @@ struct TranscriptView: View {
         return rows
     }
 
+    /// The paragraph playing, among those the shown page has: Formatted
+    /// leaves out the "嗯"s, so one of those never counts there.
     private var currentBlock: Int? {
         guard let detail, player.shownTime > 0 else { return nil }
+        let original = shown == .original
         // A seek can land a hair before the paragraph it was aimed at.
-        return detail.blocks.last { $0.start <= player.shownTime + 0.3 }?.id
+        return detail.blocks.last { (original || $0.backchannel != true) && $0.start <= player.shownTime + 0.3 }?.id
+    }
+
+    /// Positions read off the screen as it scrolls.
+    final class Whereabouts {
+        /// Top of the transcript body, in the scroll view's visible frame.
+        var bodyTop: CGFloat = 0
+        var viewport: CGFloat = 800
+        /// The pinned view switch and status line.
+        var header: CGFloat = 60
+    }
+
+    /// Scrolls just enough to have this paragraph's start in view: under
+    /// the pinned switch, clear of the player. One already in view stays
+    /// where it is, so reading along is a page turn now and then, not a
+    /// page that moves under you.
+    private func reveal(_ id: Int, _ proxy: ScrollViewProxy, fast: Bool = false) {
+        let top = paragraphTops[shown]?[id].map { where_.bodyTop + $0 }
+        let upper = where_.header + 8
+        let lower = where_.viewport - 210
+        if let top, top >= upper, top <= lower { return }
+        let anchor = min(0.4, (where_.header + 24) / max(where_.viewport, 1))
+        withAnimation(.easeInOut(duration: fast ? 0.15 : 0.35)) {
+            proxy.scrollTo(id, anchor: UnitPoint(x: 0.5, y: anchor))
+        }
     }
 
     private func title(_ detail: SessionDetail) -> String {
@@ -841,7 +884,6 @@ struct PlayerBar: View {
     let hasAudio: Bool
 
     var body: some View {
-        let scrubbing = player.scrubTime != nil
 
         HStack(spacing: 12) {
             Button(action: player.toggle) {
@@ -860,7 +902,6 @@ struct PlayerBar: View {
             case .ready:
                 Waveform(player: player)
 
-                // Both step aside while scrubbing: the bubble has the time.
                 HStack(spacing: 8) {
                     Text(Format.clock(player.time))
                         .font(.metaSmall)
@@ -878,8 +919,6 @@ struct PlayerBar: View {
                     .accessibilityLabel("Playback speed")
                     .accessibilityValue(rateLabel)
                 }
-                .opacity(scrubbing ? 0 : 1)
-                .animation(.easeOut(duration: 0.15), value: scrubbing)
                 .sensoryFeedback(.selection, trigger: player.rate)
             case .loading:
                 Text(hasAudio ? "Loading audio" : "No audio yet")

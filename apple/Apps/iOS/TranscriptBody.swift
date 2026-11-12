@@ -68,6 +68,10 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
     private var timeLabels: [UILabel] = []
     /// Top of each paragraph's first row (speaker, chips or text), in this view.
     private var tops: [CGFloat] = []
+    /// Bottom of each paragraph's last line.
+    private var bottoms: [CGFloat] = []
+    /// A soft band behind the paragraph playing, or where the playhead is.
+    private let band = UIView()
     private var reportedAnchors: [Int: CGFloat] = [:]
     private var laidOutWidth: CGFloat = 0
 
@@ -89,6 +93,12 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
         textView.textContainer.lineFragmentPadding = 0
         textView.dataDetectorTypes = []
         textView.delegate = self
+        band.backgroundColor = UIColor(Color.jFill)
+        band.layer.cornerRadius = 14
+        band.layer.cornerCurve = .continuous
+        band.alpha = 0
+        band.isUserInteractionEnabled = false
+        addSubview(band)
         addSubview(textView)
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
@@ -112,6 +122,7 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
         if current != self.current {
             self.current = current
             styleTimes()
+            placeBand(animated: true)
         }
     }
 
@@ -164,6 +175,7 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
         overlays = []
         timeLabels = []
         tops = []
+        bottoms = []
         guard let layout = textView.textLayoutManager else { return }
         layout.ensureLayout(for: layout.documentRange)
         let lineHeight = Self.font.lineHeight
@@ -180,6 +192,15 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
             }
             let rect = textView.firstRect(for: textRange)
             lineTops.append(rect.isNull ? (lineTops.last ?? 0) : rect.maxY - lineHeight)
+            // The last line: the box of the paragraph's final character.
+            if let last = textView.position(from: textView.beginningOfDocument, offset: max(range.location, range.location + range.length - 1)),
+               let after = textView.position(from: last, offset: 1),
+               let lastRange = textView.textRange(from: last, to: after) {
+                let r = textView.firstRect(for: lastRange)
+                bottoms.append(r.isNull ? (lineTops.last ?? 0) + lineHeight : r.maxY)
+            } else {
+                bottoms.append((lineTops.last ?? 0) + lineHeight)
+            }
         }
 
         for (i, p) in paragraphs.enumerated() {
@@ -229,6 +250,7 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
             add(DashedThread(frame: CGRect(x: 12, y: from, width: 1, height: to - from)))
         }
         styleTimes()
+        placeBand(animated: false)
 
         let anchors = Dictionary(uniqueKeysWithValues: zip(paragraphs.map(\.id), tops))
         if anchors != reportedAnchors {
@@ -249,6 +271,26 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
             let isCurrent = paragraphs[i].id == current
             label.font = isCurrent ? Self.currentTimeFont : Self.timeFont
             label.textColor = UIColor(isCurrent ? Color.jText : Color.jText3)
+        }
+    }
+
+    /// Wider than the text and a little above and below it, so the
+    /// paragraph reads as picked out, with its time inside.
+    private func placeBand(animated: Bool) {
+        guard let current, let i = paragraphs.firstIndex(where: { $0.id == current }),
+              i < tops.count, i < bottoms.count else {
+            UIView.animate(withDuration: animated ? 0.2 : 0) { self.band.alpha = 0 }
+            return
+        }
+        let frame = CGRect(x: -12, y: tops[i] - 9, width: bounds.width + 24, height: bottoms[i] - tops[i] + 17)
+        let wasHidden = band.alpha == 0
+        if wasHidden || !animated {
+            band.frame = frame
+            UIView.animate(withDuration: animated ? 0.2 : 0) { self.band.alpha = 1 }
+        } else {
+            UIView.animate(withDuration: 0.32, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
+                self.band.frame = frame
+            }
         }
     }
 

@@ -121,17 +121,50 @@ enum Composer {
     /// (a person or an agent) sees what was marked.
     static func compose(_ detail: SessionDetail, title: String, with template: SendTemplate, marksHighlights: Bool = true) -> String {
         let md = template.format == .markdown
-        var out = ""
-
-        let instruction = template.instruction.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !instruction.isEmpty {
-            out += "\(instruction)\n\n---\n\n"
-        }
-
+        var out = instruction(template)
         out += md ? "# \(title)\n\n" : "\(title)\n"
-        var meta = [Format.weekdayDayMonth(detail.startedAt), Format.time(detail.startedAt)]
+        out += body(detail, with: template, marksHighlights: marksHighlights, headings: 2)
+        out += md ? "—\nRecorded with Jotto\n" : "Recorded with Jotto\n"
+        return out
+    }
+
+    /// A whole day: the instruction once, then each recording in order,
+    /// under its time and title.
+    static func composeDay(_ details: [(detail: SessionDetail, title: String)], day: Date, with template: SendTemplate,
+                           marksHighlights: Bool = true) -> String {
+        let md = template.format == .markdown
+        var out = instruction(template)
+        let heading = day.formatted(.dateTime.weekday(.wide).day().month(.wide))
+        out += md ? "# \(heading)\n\n" : "\(heading)\n"
+        let total = details.compactMap { d in d.detail.endedAt.map { $0.timeIntervalSince(d.detail.startedAt) } }.reduce(0, +)
+        let meta = [Format.plural(details.count, "recording"), total > 0 ? Format.length(total) : nil].compactMap { $0 }
+            .joined(separator: " · ")
+        out += md ? "_\(meta)_\n\n" : "\(meta)\n\n"
+        for (detail, title) in details.sorted(by: { $0.detail.startedAt < $1.detail.startedAt }) {
+            let name = "\(Format.time(detail.startedAt)) · \(title)"
+            out += md ? "## \(name)\n\n" : "\(name)\n"
+            out += body(detail, with: template, marksHighlights: marksHighlights, headings: 3, showsTime: false)
+        }
+        out += md ? "—\nRecorded with Jotto\n" : "Recorded with Jotto\n"
+        return out
+    }
+
+    private static func instruction(_ template: SendTemplate) -> String {
+        let instruction = template.instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        return instruction.isEmpty ? "" : "\(instruction)\n\n---\n\n"
+    }
+
+    /// One recording under its title: when and how long, the summary, then
+    /// what the template asks for. Highlights get headings at `headings`.
+    private static func body(_ detail: SessionDetail, with template: SendTemplate, marksHighlights: Bool,
+                             headings: Int, showsTime: Bool = true) -> String {
+        let md = template.format == .markdown
+        var out = ""
+        var meta = showsTime ? [Format.weekdayDayMonth(detail.startedAt), Format.time(detail.startedAt)] : []
         if let end = detail.endedAt { meta.append(Format.length(end.timeIntervalSince(detail.startedAt))) }
-        out += md ? "_\(meta.joined(separator: " · "))_\n\n" : "\(meta.joined(separator: " · "))\n\n"
+        if !meta.isEmpty {
+            out += md ? "_\(meta.joined(separator: " · "))_\n\n" : "\(meta.joined(separator: " · "))\n\n"
+        }
 
         if template.content != .original, let summary = detail.summary {
             out += md ? "> \(summary)\n\n" : "\(summary)\n\n"
@@ -151,12 +184,10 @@ enum Composer {
                 let heading = h.isSection
                     ? "[ ] \(Format.clock(h.start)) – \(Format.clock(h.end))"
                     : "★ \(Format.clock(h.at))"
-                out += md ? "## \(heading)\n\n" : "\(heading)\n"
+                out += md ? "\(String(repeating: "#", count: headings)) \(heading)\n\n" : "\(heading)\n"
                 out += paragraphs(spoken.filter(h.covers), original: false, markdown: md, times: false)
             }
         }
-
-        out += md ? "—\nRecorded with Jotto\n" : "Recorded with Jotto\n"
         return out
     }
 

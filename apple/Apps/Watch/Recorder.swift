@@ -57,6 +57,12 @@ final class Recorder {
 
     // MARK: - Control
 
+    /// Which recording is going, for the phone that asked to start one.
+    var sessionInfo: [String: Any] {
+        guard state != .idle, let sessionID, let startedAt else { return ["ok": false] }
+        return ["ok": true, "session": sessionID.uuidString.lowercased(), "sessionStartedAt": startedAt.timeIntervalSince1970]
+    }
+
     func toggle() {
         state == .idle ? start() : stop()
     }
