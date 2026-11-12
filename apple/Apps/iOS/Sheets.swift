@@ -102,7 +102,7 @@ struct SendPanel: View {
                     presenting = true
                 } label: {
                     HStack(spacing: 8) {
-                        GlyphView(glyph: .send, color: .jBg).frame(width: 18, height: 18)
+                        GlyphView(glyph: .sendFilled, color: .jBg).frame(width: 18, height: 18)
                         Text(exporting ? "Preparing audio" : "Send…")
                     }
                     .font(.label)

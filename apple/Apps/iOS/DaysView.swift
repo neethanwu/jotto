@@ -676,7 +676,7 @@ struct SwipeRow<Content: View>: View {
                 // Only there while the row is moved, so hidden ones can't be hit.
                 if enabled, offset < 0 {
                     HStack(spacing: 12) {
-                        action("Send", glyph: .send, fill: .jText, ink: .jBg, run: send)
+                        action("Send", glyph: .sendFilled, fill: .jText, ink: .jBg, run: send)
                         action("Delete", glyph: .trash, fill: .jDestructive, ink: .white, run: delete)
                     }
                     // Centred on the row's text: the row ends in 28 of space.
