@@ -107,12 +107,12 @@ struct GetDayTranscriptsIntent: AppIntent {
 /// the recording shows as a Live Activity).
 struct StartRecordingIntent: AudioRecordingIntent {
     static let title: LocalizedStringResource = "Start Recording"
-    static let description = IntentDescription("Starts a Jotto recording, on your watch if Jotto is open there, otherwise on this iPhone.")
+    static let description = IntentDescription("Starts a Jotto recording, on your watch if Jotto is open there, otherwise on this phone.")
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let started = try await RecordStarter.start()
-        return .result(dialog: started.on == .watch ? "Recording on your watch." : "Recording on your iPhone.")
+        return .result(dialog: started.on == .watch ? "Recording on your watch." : "Recording on this phone.")
     }
 }
 
