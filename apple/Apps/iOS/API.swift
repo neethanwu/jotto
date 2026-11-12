@@ -18,6 +18,8 @@ struct SessionSummary: Decodable, Identifiable, Hashable {
     let lastLine: String?
     /// Moments and sections marked on the watch.
     var highlights: Int? = nil
+    /// Paragraphs formatted so far, while the on-device model works.
+    var formatting: SessionDetail.Tidying? = nil
 }
 
 struct SessionDetail: Decodable, Identifiable {
@@ -47,7 +49,7 @@ struct SessionDetail: Decodable, Identifiable {
     /// Paragraphs tidied so far and in all, while the on-device model works through them.
     var tidying: Tidying? = nil
 
-    struct Tidying: Decodable, Equatable {
+    struct Tidying: Decodable, Hashable {
         let done: Int
         let total: Int
     }

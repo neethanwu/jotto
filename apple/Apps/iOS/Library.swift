@@ -19,6 +19,8 @@ struct TimelineEntry: Identifiable, Hashable {
         case live
         case processing(done: Int, total: Int?, polishing: Bool)
         case onWatch(parts: Int)
+        /// Transcribed; the on-device model is still formatting the paragraphs.
+        case formatting(done: Int, total: Int)
         case done
     }
 
@@ -164,7 +166,9 @@ final class Library {
 
     private func makeEntry(stored s: SessionSummary, local l: LocalSession?) -> TimelineEntry {
         let state: TimelineEntry.State
-        if s.status == "ready" {
+        if s.status == "ready", let f = s.formatting {
+            state = .formatting(done: f.done, total: f.total)
+        } else if s.status == "ready" {
             state = .done
         } else if s.status == "recording",
                   l.map(isLive) ?? (Date.now.timeIntervalSince(s.startedAt) < Self.liveTimeout) {

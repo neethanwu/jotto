@@ -150,8 +150,11 @@ struct TabBar: View {
     /// Tapping the tab that's already selected.
     var onReselect: (AppTab) -> Void = { _ in }
     @Namespace private var pill
-    /// Which tab was selected when the current touch began.
-    @State private var touchBegan: AppTab?
+    /// When the selection last changed. A tap only counts as tapping the
+    /// tab already shown (Days: back to today) if it had been shown for a
+    /// moment; the tap that just switched to it doesn't. The order of the
+    /// touch and the button's action isn't reliable enough to go by.
+    @State private var changedAt = Date.distantPast
 
     var body: some View {
         HStack(spacing: 4) {
@@ -173,6 +176,7 @@ struct TabBar: View {
         // Only the bar animates; the pages swap instantly underneath.
         .animation(.spring(duration: 0.38, bounce: 0.18), value: selection)
         .sensoryFeedback(.selection, trigger: selection)
+        .onChange(of: selection) { changedAt = .now }
         .padding(.top, 28)
         .padding(.bottom, 34)
         .frame(maxWidth: .infinity)
@@ -221,13 +225,11 @@ struct TabBar: View {
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in
-                    guard touchBegan == nil else { return }
-                    touchBegan = selection
                     if selection != tab { selection = tab }
                 }
-                .onEnded { _ in
-                    if touchBegan == tab { onReselect(tab) }
-                    touchBegan = nil
+                .onEnded { value in
+                    let tapped = abs(value.translation.width) < 20 && abs(value.translation.height) < 20
+                    if tapped, selection == tab, Date.now.timeIntervalSince(changedAt) > 0.8 { onReselect(tab) }
                 }
         )
         .accessibilityLabel(label)

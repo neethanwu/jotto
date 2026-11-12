@@ -12,7 +12,7 @@ struct SendTemplate: Codable, Identifiable, Hashable {
 
         var label: String {
             switch self {
-            case .clean: "Edited"
+            case .clean: "Formatted"
             case .original: "Original"
             case .highlights: "Highlights"
             }

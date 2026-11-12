@@ -562,14 +562,18 @@ struct WeekStrip: View {
         let future = day.date > now
         let faded = future || (fadesUnmarked && !hasRecordings)
         let live = liveDay == day.date
-        let dayColor: Color = selected ? .jBg : faded ? .jText5 : hasRecordings ? .jText : .jText4
+        // Every day you can pick looks the same; the dot says which have
+        // recordings. Only days still to come are faint.
+        let dayColor: Color = selected ? .jBg : faded ? .jText5 : .jText
 
         return VStack(spacing: 4) {
             Text(day.letter)
                 .font(.weekday)
                 .foregroundStyle(selected ? Color.jBg.opacity(0.6) : faded ? Color.jText5 : Color.jText4)
             Text(day.number)
-                .font(.system(size: 16, weight: selected ? .semibold : .medium).monospacedDigit())
+                // Proportional digits: a tabular "1" sits right of its
+                // slot, which pushed "12" off centre in the pill.
+                .font(.system(size: 16, weight: selected ? .semibold : .medium))
                 .foregroundStyle(dayColor)
             Circle()
                 .fill(live ? Color.jLive : selected ? Color.jBg : Color.jText)
@@ -852,6 +856,20 @@ struct TimelineRow: View {
             Text("On your watch · \(Format.plural(parts, "part")) to send")
                 .font(.metaSmall)
                 .foregroundStyle(Color.jText3)
+        case let .formatting(done, total):
+            VStack(alignment: .leading, spacing: 6) {
+                if let summary = entry.summary {
+                    Text(summary)
+                        .font(.summary)
+                        .foregroundStyle(Color.jText2)
+                        .lineLimit(3)
+                        .lineSpacing(3)
+                }
+                Text("Formatting · \(done) of \(total)")
+                    .font(.metaSmall)
+                    .foregroundStyle(Color.jText3)
+                    .contentTransition(.numericText())
+            }
         case .done:
             VStack(alignment: .leading, spacing: 6) {
                 if let summary = entry.summary {
@@ -896,6 +914,7 @@ struct TimelineRow: View {
         switch entry.state {
         case .live: parts.append("Recording")
         case .processing: parts.append("Processing")
+        case .formatting: parts.append("Formatting")
         case .onWatch: parts.append("On your watch")
         case .done: parts.append("Done")
         }
@@ -935,7 +954,7 @@ struct StateDot: View {
             case .live:
                 Circle().fill(Color.jLiveHalo).frame(width: 20, height: 20)
                 BreathingDot(size: 12)
-            case .processing:
+            case .processing, .formatting:
                 ProcessingRing(size: 12)
             case .onWatch:
                 Circle()

@@ -22,6 +22,9 @@ struct TranscriptView: View {
     /// How far the page is pushed sideways while swiping between tabs.
     @State private var slide: CGFloat = 0
     @State private var swipeAxis: Axis?
+    /// Pages drawn beside the shown one: the neighbour while swiping, and
+    /// every page on the way while sliding to a tab picked above.
+    @State private var passing: Set<Tab> = []
     @State private var pageWidth: CGFloat = 400
     /// A highlight was tapped in the Highlights tab: scroll here in Clean.
     @State private var jumpTarget: Int?
@@ -34,7 +37,7 @@ struct TranscriptView: View {
     @State private var scrolledToStart = false
     @State private var pickingLanguages = false
     /// Where each paragraph starts in the body, for scrolling to it.
-    @State private var paragraphTops: [Int: CGFloat] = [:]
+    @State private var paragraphTops: [Tab: [Int: CGFloat]] = [:]
     /// Playback doesn't scroll the page for a moment after a tap on the text.
     @State private var followPausedUntil = Date.distantPast
     /// The title has scrolled away and text runs under the view switch.
@@ -60,11 +63,9 @@ struct TranscriptView: View {
                                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headHeight = $0 }
                                 .id(Self.headID)
                             Section {
-                                paragraphs(detail)
-                                    .padding(.horizontal, 20)
+                                pages(detail)
                                     .padding(.top, 20)
                                     .padding(.bottom, 140)
-                                    .offset(x: slide)
                                     // While the title is being edited the transcript
                                     // steps back. A veil over it rather than changing
                                     // the rows themselves: touching the selectable
@@ -383,29 +384,33 @@ struct TranscriptView: View {
         (detail.highlights ?? []).isEmpty ? [.clean, .original] : [.clean, .original, .highlights]
     }
 
-    /// The switch moves at once; the page slides out the way the finger
-    /// went (or toward the tab picked), and the new one slides in behind it.
+    /// The pages sit side by side, a screen apart, and slide together:
+    /// the next one comes in attached to the one going out. The switch
+    /// above moves as the pages do.
     private func go(to next: Tab, then: (() -> Void)? = nil) {
         guard let detail, next != shown else {
             tab = next
-            withAnimation(.spring(duration: 0.3, bounce: 0.1)) { slide = 0 }
+            withAnimation(.spring(duration: 0.3, bounce: 0.1)) { slide = 0 } completion: { passing = [] }
             then?()
             return
         }
         let order = tabs(detail)
-        let forward = (order.firstIndex(of: next) ?? 0) > (order.firstIndex(of: shown) ?? 0)
-        let width = pageWidth
+        let from = order.firstIndex(of: shown) ?? 0
+        let to = order.firstIndex(of: next) ?? 0
+        // Everything between comes along, so nothing slides in empty.
+        passing = Set(order[min(from, to)...max(from, to)])
         tab = next
-        withAnimation(.easeIn(duration: 0.14)) {
-            slide = forward ? -width : width
+        withAnimation(.spring(duration: 0.38, bounce: 0.06)) {
+            slide = -CGFloat(to - from) * pageWidth
         } completion: {
+            // The page that arrived becomes the shown one, where it already is.
             var still = Transaction()
             still.disablesAnimations = true
             withTransaction(still) {
                 shown = next
-                slide = forward ? width * 0.6 : -width * 0.6
+                slide = 0
+                passing = []
             }
-            withAnimation(.spring(duration: 0.34, bounce: 0.08)) { slide = 0 }
             then?()
         }
     }
@@ -420,9 +425,14 @@ struct TranscriptView: View {
         guard swipeAxis == .horizontal, tab == shown else { return }
         let order = tabs(detail)
         let i = order.firstIndex(of: shown) ?? 0
-        let more = dx < 0 ? i + 1 < order.count : i > 0
-        // Nothing further that way: it gives a little and springs back.
-        slide = more ? dx : dx * 0.18
+        let n = dx < 0 ? i + 1 : i - 1
+        if order.indices.contains(n) {
+            if !passing.contains(order[n]) { passing = [order[n]] }
+            slide = dx
+        } else {
+            // Nothing further that way: it gives a little and springs back.
+            slide = dx * 0.18
+        }
     }
 
     private func swipeEnded(_ value: DragGesture.Value) {
@@ -433,10 +443,12 @@ struct TranscriptView: View {
         let order = tabs(detail)
         let i = order.firstIndex(of: shown) ?? 0
         let next = dx < 0 ? i + 1 : i - 1
-        if order.indices.contains(next), abs(dx) > 70 || (abs(flung) > pageWidth * 0.4 && flung.sign == dx.sign) {
+        if order.indices.contains(next), abs(dx) > pageWidth * 0.3 || (abs(flung) > pageWidth * 0.5 && flung.sign == dx.sign) {
             go(to: order[next])
         } else {
-            withAnimation(.spring(duration: 0.3, bounce: 0.1)) { slide = 0 }
+            withAnimation(.spring(duration: 0.3, bounce: 0.1)) { slide = 0 } completion: {
+                if slide == 0 { passing = [] }
+            }
         }
     }
 
@@ -449,16 +461,21 @@ struct TranscriptView: View {
         let marked = detail.highlights?.count ?? 0
         return VStack(spacing: 0) {
             HStack(spacing: 20) {
-                tabButton("Edited", selected: tab == .clean) { go(to: .clean) }
+                tabButton("Formatted", selected: tab == .clean) { go(to: .clean) }
                 tabButton("Original", selected: tab == .original) { go(to: .original) }
                 if marked > 0 {
                     tabButton("Highlights", count: marked, selected: tab == .highlights) { go(to: .highlights) }
                 }
                 Spacer(minLength: 8)
                 if fillers > 0 {
-                    Text("\(fillers) \(fillers == 1 ? "filler" : "fillers") gone")
-                        .font(.metaSmall)
-                        .foregroundStyle(Color.jText3)
+                    // Only when it fits on one line beside the tabs.
+                    ViewThatFits(in: .horizontal) {
+                        Text("\(fillers) \(fillers == 1 ? "filler" : "fillers") gone").lineLimit(1)
+                        Text("−\(fillers) \(fillers == 1 ? "filler" : "fillers")").lineLimit(1)
+                        Color.clear.frame(width: 0, height: 0)
+                    }
+                    .font(.metaSmall)
+                    .foregroundStyle(Color.jText3)
                 }
             }
             // A hairline only once text runs under the switch; at rest the
@@ -474,6 +491,7 @@ struct TranscriptView: View {
             (Text(label) + Text(count.map { " \($0)" } ?? "").fontWeight(.medium))
                 .font(.label)
                 .lineLimit(1)
+                .fixedSize()
                 .foregroundStyle(selected ? Color.jText : Color.jText3)
                 .padding(.bottom, 10)
                 .overlay(alignment: .bottom) {
@@ -494,7 +512,7 @@ struct TranscriptView: View {
         let tidying = detail.status == "ready" ? detail.tidying : nil
         let working = detail.status == "processing" || tidying != nil
         let note: String? = if let tidying {
-            "Tidying up · \(tidying.done) of \(tidying.total)"
+            "Formatting · \(tidying.done) of \(tidying.total)"
         } else { switch detail.status {
         case "recording": "Still recording. Text arrives a couple of minutes behind"
         case "processing":
@@ -522,8 +540,25 @@ struct TranscriptView: View {
         }
     }
 
+    /// The shown page, with its neighbours beside it while they slide.
+    private func pages(_ detail: SessionDetail) -> some View {
+        let order = tabs(detail)
+        let here = order.firstIndex(of: shown) ?? 0
+        let drawn = order.filter { $0 == shown || passing.contains($0) }
+        return ZStack(alignment: .topLeading) {
+            ForEach(drawn, id: \.self) { t in
+                let i = order.firstIndex(of: t) ?? here
+                page(detail, t, main: t == shown)
+                    .padding(.horizontal, 20)
+                    .offset(x: slide + CGFloat(i - here) * pageWidth)
+                    .allowsHitTesting(t == shown)
+                    .accessibilityHidden(t != shown)
+            }
+        }
+    }
+
     @ViewBuilder
-    private func paragraphs(_ detail: SessionDetail) -> some View {
+    private func page(_ detail: SessionDetail, _ t: Tab, main: Bool) -> some View {
         if detail.blocks.isEmpty {
             if detail.status == "ready" {
                 VStack(alignment: .leading, spacing: 6) {
@@ -540,10 +575,11 @@ struct TranscriptView: View {
             } else {
                 PendingLines()
             }
-        } else if shown == .highlights {
+        } else if t == .highlights {
             highlightList(detail)
         } else {
-            let rows = rows(detail)
+            let original = t == .original
+            let rows = rows(detail, original: original)
             let highlights = detail.highlights ?? []
             // Each highlight is named on the first paragraph it covers.
             let starts = Dictionary(grouping: highlights) { h in rows.first { h.covers($0.block) }?.id ?? -1 }
@@ -553,7 +589,7 @@ struct TranscriptView: View {
                     id: row.id, start: row.block.start,
                     speaker: row.showSpeaker ? Format.speaker(row.block.speaker) : nil,
                     newSection: row.newSection, chips: starts[row.id] ?? [],
-                    text: Self.text(row.block, marked: marked.contains(row.id), original: showOriginal)
+                    text: Self.text(row.block, marked: marked.contains(row.id), original: original)
                 )
             }
             ZStack(alignment: .topLeading) {
@@ -569,15 +605,18 @@ struct TranscriptView: View {
                         if let b = rows.first(where: { $0.id == id })?.block { player.seek(to: b.start, play: player.isPlaying) }
                     },
                     highlight: { first, last in highlight(from: first, to: last, in: rows) },
-                    anchors: { paragraphTops = $0 }
+                    anchors: { if paragraphTops[t] != $0 { paragraphTops[t] = $0 } }
                 )
-                // Scroll targets where each paragraph begins.
-                ForEach(rows) { row in
-                    VStack(spacing: 0) {
-                        Color.clear.frame(height: paragraphTops[row.id] ?? 0)
-                        Color.clear.frame(height: 1).id(row.id)
+                // Scroll targets where each paragraph begins; only on the
+                // shown page, so each id is in the page once.
+                if main {
+                    ForEach(rows) { row in
+                        VStack(spacing: 0) {
+                            Color.clear.frame(height: paragraphTops[t]?[row.id] ?? 0)
+                            Color.clear.frame(height: 1).id(row.id)
+                        }
+                        .allowsHitTesting(false)
                     }
-                    .allowsHitTesting(false)
                 }
             }
         }
@@ -683,10 +722,8 @@ struct TranscriptView: View {
     /// The scroll target for a paragraph: itself.
     private func groupID(of block: Int, in detail: SessionDetail) -> Int { block }
 
-    private var showOriginal: Bool { shown == .original }
-
-    private func rows(_ detail: SessionDetail) -> [Row] {
-        let visible = detail.blocks.filter { showOriginal || $0.backchannel != true }
+    private func rows(_ detail: SessionDetail, original: Bool) -> [Row] {
+        let visible = detail.blocks.filter { original || $0.backchannel != true }
         var rows: [Row] = []
         var previous: TranscriptBlock?
         for block in visible {

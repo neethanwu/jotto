@@ -50,7 +50,8 @@ final class LocalStore {
                 title: r.title, summary: r.summary, segmentCount: r.segmentCount, missingSegments: r.missing,
                 segmentsDone: r.transcribed.count, segmentsReceived: r.segments.count,
                 lastLine: Self.transcript(r).last { $0.backchannel != true }?.text,
-                highlights: r.marks.count + (r.sections?.count ?? 0)
+                highlights: r.marks.count + (r.sections?.count ?? 0),
+                formatting: Pipeline.shared.tidyProgress(r)
             )
         }
     }
