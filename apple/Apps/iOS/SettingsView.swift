@@ -25,12 +25,6 @@ struct SettingsView: View {
                                     ? LanguageView.name(config.languages[0])
                                     : config.languages.map(LanguageView.shortName).joined(separator: ", "))
                     }
-                    if Editor.isAvailable {
-                        SettingsToggle("Tidy up the text", isOn: Bindable(config).tidiesText)
-                    }
-                    if Describer.isAvailable {
-                        SettingsToggle("Titles and summaries", isOn: Bindable(config).writesTitles)
-                    }
                     SettingsToggle("Notify when ready", isOn: Bindable(config).notifiesWhenReady)
                 }
 

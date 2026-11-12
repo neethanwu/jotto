@@ -86,7 +86,7 @@ struct StarReach: View {
     private var knob: some View {
         Circle()
             .fill(Color.jBg)
-            .overlay(Circle().strokeBorder(Color.jRing, lineWidth: 1))
+            .overlay(Circle().strokeBorder(Color.jText5, lineWidth: 1))
             .shadow(color: .black.opacity(0.12), radius: 3, y: 2)
             .frame(width: Self.knob, height: Self.knob)
             // A bigger target than it looks.

@@ -611,13 +611,14 @@ struct ParagraphView: View {
             }
             // The time sits over the paragraph, so the text has the full width.
             Button(action: seek) {
-                HStack(spacing: 6) {
-                    Text(Format.clock(row.block.start))
-                        .foregroundStyle(isCurrent ? Color.jText : Color.jText3)
-                        .fontWeight(isCurrent ? .semibold : .medium)
+                HStack(spacing: 8) {
+                    // With speakers (your own API key), who comes first.
                     if row.showSpeaker {
                         Text(Format.speaker(row.block.speaker)).foregroundStyle(Color.jText).fontWeight(.semibold)
                     }
+                    Text(Format.clock(row.block.start))
+                        .foregroundStyle(isCurrent ? Color.jText : Color.jText3)
+                        .fontWeight(isCurrent ? .semibold : .medium)
                     Spacer(minLength: 8)
                     ForEach(starting) { HighlightChip(highlight: $0) }
                 }

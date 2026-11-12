@@ -34,15 +34,6 @@ final class AppConfig {
     var opensOriginal: Bool {
         didSet { UserDefaults.standard.set(opensOriginal, forKey: "opensOriginal") }
     }
-    /// Let the on-device model write titles and summaries.
-    var writesTitles: Bool {
-        didSet { UserDefaults.standard.set(writesTitles, forKey: "writesTitles") }
-    }
-
-    /// Let the on-device model tidy the text (`Editor`).
-    var tidiesText: Bool {
-        didSet { UserDefaults.standard.set(tidiesText, forKey: "tidiesText") }
-    }
 
     /// How far a moment (the star) reaches before and after the tap, in seconds.
     var momentBefore: Int {
@@ -65,9 +56,7 @@ final class AppConfig {
             ?? defaults.string(forKey: "transcriptionLocale").map { [$0] } ?? []
         keepAudioDays = defaults.object(forKey: "keepAudioDays") as? Int ?? 30
         opensOriginal = defaults.bool(forKey: "opensOriginal")
-        writesTitles = defaults.object(forKey: "writesTitles") as? Bool ?? true
         notifiesWhenReady = defaults.object(forKey: "notifiesWhenReady") as? Bool ?? true
-        tidiesText = defaults.object(forKey: "tidiesText") as? Bool ?? true
         momentBefore = defaults.object(forKey: "momentBefore") as? Int ?? Highlight.defaultReach
         momentAfter = defaults.object(forKey: "momentAfter") as? Int ?? Highlight.defaultReach
     }

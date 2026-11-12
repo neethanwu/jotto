@@ -60,7 +60,7 @@ extension Color {
     static let jSheetWell = pair(Ink.i0, Ink.i950)
     static let jToggleOff = pair(Ink.i200, Ink.i800)
     /// Behind marked text in a transcript, like a highlighter.
-    static let jMarker = pair(UIColor(hex: 0xECEAE6), Ink.darkStroke)
+    static let jMarker = pair(UIColor(hex: 0xE0DCD4), UIColor(hex: 0x3D3B37))
     /// Delete in swipe actions; the same red the system uses for destructive.
     static let jDestructive = Color(UIColor(hex: 0xE5484D))
     static let jLive = Color(Orange.o500)

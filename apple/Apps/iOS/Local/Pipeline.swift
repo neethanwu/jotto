@@ -236,7 +236,7 @@ final class Pipeline {
     /// Whether the on-device model will tidy this recording's text.
     private func willTidy(_ r: LocalRecording) -> Bool {
         r.polishedAt != nil && r.tidiedAt == nil && r.imported == nil
-            && Editor.isAvailable && AppConfig.shared.tidiesText
+            && Editor.isAvailable
     }
 
     /// Paragraphs tidied so far, for the transcript's status line.
@@ -261,7 +261,7 @@ final class Pipeline {
         }
         // Titles. The on-device model is rate-limited in the background:
         // one try there (so the notice can carry a title), the rest in front.
-        if Describer.isAvailable, AppConfig.shared.writesTitles {
+        if Describer.isAvailable {
             let inFront = UIApplication.shared.applicationState != .background
             for r in all where r.polishedAt != nil && r.describedAt == nil && !r.titleByUser
                 && !describeFailed.contains(r.id) && (inFront || r.notifiedAt == nil) {
@@ -347,7 +347,7 @@ final class Pipeline {
             }
             PhoneLog.shared.note("polished", id)
             // No title coming: the notice goes now.
-            if !(Describer.isAvailable && AppConfig.shared.writesTitles) || r.titleByUser {
+            if !Describer.isAvailable || r.titleByUser {
                 Notifier.shared.ready(id)
             }
 
