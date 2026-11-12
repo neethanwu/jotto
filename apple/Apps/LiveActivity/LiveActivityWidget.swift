@@ -43,11 +43,14 @@ struct RecordingLiveActivity: Widget {
                     .padding(.top, 4)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        // The latest line once there is one; until then, the sound.
                         if let line = context.state.lastLine {
                             Text("…" + line).font(.system(size: 14)).foregroundStyle(ink500).lineLimit(1)
+                                .frame(height: 18)
+                        } else {
+                            SoundLine().frame(height: 18)
                         }
-                        Rectangle().fill(ink800).frame(height: 1)
                         Controls(context: context)
                     }
                     .padding(.horizontal, 4)
@@ -101,7 +104,8 @@ private struct LockScreenView: View {
                     .multilineTextAlignment(.trailing)
                     .frame(maxWidth: 120, alignment: .trailing)
             }
-            Rectangle().fill(ink800).frame(height: 1)
+            // No transcript on the lock screen (anyone can see it): the sound instead.
+            SoundLine().frame(height: 18)
             Controls(context: context)
         }
         .padding(16)
@@ -159,5 +163,28 @@ private struct Brackets: Shape {
         p.move(to: CGPoint(x: 15 * u, y: 4.5 * u)); p.addLine(to: CGPoint(x: 18.5 * u, y: 4.5 * u))
         p.addLine(to: CGPoint(x: 18.5 * u, y: 19.5 * u)); p.addLine(to: CGPoint(x: 15 * u, y: 19.5 * u))
         return p
+    }
+}
+
+/// Level bars, drawn still (a Live Activity can't move them): older on the
+/// left and dimmer, the newest orange, as on the watch.
+private struct SoundLine: View {
+    private static let heights: [CGFloat] = [0.25, 0.4, 0.3, 0.55, 0.35, 0.7, 0.45, 0.3, 0.6, 0.4, 0.8, 0.5, 0.35, 0.65,
+                                             0.45, 0.9, 0.4, 0.6, 0.3, 0.7, 0.5, 0.85, 0.4, 0.55, 0.35, 0.75, 0.5, 0.6,
+                                             0.4, 0.95, 0.55, 0.7, 0.45, 0.8, 0.5, 1]
+    var body: some View {
+        GeometryReader { geo in
+            HStack(alignment: .center, spacing: 0) {
+                ForEach(Array(Self.heights.enumerated()), id: \.offset) { i, h in
+                    let age = Double(i) / Double(Self.heights.count - 1)
+                    Capsule()
+                        .fill(i == Self.heights.count - 1 ? orange : ink50.opacity(0.18 + 0.5 * age))
+                        .frame(width: 2.5, height: max(2.5, h * geo.size.height))
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .frame(maxHeight: .infinity)
+        }
+        .accessibilityHidden(true)
     }
 }

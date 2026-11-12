@@ -281,7 +281,8 @@ final class Pipeline {
 
     /// Paragraphs tidied so far, for the transcript's status line.
     func tidyProgress(_ r: LocalRecording) -> SessionDetail.Tidying? {
-        guard willTidy(r) else { return nil }
+        // Not while it's stuck (the model refused or is busy): say nothing.
+        guard willTidy(r), !tidyFailed.contains(r.id) else { return nil }
         let blocks = LocalStore.blocks(r).filter { !$0.backchannel }
         return .init(done: blocks.filter { r.tidy?[$0.text] != nil }.count, total: blocks.count)
     }

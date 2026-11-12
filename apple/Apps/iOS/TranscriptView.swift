@@ -28,6 +28,12 @@ struct TranscriptView: View {
     @State private var pickingLanguages = false
     /// Where each paragraph starts in the body, for scrolling to it.
     @State private var paragraphTops: [Int: CGFloat] = [:]
+    /// Playback doesn't scroll the page for a moment after a tap on the text.
+    @State private var followPausedUntil = Date.distantPast
+    /// The title has scrolled away and text runs under the view switch.
+    @State private var pinned = false
+    @State private var headHeight: CGFloat = 0
+    @Namespace private var tabLine
     /// Bumped to start polling again after a redo.
     @State private var polls = 0
 
@@ -44,6 +50,7 @@ struct TranscriptView: View {
                         LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                             head(detail)
                                 .padding(.horizontal, 20)
+                                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headHeight = $0 }
                                 .id(Self.headID)
                             Section {
                                 paragraphs(detail)
@@ -72,12 +79,30 @@ struct TranscriptView: View {
                     }
                 }
                 .scrollIndicators(.hidden)
+                .onScrollGeometryChange(for: Bool.self) { geo in
+                    geo.contentOffset.y + geo.contentInsets.top > headHeight - 1
+                } action: { _, now in pinned = now }
+                // Swipe sideways to move between Clean, Original and Highlights.
+                // Not from the left edge, which goes back.
+                .simultaneousGesture(DragGesture(minimumDistance: 30).onEnded { value in
+                    let dx = value.translation.width, dy = value.translation.height
+                    guard value.startLocation.x > 32, abs(dx) > 70, abs(dx) > abs(dy) * 2, let detail else { return }
+                    let tabs: [Tab] = (detail.highlights ?? []).isEmpty ? [.clean, .original] : [.clean, .original, .highlights]
+                    guard let i = tabs.firstIndex(of: tab) else { return }
+                    let next = dx < 0 ? i + 1 : i - 1
+                    guard tabs.indices.contains(next) else { return }
+                    withAnimation(.easeInOut(duration: 0.22)) { tab = tabs[next] }
+                })
+                .sensoryFeedback(.selection, trigger: tab)
                 .onChange(of: detail?.blocks.count) { _, _ in scrollToStart(proxy) }
                 .onChange(of: currentBlock) { _, block in
                     let scrubbing = player.scrubTime != nil
-                    guard tab != .highlights, player.isPlaying || scrubbing, let block, let detail else { return }
+                    // Not right after a tap on the text: it's already in view.
+                    guard tab != .highlights, player.isPlaying || scrubbing, Date.now > followPausedUntil,
+                          let block, let detail else { return }
+                    // The paragraph's top a third of the way down, so all of it shows.
                     withAnimation(.easeInOut(duration: scrubbing ? 0.15 : 0.3)) {
-                        proxy.scrollTo(groupID(of: block, in: detail), anchor: .center)
+                        proxy.scrollTo(groupID(of: block, in: detail), anchor: UnitPoint(x: 0.5, y: 0.3))
                     }
                 }
                 .onChange(of: jumpTarget) { _, target in
@@ -365,8 +390,12 @@ struct TranscriptView: View {
                         .foregroundStyle(Color.jText3)
                 }
             }
-            Rectangle().fill(Color.jHairline).frame(height: 1)
+            // A hairline only once text runs under the switch; at rest the
+            // sliding underline is enough.
+            Rectangle().fill(Color.jHairline).frame(height: 1).opacity(pinned ? 1 : 0)
+                .animation(.easeOut(duration: 0.15), value: pinned)
         }
+        .animation(.spring(duration: 0.3, bounce: 0.15), value: tab)
     }
 
     private func tabButton(_ label: String, count: Int? = nil, selected: Bool, action: @escaping () -> Void) -> some View {
@@ -377,7 +406,11 @@ struct TranscriptView: View {
                 .foregroundStyle(selected ? Color.jText : Color.jText3)
                 .padding(.bottom, 10)
                 .overlay(alignment: .bottom) {
-                    Rectangle().fill(selected ? Color.jText : .clear).frame(height: 2)
+                    // One underline that slides to the chosen tab.
+                    if selected {
+                        Capsule().fill(Color.jText).frame(height: 2.5)
+                            .matchedGeometryEffect(id: "tabLine", in: tabLine)
+                    }
                 }
         }
         .buttonStyle(.plain)
@@ -455,9 +488,13 @@ struct TranscriptView: View {
             ZStack(alignment: .topLeading) {
                 TranscriptBody(
                     paragraphs: items, current: currentBlock,
-                    play: { id in if let b = rows.first(where: { $0.id == id })?.block { player.seek(to: b.start) } },
+                    play: { id in
+                        followPausedUntil = .now.addingTimeInterval(1.5)
+                        if let b = rows.first(where: { $0.id == id })?.block { player.seek(to: b.start) }
+                    },
                     // Tapping the text moves the playhead; it only plays if it already was.
                     moveHere: { id in
+                        followPausedUntil = .now.addingTimeInterval(1.5)
                         if let b = rows.first(where: { $0.id == id })?.block { player.seek(to: b.start, play: player.isPlaying) }
                     },
                     highlight: { first, last in highlight(from: first, to: last, in: rows) },
@@ -583,7 +620,8 @@ struct TranscriptView: View {
 
     private var currentBlock: Int? {
         guard let detail, player.shownTime > 0 else { return nil }
-        return detail.blocks.last { $0.start <= player.shownTime + 0.1 }?.id
+        // A seek can land a hair before the paragraph it was aimed at.
+        return detail.blocks.last { $0.start <= player.shownTime + 0.3 }?.id
     }
 
     private func title(_ detail: SessionDetail) -> String {

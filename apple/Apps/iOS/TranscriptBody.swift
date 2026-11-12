@@ -278,6 +278,46 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
 
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
 
+    /// A touch that stops a scroll, or lands while the page is still
+    /// moving, is not a tap on the text.
+    override func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+        guard g.view === self else { return super.gestureRecognizerShouldBegin(g) }
+        var view = superview
+        while let v = view {
+            if let scroll = v as? UIScrollView, scroll.isDragging || scroll.isDecelerating
+                || Date.now.timeIntervalSince(lastScroll(scroll)) < 0.25 { return false }
+            view = v.superview
+        }
+        return true
+    }
+
+    /// When the enclosing scroll view last moved, checked by watching its offset.
+    private var scrollWatch: (offset: CGFloat, at: Date)?
+    private func lastScroll(_ scroll: UIScrollView) -> Date {
+        scrollWatch?.at ?? .distantPast
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        offsetObservation = nil
+        var view = superview
+        while let v = view {
+            if let scroll = v as? UIScrollView {
+                offsetObservation = scroll.observe(\.contentOffset, options: [.new]) { [weak self] _, change in
+                    let y = change.newValue?.y ?? 0
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        if self.scrollWatch?.offset != y { self.scrollWatch = (y, .now) }
+                    }
+                }
+                break
+            }
+            view = v.superview
+        }
+    }
+
+    private var offsetObservation: NSKeyValueObservation?
+
     // MARK: Menu
 
     func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {

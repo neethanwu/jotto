@@ -158,7 +158,8 @@ private struct RecordingScreen: View {
         }
         .ignoresSafeArea(edges: .bottom)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) { status }
+            // Nudged up to sit on the system clock's baseline, like the wordmark.
+            ToolbarItem(placement: .topBarLeading) { status.offset(y: -8) }
         }
         .task(id: recorder.lastMarkAt) {
             guard recorder.lastMarkAt != nil else { return }
