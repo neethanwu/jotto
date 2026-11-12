@@ -35,9 +35,7 @@ struct SettingsView: View {
                 }
 
                 SettingsSection("Highlights") {
-                    NavigationLink(value: Route.moments) {
-                        SettingsRow("A star covers", value: Moments.label(config.momentSeconds))
-                    }
+                    StarReach(config: config)
                 }
 
                 SettingsSection("Storage") {
@@ -265,40 +263,6 @@ struct KeepAudioView: View {
         .background(Color.jBg)
         .toolbar(.hidden, for: .navigationBar)
         .sensoryFeedback(.selection, trigger: config.keepAudioDays)
-    }
-}
-
-/// How far back a moment (the star) reaches.
-enum Moments {
-    static func label(_ seconds: Int) -> String {
-        seconds >= 60 ? "Last \(seconds / 60) min" : "Last \(seconds) s"
-    }
-}
-
-struct MomentsView: View {
-    @Environment(\.dismiss) private var dismiss
-    @Bindable var config: AppConfig = .shared
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                PageHeader(title: "A star covers", detail: "You mark a moment after you hear it, so a star reaches back from the tap, and \(Int(Highlight.after)) seconds past it. Sections cover exactly what you marked.") { dismiss() }
-                SettingsGroup {
-                    ForEach(Highlight.beforeChoices, id: \.self) { seconds in
-                        ChoiceRow(label: Moments.label(seconds), detail: seconds == Highlight.defaultBefore ? "A sentence or two" : nil,
-                                  selected: config.momentSeconds == seconds) {
-                            config.momentSeconds = seconds
-                        }
-                    }
-                }
-                .padding(.top, 24)
-            }
-            .padding(.horizontal, 20)
-        }
-        .statusBarCover()
-        .background(Color.jBg)
-        .toolbar(.hidden, for: .navigationBar)
-        .sensoryFeedback(.selection, trigger: config.momentSeconds)
     }
 }
 

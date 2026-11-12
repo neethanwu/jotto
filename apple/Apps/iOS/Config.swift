@@ -44,9 +44,12 @@ final class AppConfig {
         didSet { UserDefaults.standard.set(tidiesText, forKey: "tidiesText") }
     }
 
-    /// How far back a moment (the star) reaches, in seconds.
-    var momentSeconds: Int {
-        didSet { UserDefaults.standard.set(momentSeconds, forKey: "momentSeconds") }
+    /// How far a moment (the star) reaches before and after the tap, in seconds.
+    var momentBefore: Int {
+        didSet { UserDefaults.standard.set(momentBefore, forKey: "momentBefore") }
+    }
+    var momentAfter: Int {
+        didSet { UserDefaults.standard.set(momentAfter, forKey: "momentAfter") }
     }
 
     /// A notice when a recording is ready, with its title and summary.
@@ -65,6 +68,7 @@ final class AppConfig {
         writesTitles = defaults.object(forKey: "writesTitles") as? Bool ?? true
         notifiesWhenReady = defaults.object(forKey: "notifiesWhenReady") as? Bool ?? true
         tidiesText = defaults.object(forKey: "tidiesText") as? Bool ?? true
-        momentSeconds = defaults.object(forKey: "momentSeconds") as? Int ?? Highlight.defaultBefore
+        momentBefore = defaults.object(forKey: "momentBefore") as? Int ?? Highlight.defaultReach
+        momentAfter = defaults.object(forKey: "momentAfter") as? Int ?? Highlight.defaultReach
     }
 }

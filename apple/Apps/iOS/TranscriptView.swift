@@ -437,28 +437,20 @@ struct TranscriptView: View {
         } else if tab == .highlights {
             highlightList(detail)
         } else {
+            let rows = rows(detail)
+            let highlights = detail.highlights ?? []
+            // Each highlight is named on the first paragraph it covers.
+            let starts = Dictionary(grouping: highlights) { h in rows.first { h.covers($0.block) }?.id ?? -1 }
             VStack(alignment: .leading, spacing: 22) {
-                ForEach(groups(detail)) { group in
-                    VStack(alignment: .leading, spacing: 22) {
-                        ForEach(group.rows) { row in
-                            // Each highlight is named where it starts.
-                            let starting = group.highlights.filter { h in
-                                group.rows.first { h.covers($0.block) }?.id == row.id
-                            }
-                            paragraph(row, label: HighlightLabel.inline(starting))
-                                .marginGlyph(starting.first)
-                        }
+                ForEach(rows) { row in
+                    ParagraphView(row: row, starting: starts[row.id] ?? [],
+                                  marked: highlights.contains { $0.covers(row.block) },
+                                  showOriginal: showOriginal, isCurrent: currentBlock == row.block.id) {
+                        player.seek(to: row.block.start)
                     }
-                    .marginRule(!group.highlights.isEmpty)
-                    .id(group.id)
+                    .id(row.id)
                 }
             }
-        }
-    }
-
-    private func paragraph(_ row: Row, label: String? = nil) -> some View {
-        ParagraphView(row: row, label: label, showOriginal: showOriginal, isCurrent: currentBlock == row.block.id) {
-            player.seek(to: row.block.start)
         }
     }
 
@@ -475,8 +467,15 @@ struct TranscriptView: View {
                     player.seek(to: h.start, play: false)
                     jumpTarget = said.first?.id
                 } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HighlightLabel(highlight: h)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 8) {
+                            HighlightChip(highlight: h)
+                            Text(h.isSection
+                                 ? "Section · \(Format.length(h.end - h.start))"
+                                 : "Moment · \(Format.clock(h.start)) – \(Format.clock(h.end))")
+                                .font(.metaSmall)
+                                .foregroundStyle(Color.jText3)
+                        }
                         if said.isEmpty {
                             Text("Nothing was said here").font(.reading).foregroundStyle(Color.jText3)
                         }
@@ -491,8 +490,6 @@ struct TranscriptView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .marginGlyph(h)
-                    .marginRule(true)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -510,46 +507,8 @@ struct TranscriptView: View {
         var id: Int { block.id }
     }
 
-    /// Consecutive paragraphs under the same highlights share one block;
-    /// everything else is a paragraph of its own.
-    struct ParagraphGroup: Identifiable {
-        let rows: [Row]
-        let highlights: [Highlight]
-        var id: Int { rows[0].id }
-    }
-
-    private func groups(_ detail: SessionDetail) -> [ParagraphGroup] {
-        let highlights = detail.highlights ?? []
-        var out: [ParagraphGroup] = []
-        var rows: [Row] = []
-        var marks: [Highlight] = []
-        func flush() {
-            if !rows.isEmpty { out.append(ParagraphGroup(rows: rows, highlights: marks)) }
-            rows = []
-            marks = []
-        }
-        for row in self.rows(detail) {
-            let hits = highlights.filter { $0.covers(row.block) }
-            if hits.isEmpty {
-                flush()
-                out.append(ParagraphGroup(rows: [row], highlights: []))
-            } else if !rows.isEmpty, !Set(hits).isDisjoint(with: marks) {
-                rows.append(row)
-                marks += hits.filter { !marks.contains($0) }
-            } else {
-                flush()
-                rows = [row]
-                marks = hits
-            }
-        }
-        flush()
-        return out
-    }
-
-    /// The scroll target for a paragraph: the block it sits in.
-    private func groupID(of block: Int, in detail: SessionDetail) -> Int {
-        groups(detail).first { $0.rows.contains { $0.id == block } }?.id ?? block
-    }
+    /// The scroll target for a paragraph: itself.
+    private func groupID(of block: Int, in detail: SessionDetail) -> Int { block }
 
     private var showOriginal: Bool { tab == .original }
 
@@ -637,8 +596,10 @@ struct TranscriptView: View {
 
 struct ParagraphView: View {
     let row: TranscriptView.Row
-    /// What's marked here, beside the time ("Moment", "Section to 1:20").
-    var label: String?
+    /// Highlights that start here: a chip at the end of the time row.
+    var starting: [Highlight] = []
+    /// Inside a highlight: the text is shaded, like a highlighter.
+    var marked = false
     let showOriginal: Bool
     let isCurrent: Bool
     let seek: () -> Void
@@ -650,20 +611,19 @@ struct ParagraphView: View {
             }
             // The time sits over the paragraph, so the text has the full width.
             Button(action: seek) {
-                HStack(spacing: 0) {
+                HStack(spacing: 6) {
                     Text(Format.clock(row.block.start))
                         .foregroundStyle(isCurrent ? Color.jText : Color.jText3)
                         .fontWeight(isCurrent ? .semibold : .medium)
-                    if let label {
-                        Text(" · " + label).foregroundStyle(Color.jText).fontWeight(.semibold)
-                    }
                     if row.showSpeaker {
-                        Text("  " + Format.speaker(row.block.speaker)).foregroundStyle(Color.jText).fontWeight(.semibold)
+                        Text(Format.speaker(row.block.speaker)).foregroundStyle(Color.jText).fontWeight(.semibold)
                     }
+                    Spacer(minLength: 8)
+                    ForEach(starting) { HighlightChip(highlight: $0) }
                 }
                 .font(.metaSmall)
                 .lineLimit(1)
-                .frame(minHeight: 20)
+                .frame(minHeight: 22)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -686,7 +646,12 @@ struct ParagraphView: View {
             // Not cleaned up yet: show what was said, a step quieter.
             return Text(block.text).foregroundStyle(Color.jText2)
         }
-        guard showOriginal else { return Text(clean).foregroundStyle(Color.jText) }
+        guard showOriginal else {
+            var out = AttributedString(clean)
+            out.foregroundColor = Color.jText
+            if marked { out.backgroundColor = Color.jMarker }
+            return Text(out)
+        }
 
         var out = AttributedString()
         for piece in Fillers.diff(raw: block.text, clean: block.trimmed ?? clean).pieces {
@@ -697,74 +662,38 @@ struct ParagraphView: View {
             } else {
                 part.foregroundColor = Color.jText
             }
+            if marked { part.backgroundColor = Color.jMarker }
             out += part
         }
         return Text(out)
     }
 }
 
-/// "0:52 · Moment" or "0:14 – 0:40 · Section", over a highlight's text
-/// in the Highlights tab; its glyph sits in the margin (`marginRule`).
-struct HighlightLabel: View {
+/// "★ 0:52" or "[ ] 0:14 – 0:40": a small inverted capsule at the end
+/// of the time row where a highlight starts, and over each one in the
+/// Highlights tab.
+struct HighlightChip: View {
     let highlight: Highlight
 
     var body: some View {
-        (Text(highlight.isSection
-              ? "\(Format.clock(highlight.start)) – \(Format.clock(highlight.end))"
-              : Format.clock(highlight.at))
-            .foregroundStyle(Color.jText).fontWeight(.semibold)
-         + Text(highlight.isSection ? " · Section" : " · Moment").foregroundStyle(Color.jText3))
-            .font(.metaSmall)
-            .frame(minHeight: 20)
-            .accessibilityElement(children: .combine)
-    }
-
-    /// Beside a paragraph's time, for the highlights that start there.
-    static func inline(_ highlights: [Highlight]) -> String? {
-        guard !highlights.isEmpty else { return nil }
-        let moments = highlights.filter { !$0.isSection }.count
-        let sections = highlights.filter(\.isSection)
-        var parts: [String] = sections.map { "Section to \(Format.clock($0.end))" }
-        if moments == 1 { parts.insert("Moment", at: 0) }
-        if moments > 1 { parts.insert("\(moments) moments", at: 0) }
-        return parts.joined(separator: " · ")
-    }
-}
-
-extension View {
-    /// A marked stretch: a rule down the left margin beside the text it
-    /// covers, starting under the first line's glyph.
-    @ViewBuilder
-    func marginRule(_ marked: Bool) -> some View {
-        if marked {
-            self.overlay(alignment: .topLeading) {
-                GeometryReader { geo in
-                    Capsule()
-                        .fill(Color.jText)
-                        .frame(width: 2, height: max(0, geo.size.height - 28))
-                        .offset(x: -11, y: 22)
-                }
-                .accessibilityHidden(true)
-            }
-        } else {
-            self
+        HStack(spacing: 5) {
+            GlyphView(glyph: highlight.isSection ? .brackets : .star, color: .jBg)
+                .frame(width: 11, height: 11)
+            Text(highlight.isSection
+                 ? "\(Format.clock(highlight.start)) – \(Format.clock(highlight.end))"
+                 : Format.clock(highlight.at))
+                .font(.scaled(12, .semibold, relativeTo: .caption1).monospacedDigit())
+                .foregroundStyle(Color.jBg)
         }
-    }
-
-    /// The star or [ ] in the left margin, by the time where a highlight starts.
-    @ViewBuilder
-    func marginGlyph(_ highlight: Highlight?) -> some View {
-        if let highlight {
-            self.overlay(alignment: .topLeading) {
-                GlyphView(glyph: highlight.isSection ? .brackets : .star)
-                    .frame(width: 12, height: 12)
-                    .background(Color.jBg)
-                    .offset(x: -16, y: 4)
-                    .accessibilityHidden(true)
-            }
-        } else {
-            self
-        }
+        .padding(.leading, 8)
+        .padding(.trailing, 9)
+        .frame(height: 22)
+        .background(Color.jText, in: Capsule())
+        .fixedSize()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(highlight.isSection
+                            ? "Section from \(Format.clock(highlight.start)) to \(Format.clock(highlight.end))"
+                            : "Moment at \(Format.clock(highlight.at))")
     }
 }
 

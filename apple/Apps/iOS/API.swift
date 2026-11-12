@@ -64,14 +64,14 @@ struct Highlight: Codable, Hashable, Identifiable {
 
     var id: String { "\(isSection ? "s" : "m")\(at)" }
 
-    /// People mark after they hear it, so a moment reaches back: by
-    /// default 15 seconds (Settings → Moments), and 5 past the tap.
-    static let defaultBefore = 15
-    static let beforeChoices = [10, 15, 30, 60]
-    static let after: Double = 5
-    static var before: Double {
-        let s = UserDefaults.standard.integer(forKey: "momentSeconds")
-        return Double(s > 0 ? s : defaultBefore)
+    /// How far a moment reaches either side of the tap: 10 seconds each
+    /// way by default, up to 30 (Settings → Highlights).
+    static let defaultReach = 10
+    static let maxReach = 30
+    static var before: Double { reach("momentBefore") }
+    static var after: Double { reach("momentAfter") }
+    private static func reach(_ key: String) -> Double {
+        Double(UserDefaults.standard.object(forKey: key) as? Int ?? defaultReach)
     }
 
     static func moment(at t: Double) -> Highlight {
