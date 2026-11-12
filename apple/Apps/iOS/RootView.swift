@@ -61,6 +61,17 @@ struct RootView: View {
         .ignoresSafeArea(.keyboard)
         .background(Color.jBg)
         .fullScreenCover(item: $router.live) { LiveView(id: $0.id) }
+        // The lock-screen activity or the island was tapped: jotto://live/<id>.
+        .onOpenURL { url in
+            guard url.scheme == "jotto", url.host() == "live" else { return }
+            let id = url.lastPathComponent
+            if LocalStore.shared.recordings[id]?.endedAt == nil {
+                router.live = Router.Live(id: id)
+            } else {
+                router.tab = .days
+                router.days = [.transcript(id: id)]
+            }
+        }
         // A "ready" notice was tapped.
         .onChange(of: Notifier.shared.opening, initial: true) { _, id in
             guard let id else { return }

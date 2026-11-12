@@ -80,7 +80,11 @@ private struct ReadyScreen: View {
         }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Image("Wordmark").resizable().scaledToFit().frame(height: 17).accessibilityLabel("Jotto")
+                // The toolbar centres it lower than the system clock sits;
+                // nudged up so its baseline meets the time's.
+                Image("Wordmark").resizable().scaledToFit().frame(height: 17)
+                    .offset(y: -7)
+                    .accessibilityLabel("Jotto")
             }
         }
         .onAppear { transfer.refreshPending() }

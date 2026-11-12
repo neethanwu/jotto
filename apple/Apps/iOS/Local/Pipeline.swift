@@ -32,6 +32,7 @@ final class Pipeline {
 
     func started(_ id: String, at startedAt: Date) {
         store.update(id, startedAt: startedAt) { $0.heardAt = .now }
+        LiveActivities.shared.sync()
         changed()
     }
 
@@ -78,6 +79,7 @@ final class Pipeline {
             changed()
         } else {
             openSections[id] = now
+            LiveActivities.shared.update(id)
         }
     }
 
@@ -89,6 +91,7 @@ final class Pipeline {
             r.endedAt = endedAt
             r.segmentCount = segmentCount
         }
+        LiveActivities.shared.end(id)
         Inbox.shared.syncHistory()
         changed()
         run()
@@ -99,6 +102,7 @@ final class Pipeline {
             r.heardAt = .now
             if !r.marks.contains(offset) { r.marks.append(offset) }
         }
+        LiveActivities.shared.update(id)
     }
 
     func markedSection(_ id: String, startedAt: Date, start: Double, end: Double) {
@@ -106,6 +110,7 @@ final class Pipeline {
             let section = LocalRecording.MarkedSection(start: start, end: end)
             if !(r.sections ?? []).contains(section) { r.sections = (r.sections ?? []) + [section] }
         }
+        LiveActivities.shared.update(id)
     }
 
     /// Everything after the watch, again: language, text, clean-up and
@@ -228,6 +233,7 @@ final class Pipeline {
             }
             Library.shared.watchFinished(r.id, startedAt: r.startedAt, endedAt: r.startedAt.addingTimeInterval(lastPart),
                                          segmentCount: r.segments.count)
+            LiveActivities.shared.end(r.id)
             PhoneLog.shared.note("closed_abandoned", "\(r.id) parts=\(r.segments.count)")
         }
     }
@@ -446,6 +452,8 @@ final class Pipeline {
 
     private func changed() {
         Task { await Library.shared.refresh() }
+        // Marks, sections and new lines show on the lock screen too.
+        for r in store.recordings.values where r.endedAt == nil { LiveActivities.shared.update(r.id) }
     }
 }
 
@@ -456,6 +464,14 @@ extension Pipeline {
     /// Simulator: feeds a folder of .m4a files through as if the watch sent
     /// them. `SIMCTL_CHILD_JOTTO_SIMULATE_RECORDING=/path/to/dir xcrun simctl launch …`
     func simulateRecordingIfRequested() {
+        // A recording that has started on the watch and is still going.
+        if ProcessInfo.processInfo.environment["JOTTO_SIMULATE_LIVE"] != nil {
+            let id = UUID().uuidString.lowercased()
+            let startedAt = Date.now.addingTimeInterval(-312)
+            Library.shared.watchStarted(id, at: startedAt)
+            started(id, at: startedAt)
+            marked(id, startedAt: startedAt, offset: 120)
+        }
         guard let dir = ProcessInfo.processInfo.environment["JOTTO_SIMULATE_RECORDING"] else { return }
         let files = ((try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? [])
             .filter { $0.hasSuffix(".m4a") }.sorted()

@@ -28,6 +28,7 @@ struct JottoApp: App {
             // Coming to the foreground is a good moment to skip any backoff.
             if phase == .active {
                 Pipeline.shared.run()
+                LiveActivities.shared.sync()
                 Task { await Notifier.shared.askIfNeeded() }
                 Task { await Library.shared.refresh() }
             }

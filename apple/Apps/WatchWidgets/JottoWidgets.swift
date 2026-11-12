@@ -2,10 +2,12 @@ import AppIntents
 import SwiftUI
 import WidgetKit
 
-/// Controls for Control Center and the Apple Watch Ultra's Action Button.
+/// The watch-face complication, and controls for Control Center and the
+/// Apple Watch Ultra's Action Button.
 @main
 struct JottoWidgets: WidgetBundle {
     var body: some Widget {
+        JottoComplication()
         RecordOrMarkControl()
         MarkInBackgroundControl()
     }

@@ -2,6 +2,7 @@ import AVFoundation
 import Observation
 import UserNotifications
 import WatchKit
+import WidgetKit
 
 /// Background audio capture into rolling segments, with logging for
 /// battery drain, interruptions and recovery (the Spike 0 log).
@@ -51,6 +52,7 @@ final class Recorder {
     private init() {
         WKInterfaceDevice.current().isBatteryMonitoringEnabled = true
         observeSession()
+        updateFace()
     }
 
     // MARK: - Control
@@ -156,6 +158,7 @@ final class Recorder {
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         }
         WatchTransfer.shared.sendStart(session: sessionID, startedAt: startedAt)
+        updateFace()
         WKInterfaceDevice.current().play(.start)
         note("start", sessionID.uuidString)
         startBatteryLogging()
@@ -185,6 +188,7 @@ final class Recorder {
         batteryTask = nil
         state = .idle
         startedAt = nil
+        updateFace()
         note("stop")
 
         if let snapshot = log.snapshot() {
@@ -213,6 +217,14 @@ final class Recorder {
             WKInterfaceDevice.current().play(.click)
         }
         note("phone_mark", section ? "section" : "moment")
+    }
+
+    /// The watch-face complication: recording or not, and today's line.
+    func updateFace() {
+        let today = History.shared.today
+        WatchFace.save(.init(recordingSince: state == .idle ? nil : startedAt,
+                             todayCount: today.count, todaySeconds: today.map(\.length).reduce(0, +)))
+        WidgetCenter.shared.reloadTimelines(ofKind: WatchFace.kind)
     }
 
     func dismissSaved() {
@@ -483,6 +495,7 @@ final class History {
         guard let sent else { return }
         phone = FromPhone(items: sent.items, at: sent.at)
         UserDefaults.standard.set(try? JSONEncoder().encode(phone), forKey: phoneKey)
+        Recorder.shared.updateFace()
     }
 
     var today: [Item] {

@@ -88,6 +88,7 @@ final class LocalStore {
 
     func delete(_ id: String) {
         recordings[id] = nil
+        LiveActivities.shared.end(id)
         let monthAgo = Date.now.addingTimeInterval(-30 * 86_400)
         deleted = deleted.filter { $0.value > monthAgo }
         deleted[id] = .now
