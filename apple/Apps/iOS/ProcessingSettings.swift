@@ -176,9 +176,9 @@ struct LanguageView: View {
 
     private func label(_ text: String) -> some View {
         Text(text)
-            .font(.scaled(11, .medium, relativeTo: .caption2))
-            .foregroundStyle(Color.jText3)
-            .padding(.bottom, 4)
+            .font(.scaled(13, .semibold, relativeTo: .footnote))
+            .foregroundStyle(Color.jText2)
+            .padding(.bottom, 2)
     }
 
     private func row(_ id: String, picked: Bool) -> some View {

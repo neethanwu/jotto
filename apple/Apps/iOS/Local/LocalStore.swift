@@ -25,6 +25,10 @@ final class LocalStore {
     // MARK: - Writing
 
     func update(_ id: String, startedAt: Date, _ change: (inout LocalRecording) -> Void) {
+        // Deleted here: whatever the watch still sends about it is dropped,
+        // or a part arriving late would bring it back as a recording
+        // that never ends.
+        guard !isDeleted(id) else { return }
         var r = recordings[id] ?? LocalRecording(id: id, startedAt: startedAt)
         change(&r)
         recordings[id] = r
@@ -76,8 +80,18 @@ final class LocalStore {
         update(id, startedAt: r.startedAt) { $0.title = title; $0.titleByUser = true }
     }
 
+    /// Recordings deleted on this iPhone, so late news from the watch about
+    /// them is ignored. Kept a month.
+    private var deleted: [String: Date] = UserDefaults.standard.dictionary(forKey: "deletedRecordings") as? [String: Date] ?? [:]
+
+    func isDeleted(_ id: String) -> Bool { deleted[id] != nil }
+
     func delete(_ id: String) {
         recordings[id] = nil
+        let monthAgo = Date.now.addingTimeInterval(-30 * 86_400)
+        deleted = deleted.filter { $0.value > monthAgo }
+        deleted[id] = .now
+        UserDefaults.standard.set(deleted, forKey: "deletedRecordings")
         Inbox.shared.syncHistory()
         try? FileManager.default.removeItem(at: Self.directory.appending(path: "\(id).json"))
         try? FileManager.default.removeItem(at: AudioFiles.directory.appending(path: id))

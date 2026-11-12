@@ -104,20 +104,21 @@ struct RootView: View {
 /// Two sliders on the design's 20-unit grid: settings.
 struct SlidersIcon: View {
     var color: Color = .jText
-    /// Fill inside the knobs: the background the icon sits on.
+    /// Fill inside the knobs: the background the icon sits on, so the
+    /// track stops at the ring. The knobs stay rings when selected.
     var knob: Color = .jFill
 
     var body: some View {
         Canvas { context, size in
             let k = min(size.width, size.height) / 20
             context.scaleBy(x: k, y: k)
-            let style = StrokeStyle(lineWidth: 1.8, lineCap: .round)
+            let style = StrokeStyle(lineWidth: 1.6, lineCap: .round)
             var lines = Path()
-            lines.move(to: CGPoint(x: 2.5, y: 6.5)); lines.addLine(to: CGPoint(x: 17.5, y: 6.5))
-            lines.move(to: CGPoint(x: 2.5, y: 13.5)); lines.addLine(to: CGPoint(x: 17.5, y: 13.5))
+            lines.move(to: CGPoint(x: 2.5, y: 6)); lines.addLine(to: CGPoint(x: 17.5, y: 6))
+            lines.move(to: CGPoint(x: 2.5, y: 14)); lines.addLine(to: CGPoint(x: 17.5, y: 14))
             context.stroke(lines, with: .color(color), style: style)
-            for center in [CGPoint(x: 7, y: 6.5), CGPoint(x: 13, y: 13.5)] {
-                let ring = Path(ellipseIn: CGRect(x: center.x - 2.4, y: center.y - 2.4, width: 4.8, height: 4.8))
+            for center in [CGPoint(x: 7, y: 6), CGPoint(x: 13, y: 14)] {
+                let ring = Path(ellipseIn: CGRect(x: center.x - 2.3, y: center.y - 2.3, width: 4.6, height: 4.6))
                 context.fill(ring, with: .color(self.knob))
                 context.stroke(ring, with: .color(color), style: style)
             }
@@ -143,7 +144,7 @@ struct TabBar: View {
             item(.days, "Days") { DaysIcon(selected: $0) }
             // The selected tab's glyph fills in.
             item(.send, "Send") { GlyphView(glyph: $0 ? .sendFilled : .send, color: $0 ? .jOnChromeOn : .ink400) }
-            item(.settings, "Settings") { SlidersIcon(color: $0 ? .jOnChromeOn : .ink400, knob: $0 ? .jOnChromeOn : .jChrome) }
+            item(.settings, "Settings") { SlidersIcon(color: $0 ? .jOnChromeOn : .ink400, knob: $0 ? .jChromeOn : .jChrome) }
         }
         .background {
             // One capsule that follows the selected tab, so it slides
@@ -220,8 +221,9 @@ struct TabBar: View {
     }
 }
 
-/// Days icon: the timeline in miniature. A spine with two stops and two
-/// lines of text; the top stop is orange when the tab is selected.
+/// Days icon: the timeline in miniature. Two stops the same size on a
+/// spine that carries on below, each with a line of text; the top stop
+/// is a solid dot (orange when the tab is selected), the second a ring.
 /// Drawn on the design's 20-unit grid, the same as the settings icon.
 struct DaysIcon: View {
     var selected: Bool
@@ -231,20 +233,18 @@ struct DaysIcon: View {
             let k = min(size.width, size.height) / 20
             context.scaleBy(x: k, y: k)
             let ink = selected ? Color.jOnChromeOn : Color.ink400
-            let style = StrokeStyle(lineWidth: 1.8, lineCap: .round)
-            // From the top stop's centre down past the second, as the
-            // timeline carries on.
+            let style = StrokeStyle(lineWidth: 1.6, lineCap: .round)
             var spine = Path()
-            spine.move(to: CGPoint(x: 5, y: 5)); spine.addLine(to: CGPoint(x: 5, y: 18))
+            spine.move(to: CGPoint(x: 5.5, y: 8.6)); spine.addLine(to: CGPoint(x: 5.5, y: 11.4))
+            spine.move(to: CGPoint(x: 5.5, y: 16.6)); spine.addLine(to: CGPoint(x: 5.5, y: 18.2))
             context.stroke(spine, with: .color(ink), style: style)
-            context.fill(Path(ellipseIn: CGRect(x: 2.4, y: 2.4, width: 5.2, height: 5.2)),
+            context.fill(Path(ellipseIn: CGRect(x: 2.9, y: 2.9, width: 5.2, height: 5.2)),
                          with: .color(selected ? .jLive : ink))
-            let ring = Path(ellipseIn: CGRect(x: 2.6, y: 11.1, width: 4.8, height: 4.8))
-            context.fill(ring, with: .color(selected ? ink : .jChrome))
-            context.stroke(ring, with: .color(ink), style: style)
+            context.stroke(Path(ellipseIn: CGRect(x: 3.7, y: 12.2, width: 3.6, height: 3.6)),
+                           with: .color(ink), style: style)
             var lines = Path()
-            lines.move(to: CGPoint(x: 10.5, y: 5)); lines.addLine(to: CGPoint(x: 17.5, y: 5))
-            lines.move(to: CGPoint(x: 10.5, y: 13.5)); lines.addLine(to: CGPoint(x: 16, y: 13.5))
+            lines.move(to: CGPoint(x: 10.5, y: 5.5)); lines.addLine(to: CGPoint(x: 17.5, y: 5.5))
+            lines.move(to: CGPoint(x: 10.5, y: 14)); lines.addLine(to: CGPoint(x: 15.5, y: 14))
             context.stroke(lines, with: .color(ink), style: style)
         }
         .accessibilityHidden(true)

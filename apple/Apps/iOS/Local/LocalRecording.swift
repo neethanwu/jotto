@@ -35,6 +35,8 @@ struct LocalRecording: Codable, Identifiable, Hashable {
     /// runs every language and keeps the surest, stretch by stretch.
     var locale: String?
     static let mixed = "mixed"
+    /// When the watch last said anything about it (started, a part, a mark).
+    var heardAt: Date?
     /// When the "ready" notice went out (or was skipped), so it goes once.
     var notifiedAt: Date?
     /// Segments given up on after the recording ended (see `Pipeline`).

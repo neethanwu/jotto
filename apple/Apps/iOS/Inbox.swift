@@ -73,17 +73,26 @@ final class Inbox: NSObject {
               WCSession.default.isPaired, WCSession.default.isWatchAppInstalled else { return false }
         let kind = message["kind"] as? String ?? "?"
         PhoneLog.shared.note("tell_watch", "\(kind) reachable=\(WCSession.default.isReachable)")
-        if WCSession.default.isReachable {
-            WCSession.default.sendMessage(message, replyHandler: { _ in
-                PhoneLog.shared.later("tell_watch_ok", kind)
-            }, errorHandler: { error in
-                PhoneLog.shared.later("tell_watch_failed", "\(kind) \(error.localizedDescription)")
-                WCSession.default.transferUserInfo(message)
-            })
-        } else {
-            WCSession.default.transferUserInfo(message)
-        }
+        Self.send(message, kind: kind)
         return true
+    }
+
+    /// Built outside the main actor: WatchConnectivity calls the reply and
+    /// error handlers on its own queue, and a closure written in a
+    /// main-actor method inherits that isolation, which Swift 6 traps on
+    /// (the crash on Mark, Section and stop in build 202611120345).
+    nonisolated private static func send(_ message: [String: Any], kind: String) {
+        let session = WCSession.default
+        guard session.isReachable else {
+            session.transferUserInfo(message)
+            return
+        }
+        session.sendMessage(message, replyHandler: { @Sendable _ in
+            PhoneLog.shared.later("tell_watch_ok", kind)
+        }, errorHandler: { @Sendable error in
+            PhoneLog.shared.later("tell_watch_failed", "\(kind) \(error.localizedDescription)")
+            WCSession.default.transferUserInfo(message)
+        })
     }
 
     /// Tells the watch which recordings the phone has from the last week,

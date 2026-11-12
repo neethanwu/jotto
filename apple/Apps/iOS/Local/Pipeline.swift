@@ -31,15 +31,26 @@ final class Pipeline {
     // MARK: - From the watch
 
     func started(_ id: String, at startedAt: Date) {
-        store.update(id, startedAt: startedAt) { _ in }
+        store.update(id, startedAt: startedAt) { $0.heardAt = .now }
         changed()
     }
 
     /// The audio is already at `AudioFiles.url(session:index:)`.
     func segmentArrived(_ id: String, startedAt: Date, index: Int, offset: Double, duration: Double) {
+        guard !store.isDeleted(id) else {
+            try? FileManager.default.removeItem(at: AudioFiles.url(session: id, index: index))
+            return
+        }
         store.update(id, startedAt: startedAt) { r in
+            r.heardAt = .now
             if r.segments[index] == nil {
                 r.segments[index] = LocalSegment(index: index, offset: offset, duration: duration)
+                // A part that arrives after the rest was cleaned up (the
+                // watch was out of reach): clean up again with it.
+                if r.polishedAt != nil {
+                    r.polishedAt = nil
+                    r.tidiedAt = nil
+                }
             }
         }
         changed()
@@ -85,6 +96,7 @@ final class Pipeline {
 
     func marked(_ id: String, startedAt: Date, offset: Double) {
         store.update(id, startedAt: startedAt) { r in
+            r.heardAt = .now
             if !r.marks.contains(offset) { r.marks.append(offset) }
         }
     }
@@ -138,6 +150,7 @@ final class Pipeline {
                 await prepareIfNeeded()
                 await redoSlowedRecordings()
                 refreshLayouts()
+                closeAbandoned()
                 store.purgeAudio(keepingDays: AppConfig.shared.keepAudioDays)
                 while let step = nextStep() {
                     await perform(step)
@@ -199,6 +212,27 @@ final class Pipeline {
         UserDefaults.standard.set(Self.layoutVersion, forKey: key)
         changed()
     }
+
+    /// A recording the watch went quiet on without saying it finished (its
+    /// app was killed, the battery ran out, or the finish got lost) would
+    /// look live for ever. After half an hour with nothing new, it ends
+    /// where its last part did; a part or finish arriving later still counts.
+    private func closeAbandoned() {
+        for r in store.recordings.values where r.endedAt == nil && r.imported == nil {
+            let heard = r.heardAt ?? r.startedAt
+            guard Date.now.timeIntervalSince(heard) > Self.abandonedAfter else { continue }
+            let lastPart = r.segments.values.map { $0.offset + $0.duration }.max() ?? 0
+            store.update(r.id, startedAt: r.startedAt) {
+                $0.endedAt = r.startedAt.addingTimeInterval(lastPart)
+                $0.segmentCount = r.segments.count
+            }
+            Library.shared.watchFinished(r.id, startedAt: r.startedAt, endedAt: r.startedAt.addingTimeInterval(lastPart),
+                                         segmentCount: r.segments.count)
+            PhoneLog.shared.note("closed_abandoned", "\(r.id) parts=\(r.segments.count)")
+        }
+    }
+
+    static let abandonedAfter: TimeInterval = 30 * 60
 
     /// Bump when `Paragraphs` lays text out differently.
     private static let layoutVersion = 3

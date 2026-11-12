@@ -59,16 +59,19 @@ final class Library {
     // MARK: - From the watch
 
     func watchStarted(_ id: String, at date: Date) {
+        guard !LocalStore.shared.isDeleted(id) else { return }
         if local[id] == nil { local[id] = LocalSession(id: id, startedAt: date) }
         saveLocal()
     }
 
     func watchSent(_ id: String, startedAt: Date, index: Int) {
+        guard !LocalStore.shared.isDeleted(id) else { return }
         local[id, default: LocalSession(id: id, startedAt: startedAt)].received.insert(index)
         saveLocal()
     }
 
     func watchFinished(_ id: String, startedAt: Date, endedAt: Date, segmentCount: Int) {
+        guard !LocalStore.shared.isDeleted(id) else { return }
         local[id, default: LocalSession(id: id, startedAt: startedAt)].endedAt = endedAt
         local[id]?.segmentCount = segmentCount
         saveLocal()

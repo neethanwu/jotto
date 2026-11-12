@@ -109,10 +109,11 @@ struct SettingsSection<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // Big enough to find a group by, quiet enough not to compete with the rows.
             Text(title)
-                .font(.scaled(11, .medium, relativeTo: .caption2))
-                .foregroundStyle(Color.jText3)
-                .padding(.bottom, 4)
+                .font(.scaled(13, .semibold, relativeTo: .footnote))
+                .foregroundStyle(Color.jText2)
+                .padding(.bottom, 2)
                 .accessibilityAddTraits(.isHeader)
             SettingsGroup { content }
         }
