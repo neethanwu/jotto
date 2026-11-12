@@ -42,7 +42,7 @@ struct SendPanel: View {
                         .lineLimit(1)
                 }
                 Spacer()
-                CircleIconButton(glyph: .close, label: "Close", fill: .jSheet) {
+                CircleIconButton(glyph: .close, label: "Close", fill: .jSheetFill) {
                     if let closeDrawer { closeDrawer() } else { dismiss() }
                 }
             }

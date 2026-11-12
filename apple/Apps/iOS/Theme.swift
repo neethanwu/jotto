@@ -60,7 +60,7 @@ extension Color {
     static let jSheetWell = pair(Ink.i0, Ink.i950)
     static let jToggleOff = pair(Ink.i200, Ink.i800)
     /// Behind marked text in a transcript, like a highlighter.
-    static let jMarker = pair(UIColor(hex: 0xE0DCD4), UIColor(hex: 0x3D3B37))
+    static let jMarker = pair(UIColor(hex: 0xE8E8E8), UIColor(hex: 0x363636))
     /// Delete in swipe actions; the same red the system uses for destructive.
     static let jDestructive = Color(UIColor(hex: 0xE5484D))
     static let jLive = Color(Orange.o500)
@@ -132,6 +132,8 @@ extension View {
 /// off-centre in a circle).
 enum Glyph {
     case back, down, close, more, share, search, trash, star, brackets, send, plus
+    /// The plane filled in: Send when it's where you are or the main action.
+    case sendFilled
 }
 
 struct GlyphView: View {
@@ -203,6 +205,18 @@ struct GlyphView: View {
                 p.move(to: CGPoint(x: 18.8, y: 5.2)); p.addLine(to: CGPoint(x: 3.8, y: 11))
                 p.addLine(to: CGPoint(x: 9.8, y: 14.2)); p.addLine(to: CGPoint(x: 13, y: 20.2)); p.closeSubpath()
                 p.move(to: CGPoint(x: 9.8, y: 14.2)); p.addLine(to: CGPoint(x: 14.4, y: 9.6))
+            case .sendFilled:
+                var plane = Path()
+                plane.move(to: CGPoint(x: 18.8, y: 5.2)); plane.addLine(to: CGPoint(x: 3.8, y: 11))
+                plane.addLine(to: CGPoint(x: 9.8, y: 14.2)); plane.addLine(to: CGPoint(x: 13, y: 20.2)); plane.closeSubpath()
+                context.fill(plane, with: .color(color))
+                context.stroke(plane, with: .color(color), style: StrokeStyle(lineWidth: 1.6, lineJoin: .round))
+                // The fold, cut out of the fill so whatever is behind shows.
+                var fold = Path()
+                fold.move(to: CGPoint(x: 9.8, y: 14.2)); fold.addLine(to: CGPoint(x: 14.4, y: 9.6))
+                context.blendMode = .destinationOut
+                context.stroke(fold, with: .color(.black), style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
+                return
             case .plus:
                 p.move(to: CGPoint(x: 12, y: 5)); p.addLine(to: CGPoint(x: 12, y: 19))
                 p.move(to: CGPoint(x: 5, y: 12)); p.addLine(to: CGPoint(x: 19, y: 12))
@@ -215,12 +229,14 @@ struct GlyphView: View {
 
 /// The 40-pt ring every top-bar button sits in, with an 18-pt glyph:
 /// the page colour inside a 1-pt ring, like the rings on the timeline.
+/// Top-bar buttons (docs/04, "Icon buttons"): a filled circle with an
+/// outline glyph; the screen's one main action is inverted, with a
+/// filled glyph. No ring.
 struct CircleGlyph: View {
     let glyph: Glyph
-    /// The background the button sits on (the page, or a sheet).
-    var fill: Color = .jBg
+    var fill: Color = .jFill
     var color: Color = .jText
-    var ring: Color = .jRing
+    var ring: Color = .clear
     /// 40 in top bars; 32 beside a section title.
     var size: CGFloat = 40
 
@@ -252,9 +268,9 @@ struct PressStyle: ButtonStyle {
 struct CircleIconButton: View {
     let glyph: Glyph
     let label: String
-    var fill: Color = .jBg
+    var fill: Color = .jFill
     var color: Color = .jText
-    var ring: Color = .jRing
+    var ring: Color = .clear
     var size: CGFloat = 40
     let action: () -> Void
 

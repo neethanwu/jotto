@@ -55,7 +55,7 @@ struct DayPicker: View {
                     .foregroundStyle(Color.jText)
                     .accessibilityAddTraits(.isHeader)
                 Spacer()
-                CircleIconButton(glyph: .close, label: "Close", fill: .jSheet) { dismiss() }
+                CircleIconButton(glyph: .close, label: "Close", fill: .jSheetFill) { dismiss() }
             }
             .padding(.horizontal, 20)
             .padding(.top, 24)

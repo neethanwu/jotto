@@ -29,7 +29,7 @@ struct LiveView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                CircleIconButton(glyph: .down, label: "Close", fill: .ink950, color: .ink50, ring: .ink800) { dismiss() }
+                CircleIconButton(glyph: .down, label: "Close", fill: .ink900, color: .ink50) { dismiss() }
                 Spacer()
             }
             .padding(.horizontal, 16)

@@ -141,8 +141,9 @@ struct TabBar: View {
     var body: some View {
         HStack(spacing: 4) {
             item(.days, "Days") { DaysIcon(selected: $0) }
-            item(.send, "Send") { GlyphView(glyph: .send, color: $0 ? .jOnChromeOn : .ink400) }
-            item(.settings, "Settings") { SlidersIcon(color: $0 ? .jOnChromeOn : .ink400, knob: $0 ? .jChromeOn : .jChrome) }
+            // The selected tab's glyph fills in.
+            item(.send, "Send") { GlyphView(glyph: $0 ? .sendFilled : .send, color: $0 ? .jOnChromeOn : .ink400) }
+            item(.settings, "Settings") { SlidersIcon(color: $0 ? .jOnChromeOn : .ink400, knob: $0 ? .jOnChromeOn : .jChrome) }
         }
         .background {
             // One capsule that follows the selected tab, so it slides
@@ -239,7 +240,7 @@ struct DaysIcon: View {
             context.fill(Path(ellipseIn: CGRect(x: 2.4, y: 2.4, width: 5.2, height: 5.2)),
                          with: .color(selected ? .jLive : ink))
             let ring = Path(ellipseIn: CGRect(x: 2.6, y: 11.1, width: 4.8, height: 4.8))
-            context.fill(ring, with: .color(selected ? .jChromeOn : .jChrome))
+            context.fill(ring, with: .color(selected ? ink : .jChrome))
             context.stroke(ring, with: .color(ink), style: style)
             var lines = Path()
             lines.move(to: CGPoint(x: 10.5, y: 5)); lines.addLine(to: CGPoint(x: 17.5, y: 5))

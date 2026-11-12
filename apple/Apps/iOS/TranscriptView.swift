@@ -200,7 +200,7 @@ struct TranscriptView: View {
                 CircleGlyph(glyph: .more)
             }
             .accessibilityLabel("More")
-            CircleIconButton(glyph: .send, label: "Send") { sharing = true }
+            CircleIconButton(glyph: .sendFilled, label: "Send", fill: .jText, color: .jBg) { sharing = true }
                 .disabled(detail == nil)
         }
         .padding(.horizontal, 20)
@@ -441,13 +441,19 @@ struct TranscriptView: View {
             let highlights = detail.highlights ?? []
             // Each highlight is named on the first paragraph it covers.
             let starts = Dictionary(grouping: highlights) { h in rows.first { h.covers($0.block) }?.id ?? -1 }
-            VStack(alignment: .leading, spacing: 22) {
-                ForEach(rows) { row in
+            let marked = Set(rows.filter { r in highlights.contains { $0.covers(r.block) } }.map(\.id))
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
+                    // A highlight reads as one stretch: after its first
+                    // paragraph, the rest go without a time and sit closer.
+                    let carriesOn = marked.contains(row.id) && starts[row.id] == nil
+                        && i > 0 && marked.contains(rows[i - 1].id) && !row.newSection
                     ParagraphView(row: row, starting: starts[row.id] ?? [],
-                                  marked: highlights.contains { $0.covers(row.block) },
+                                  marked: marked.contains(row.id), carriesOn: carriesOn,
                                   showOriginal: showOriginal, isCurrent: currentBlock == row.block.id) {
                         player.seek(to: row.block.start)
                     }
+                    .padding(.top, i == 0 ? 0 : carriesOn ? 12 : 22)
                     .id(row.id)
                 }
             }
@@ -596,10 +602,13 @@ struct TranscriptView: View {
 
 struct ParagraphView: View {
     let row: TranscriptView.Row
-    /// Highlights that start here: a chip at the end of the time row.
+    /// Highlights that start here: a chip in place of the time.
     var starting: [Highlight] = []
     /// Inside a highlight: the text is shaded, like a highlighter.
     var marked = false
+    /// Inside the same highlight as the paragraph before: no time row
+    /// (only the speaker, when it changes).
+    var carriesOn = false
     let showOriginal: Bool
     let isCurrent: Bool
     let seek: () -> Void
@@ -609,27 +618,33 @@ struct ParagraphView: View {
             if row.newSection {
                 Rectangle().fill(Color.jHairline).frame(height: 1).padding(.bottom, 22)
             }
-            // The time sits over the paragraph, so the text has the full width.
-            Button(action: seek) {
-                HStack(spacing: 8) {
-                    // With speakers (your own API key), who comes first.
-                    if row.showSpeaker {
-                        Text(Format.speaker(row.block.speaker)).foregroundStyle(Color.jText).fontWeight(.semibold)
+            // The time sits over the paragraph, so the text has the full
+            // width. Where a highlight starts, its chip takes the time's place.
+            if !carriesOn || row.showSpeaker {
+                Button(action: seek) {
+                    HStack(spacing: 8) {
+                        // With speakers (your own API key), who comes first.
+                        if row.showSpeaker {
+                            Text(Format.speaker(row.block.speaker)).foregroundStyle(Color.jText).fontWeight(.semibold)
+                        }
+                        if !starting.isEmpty {
+                            ForEach(starting) { HighlightChip(highlight: $0) }
+                        } else if !carriesOn {
+                            Text(Format.clock(row.block.start))
+                                .foregroundStyle(isCurrent ? Color.jText : Color.jText3)
+                                .fontWeight(isCurrent ? .semibold : .medium)
+                        }
+                        Spacer(minLength: 0)
                     }
-                    Text(Format.clock(row.block.start))
-                        .foregroundStyle(isCurrent ? Color.jText : Color.jText3)
-                        .fontWeight(isCurrent ? .semibold : .medium)
-                    Spacer(minLength: 8)
-                    ForEach(starting) { HighlightChip(highlight: $0) }
+                    .font(.metaSmall)
+                    .lineLimit(1)
+                    .frame(minHeight: 22)
+                    .contentShape(Rectangle())
                 }
-                .font(.metaSmall)
-                .lineLimit(1)
-                .frame(minHeight: 22)
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .accessibilityLabel("Play from \(Format.clock(row.block.start))")
+                .padding(.bottom, 4)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Play from \(Format.clock(row.block.start))")
-            .padding(.bottom, 4)
 
             text
                 .font(.reading)
