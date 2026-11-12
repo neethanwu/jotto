@@ -160,10 +160,14 @@ struct TabBar: View {
     var accessory: AnyView? = nil
 
     var body: some View {
+        // The pill on the left margin, the record button on the right one,
+        // in line with the wordmark and the buttons at the top.
         HStack(spacing: 10) {
             pillBar
+            Spacer(minLength: 0)
             if let accessory { accessory }
         }
+        .padding(.horizontal, 20)
         .padding(.top, 28)
         .padding(.bottom, 34)
         .frame(maxWidth: .infinity)
@@ -279,7 +283,7 @@ struct DaysIcon: View {
 
 // MARK: - Record
 
-/// Beside the tab bar: the orange dot, as on the watch. Starts a recording
+/// Bottom right, across from the tab bar: the orange dot, as on the watch. Starts a recording
 /// (on the watch if its app is open and in reach, else on this iPhone)
 /// and opens Live. While one is going, it breathes and opens that one.
 struct RecordButton: View {

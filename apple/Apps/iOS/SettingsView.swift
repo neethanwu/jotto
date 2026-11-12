@@ -1,3 +1,4 @@
+import StoreKit
 import SwiftUI
 
 /// The Settings tab: this month's numbers on the one card, then plain
@@ -8,6 +9,20 @@ struct SettingsView: View {
     private var config: AppConfig { .shared }
     private var inbox: Inbox { .shared }
     private var library: Library { .shared }
+    @State private var isBeta = false
+
+    /// A build from Xcode or TestFlight, not the App Store.
+    static func isBetaBuild() async -> Bool {
+        #if DEBUG
+        return true
+        #else
+        if let result = try? await AppTransaction.shared, case let .verified(transaction) = result {
+            return transaction.environment != .production
+        }
+        // No answer from the App Store: TestFlight builds carry a sandbox receipt.
+        return Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt"
+        #endif
+    }
 
     var body: some View {
         // No large title: the tab bar already says Settings.
@@ -41,23 +56,34 @@ struct SettingsView: View {
                     }
                 }
 
-                SettingsSection("Beta") {
-                    SettingsRow("Apple Watch", value: inbox.watchStatus.capitalizedFirst, chevron: false)
-                    NavigationLink(value: Route.inbox) {
-                        SettingsRow("Files from the watch", value: "\(inbox.items.count)")
+                // For testing: gone in the App Store build.
+                if isBeta {
+                    SettingsSection("Beta") {
+                        SettingsRow("Apple Watch", value: inbox.watchStatus.capitalizedFirst, chevron: false)
+                        NavigationLink(value: Route.inbox) {
+                            SettingsRow("Files from the watch", value: "\(inbox.items.count)")
+                        }
                     }
                 }
 
-                Text("Jotto \(Bundle.main.version) · built by neethan")
-                    .font(.scaled(11, .medium, relativeTo: .caption2).monospacedDigit())
-                    .foregroundStyle(Color.jText4)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 48)
+                VStack(spacing: 10) {
+                    Image("Wordmark")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(height: 22)
+                        .accessibilityLabel("Jotto")
+                    Text("Jotto \(Bundle.main.version) · built by neethan")
+                        .font(.scaled(11, .medium, relativeTo: .caption2).monospacedDigit())
+                        .foregroundStyle(Color.jText4)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 48)
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 140)
         }
         .task { await library.refresh() }
+        .task { isBeta = await Self.isBetaBuild() }
         .onChange(of: config.notifiesWhenReady) { _, on in
             if on { Task { await Notifier.shared.askIfNeeded(fromSwitch: true) } }
         }
