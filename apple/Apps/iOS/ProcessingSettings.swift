@@ -11,6 +11,7 @@ struct ProcessingView: View {
     @State private var editingKey = false
     @State private var check: KeyCheck = .unknown
     @State private var typingModel: ModelSlot?
+    @State private var confirmingRemove = false
 
     enum KeyCheck { case unknown, checking, works, fails }
     enum ModelSlot: Identifiable { case transcribe, write; var id: Self { self } }
@@ -23,7 +24,7 @@ struct ProcessingView: View {
                 VStack(spacing: 10) {
                     ChoiceCard(
                         title: "On this iPhone",
-                        detail: "Free, and nothing leaves your phone. Best in one language. Doesn't tell speakers apart.",
+                        detail: "Free, and nothing leaves your phone. Doesn't tell speakers apart.",
                         selected: !config.usesOwnKey
                     ) { choose(ownKey: false) }
                     ChoiceCard(
@@ -36,6 +37,9 @@ struct ProcessingView: View {
 
                 if config.usesOwnKey {
                     keySettings
+                        .transition(.opacity)
+                } else {
+                    phoneSettings
                         .transition(.opacity)
                 }
             }
@@ -64,6 +68,77 @@ struct ProcessingView: View {
     private func choose(ownKey: Bool) {
         config.usesOwnKey = ownKey
         // Parts waiting for a model can go now, the other way.
+        Pipeline.shared.languageChanged()
+    }
+
+    // MARK: On this iPhone (designs 13c–13e)
+
+    private var phoneSettings: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            label("Speech model").padding(.top, 28).padding(.horizontal, 4)
+            VStack(spacing: 0) {
+                SpeechModelRow(
+                    title: "Apple",
+                    detail: "Built in. Best when a recording stays in one language.",
+                    selected: !config.usesQwen
+                ) { pick(.apple) }
+                Rectangle().fill(Color.jHairline).frame(height: 1).padding(.leading, 48).padding(.trailing, 16)
+                QwenRow(selected: config.usesQwen) { pick(.qwen) }
+            }
+            .card(radius: 20)
+
+            if config.usesQwen {
+                HStack(spacing: 6) {
+                    Text("\(SpeechPack.name) takes \(SpeechPack.sizeLabel) on this phone.")
+                        .foregroundStyle(Color.jText3)
+                    Button("Remove") { confirmingRemove = true }
+                        .font(.scaled(13, .medium, relativeTo: .footnote))
+                        .foregroundStyle(Color.jText)
+                }
+                .font(.scaled(13, .regular, relativeTo: .footnote))
+                .padding(.top, 8)
+                .padding(.horizontal, 4)
+            } else {
+                NavigationLink(value: Route.language) {
+                    HStack(spacing: 12) {
+                        Text("Languages").font(.reading).foregroundStyle(Color.jText)
+                        Spacer(minLength: 8)
+                        Text(config.languages.count == 1
+                             ? LanguageView.name(config.languages[0])
+                             : config.languages.map(LanguageView.shortName).joined(separator: ", "))
+                            .font(.scaled(15, .medium, relativeTo: .subheadline))
+                            .foregroundStyle(Color.jText2)
+                            .lineLimit(1)
+                        Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.jText4)
+                    }
+                    .padding(.horizontal, 16)
+                    .frame(height: 52)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .card(radius: 20)
+                .padding(.top, 12)
+                Text("What people speak in your recordings. Only Apple's model needs this; \(SpeechPack.name) tells by itself.")
+                    .font(.scaled(13, .regular, relativeTo: .footnote))
+                    .foregroundStyle(Color.jText3)
+                    .padding(.top, 8)
+                    .padding(.horizontal, 4)
+            }
+        }
+        .confirmationDialog("Remove \(SpeechPack.name)?", isPresented: $confirmingRemove, titleVisibility: .visible) {
+            Button("Remove", role: .destructive) { SpeechPack.shared.remove() }
+        } message: {
+            Text("Frees \(SpeechPack.sizeLabel). New recordings go back to Apple's model. You can download it again any time.")
+        }
+    }
+
+    private func pick(_ model: AppConfig.SpeechModel) {
+        if model == .qwen, !SpeechPack.shared.isReady {
+            SpeechPack.shared.download()
+            return
+        }
+        guard config.speechModel != model else { return }
+        config.speechModel = model
         Pipeline.shared.languageChanged()
     }
 
@@ -225,6 +300,137 @@ struct ProcessingView: View {
         check = .checking
         let ok = await Cloud.check(key: draftKey, service: config.cloudService, base: config.cloudBaseURL)
         check = ok ? .works : .fails
+    }
+}
+
+/// One of the speech models, as a row: radio, name, a line about it.
+private struct SpeechModelRow<Detail: View, Trailing: View>: View {
+    let title: String
+    let selected: Bool
+    let action: () -> Void
+    @ViewBuilder let detail: Detail
+    @ViewBuilder let trailing: Trailing
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    Circle().strokeBorder(Color.jText5, lineWidth: 1.5).opacity(selected ? 0 : 1)
+                    Circle().fill(Color.jText).opacity(selected ? 1 : 0)
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .heavy))
+                        .foregroundStyle(Color.jBg)
+                        .opacity(selected ? 1 : 0)
+                }
+                .frame(width: 20, height: 20)
+                .padding(.top, 1)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.reading).foregroundStyle(Color.jText)
+                    detail
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                trailing
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .animation(.easeOut(duration: 0.2), value: selected)
+    }
+}
+
+extension SpeechModelRow where Detail == Text, Trailing == EmptyView {
+    init(title: String, detail: String, selected: Bool, action: @escaping () -> Void) {
+        self.init(title: title, selected: selected, action: action) {
+            Text(detail)
+                .font(.scaled(14, .regular, relativeTo: .subheadline))
+                .foregroundStyle(Color.jText2)
+        } trailing: {
+            EmptyView()
+        }
+    }
+}
+
+/// Qwen3-ASR: download it (size on the button), watch it come, then pick it.
+private struct QwenRow: View {
+    let selected: Bool
+    let action: () -> Void
+    private var pack: SpeechPack { .shared }
+
+    var body: some View {
+        SpeechModelRow(title: SpeechPack.name, selected: selected, action: action) {
+            switch pack.state {
+            case let .downloading(fraction):
+                VStack(alignment: .leading, spacing: 7) {
+                    ProgressBar(fraction: fraction)
+                    Text("\(Int(fraction * 950)) of \(SpeechPack.sizeLabel). Fine to leave this page.")
+                        .monospacedDigit()
+                }
+                .padding(.top, 6)
+            case .preparing:
+                Text("Getting it ready…")
+            case let .failed(why):
+                Text(why).foregroundStyle(Color.jLive)
+            case .absent, .ready:
+                Text("Hears Chinese and English mixed together.")
+            }
+        } trailing: {
+            switch pack.state {
+            case .absent:
+                pill { Label(SpeechPack.sizeLabel, systemImage: "arrow.down.to.line") }
+                    .accessibilityLabel("Download \(SpeechPack.sizeLabel)")
+            case .failed:
+                pill { Text("Try again") }
+            case .downloading:
+                Button { pack.cancel() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Color.jText2)
+                        .frame(width: 30, height: 30)
+                        .background(Color.jFill, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Stop downloading")
+                .padding(.top, 2)
+            case .preparing:
+                ProgressView().controlSize(.small).frame(width: 30, height: 30)
+            case .ready:
+                EmptyView()
+            }
+        }
+        .font(.scaled(14, .regular, relativeTo: .subheadline))
+        .foregroundStyle(Color.jText2)
+        .animation(.easeOut(duration: 0.2), value: pack.state)
+    }
+
+    private func pill(@ViewBuilder _ content: () -> some View) -> some View {
+        Button { pack.download() } label: {
+            content()
+                .font(.scaled(14, .semibold, relativeTo: .subheadline))
+                .foregroundStyle(Color.jText)
+                .labelStyle(.titleAndIcon)
+                .padding(.horizontal, 12)
+                .frame(height: 30)
+                .background(Color.jFill, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 2)
+    }
+}
+
+private struct ProgressBar: View {
+    let fraction: Double
+    var body: some View {
+        GeometryReader { geo in
+            Capsule().fill(Color.jHairline)
+                .overlay(alignment: .leading) {
+                    Capsule().fill(Color.jText).frame(width: max(4, geo.size.width * fraction))
+                }
+        }
+        .frame(height: 4)
+        .animation(.linear(duration: 0.2), value: fraction)
     }
 }
 

@@ -35,11 +35,6 @@ struct SettingsView: View {
                     NavigationLink(value: Route.processing) {
                         SettingsRow("Processing", value: config.usesOwnKey ? "Your own key" : "On this iPhone")
                     }
-                    NavigationLink(value: Route.language) {
-                        SettingsRow("Languages", value: config.languages.count == 1
-                                    ? LanguageView.name(config.languages[0])
-                                    : config.languages.map(LanguageView.shortName).joined(separator: ", "))
-                    }
                     SettingsToggle("Notify when ready", isOn: Bindable(config).notifiesWhenReady)
                 }
 

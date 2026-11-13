@@ -13,6 +13,8 @@ struct JottoApp: App {
         MainActor.assumeIsolated {
             AudioFiles.removeServerLeftovers()
             Notifier.shared.start()
+            // Reconnects to a model download that went on while closed.
+            _ = SpeechPack.shared
         }
         #if DEBUG
         MainActor.assumeIsolated { Pipeline.shared.simulateRecordingIfRequested() }
@@ -36,4 +38,10 @@ struct JottoApp: App {
     }
 }
 
-final class AppDelegate: NSObject, UIApplicationDelegate {}
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    /// The speech model's download finished while Jotto wasn't running.
+    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
+                     completionHandler: @escaping () -> Void) {
+        MainActor.assumeIsolated { SpeechPack.shared.backgroundCompletion = completionHandler }
+    }
+}

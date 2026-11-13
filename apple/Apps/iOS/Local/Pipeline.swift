@@ -274,6 +274,11 @@ final class Pipeline {
         guard !prepared, UIApplication.shared.applicationState == .active else { return }
         prepared = true
         await AppConfig.shared.fillLanguagesIfNeeded()
+        // Qwen3-ASR (or your own key's service) hears the language itself.
+        if AppConfig.shared.usesQwen || Cloud.isOn {
+            waiting = nil
+            return
+        }
         let models = SpeechModels.shared
         let wanted = AppConfig.shared.languages
         await models.refresh()
@@ -379,6 +384,21 @@ final class Pipeline {
                 } catch {
                     store.update(id, startedAt: r.startedAt) { $0.segments[index]?.failed = error.localizedDescription }
                     PhoneLog.shared.note("cloud_asr_failed", "segment \(index) \(error.localizedDescription)")
+                }
+                return
+            }
+            if AppConfig.shared.usesQwen {
+                do {
+                    let heard = try await QwenEngine.shared.transcribe(url)
+                    store.update(id, startedAt: r.startedAt) { rec in
+                        rec.segments[index]?.phrases = heard.phrases
+                        if rec.locale == nil, let language = heard.language { rec.locale = language }
+                    }
+                    waiting = nil
+                    PhoneLog.shared.note("qwen_asr_done", "segment \(index) \(String(format: "%.1f", Date.now.timeIntervalSince(began)))s phrases=\(heard.phrases.count)")
+                } catch {
+                    store.update(id, startedAt: r.startedAt) { $0.segments[index]?.failed = error.localizedDescription }
+                    PhoneLog.shared.note("qwen_asr_failed", "segment \(index) \(error.localizedDescription)")
                 }
                 return
             }

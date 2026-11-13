@@ -222,8 +222,8 @@ struct TranscriptView: View {
             Spacer()
             Menu {
                 Button { renameRequests += 1 } label: { Label { Text("Rename") } icon: { Glyph.pen.image() } }
-                if detail?.status == "ready", detail?.segments.contains(where: \.hasAudio) == true, !isImported, Cloud.isOn {
-                    // Your own key's service hears the language itself.
+                if detail?.status == "ready", detail?.segments.contains(where: \.hasAudio) == true, !isImported, Cloud.isOn || AppConfig.shared.usesQwen {
+                    // Your own key's service, or Qwen3-ASR, hears the language itself.
                     Button("Transcribe again", systemImage: "arrow.clockwise") {
                         Pipeline.shared.redo(id)
                         polls += 1

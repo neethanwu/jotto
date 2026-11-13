@@ -48,6 +48,15 @@ final class AppConfig {
         didSet { UserDefaults.standard.set(notifiesWhenReady, forKey: "notifiesWhenReady") }
     }
 
+    /// Which model hears recordings on this iPhone: Apple's, built in, or
+    /// Qwen3-ASR once it's downloaded (`SpeechPack`).
+    enum SpeechModel: String { case apple, qwen }
+    var speechModel: SpeechModel {
+        didSet { UserDefaults.standard.set(speechModel.rawValue, forKey: "speechModel") }
+    }
+    /// Qwen3-ASR picked and on the phone.
+    var usesQwen: Bool { speechModel == .qwen && SpeechPack.shared.isReady }
+
     /// "Your own API key" chosen in Processing (the key is in the Keychain).
     var usesOwnKey: Bool {
         didSet { UserDefaults.standard.set(usesOwnKey, forKey: "usesOwnKey") }
@@ -70,6 +79,7 @@ final class AppConfig {
     private init() {
         let defaults = UserDefaults.standard
         usesOwnKey = defaults.bool(forKey: "usesOwnKey")
+        speechModel = defaults.string(forKey: "speechModel").flatMap(SpeechModel.init(rawValue:)) ?? .apple
         cloudService = defaults.string(forKey: "cloudService").flatMap(Cloud.Service.init(rawValue:)) ?? .openRouter
         cloudBaseURL = defaults.string(forKey: "cloudBaseURL") ?? "https://api.openai.com/v1"
         transcribeModel = defaults.string(forKey: "transcribeModel") ?? Cloud.defaultTranscribeModel
