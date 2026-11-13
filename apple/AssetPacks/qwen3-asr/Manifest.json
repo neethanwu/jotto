@@ -1,0 +1,15 @@
+{
+	"assetPackID": "qwen3-asr-0-6b",
+	"downloadPolicy": {
+		"onDemand": {}
+	},
+	"fileSelectors": [
+		{
+			"directory": "qwen3-asr-0.6b"
+		}
+	],
+	"platforms": [
+		"iOS"
+	],
+	"sourceRoot": "../../build/assetpacks/src"
+}

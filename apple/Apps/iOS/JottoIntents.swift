@@ -1,13 +1,17 @@
 import AppIntents
 import Foundation
+import CoreTransferable
+import UniformTypeIdentifiers
 
 // Jotto in the Shortcuts app. Recording: start, stop and mark, each
-// handing on the recording. Transcripts: one recording's, the latest, or
-// a whole day's, as text through a send template, for whatever comes
-// next in a shortcut (a notes app, an agent, a web request). Recordings
-// are entities, so Shortcuts also offers "Find Recordings" (by day,
-// title, ready) and "Open Recording". With a "when Jotto posts a
-// notification" automation, a recording can go somewhere by itself a
+// handing on the recording. Transcripts: new ones (each handed on once),
+// one recording's, the latest, or a whole day's, laid out by a send
+// template, as a Transcript that works as text (Mail, ChatGPT, Notes) and
+// as a named .md or .txt file (Save File into iCloud Drive or an Obsidian
+// vault), with its title for a subject line. Recordings are entities, so
+// Shortcuts also offers "Find Recording" (by day, title, ready) and "Open
+// Recording". With a "when Jotto sends a notification" automation and
+// Get New Transcripts, every recording goes somewhere by itself about a
 // minute after it ends.
 //
 // Titles, descriptions and phrases here must not name Apple products
@@ -120,6 +124,98 @@ struct RecordingQuery: EnumerableEntityQuery, EntityStringQuery {
     }
 }
 
+/// A transcript laid out by a send template. Passed to an action that
+/// takes text it is the text; to one that takes a file (Save File) it is
+/// a file named by its date and title; its title can be picked out for a
+/// subject line.
+struct TranscriptEntity: TransientAppEntity {
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(
+        name: "Transcript", numericFormat: "\(placeholder: .int) transcripts"
+    )
+
+    @Property(title: "Title") var title: String
+    @Property(title: "Text") var text: String
+    @Property(title: "Date") var date: Date
+    /// "2026-11-13 0830 Coffee with Priya.md"
+    @Property(title: "File Name") var fileName: String
+
+    var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(title: "\(title)", subtitle: "\(date.formatted(date: .abbreviated, time: .shortened))")
+    }
+
+    init() {
+        title = ""
+        text = ""
+        date = .now
+        fileName = ""
+    }
+
+    init(title: String, text: String, date: Date, markdown: Bool) {
+        self.init()
+        self.title = title
+        self.text = text
+        self.date = date
+        // Characters file systems and sync services trip on, out.
+        let safe = title.components(separatedBy: CharacterSet(charactersIn: "/\\:*?\"<>|\n")).joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
+        let stamp = date.formatted(.iso8601.year().month().day()) + " " + date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+            .replacingOccurrences(of: ":", with: "")
+        self.fileName = "\(stamp) \(safe.prefix(80)).\(markdown ? "md" : "txt")"
+    }
+
+    @MainActor
+    init(_ detail: SessionDetail, title: String, template: SendTemplate) {
+        self.init(title: title, text: Composer.compose(detail, title: title, with: template),
+                  date: detail.startedAt, markdown: template.format == .markdown)
+    }
+}
+
+extension TranscriptEntity: Transferable {
+    static var transferRepresentation: some TransferRepresentation {
+        // A file first, named so it lands well in a folder; text from it
+        // is the same words, for actions that want text.
+        FileRepresentation(exportedContentType: .plainText) { transcript in
+            let folder = URL.temporaryDirectory.appending(path: "Transcripts/\(UUID().uuidString)", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let url = folder.appending(path: transcript.fileName.isEmpty ? "Transcript.txt" : transcript.fileName)
+            try Data(transcript.text.utf8).write(to: url)
+            return SentTransferredFile(url)
+        }
+        ProxyRepresentation(exporting: \.text)
+    }
+}
+
+/// Which recordings have been handed on where, so Get New Transcripts
+/// gives each one once per destination, and catches up on any an
+/// automation missed.
+@MainActor
+enum HandedOn {
+    private static func key(_ destination: String) -> String {
+        "handedOn." + destination.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    /// Ready, and with its title written (or long enough ago that it
+    /// won't be): what the "ready" notice is sent for.
+    private static func deliverable(_ r: LocalRecording) -> Bool {
+        guard r.status == "ready" else { return false }
+        return r.describedAt != nil || r.notifiedAt != nil || (r.polishedAt ?? .now) < Date.now.addingTimeInterval(-600)
+    }
+
+    /// The ones not yet handed on to `destination`, oldest first, marked
+    /// as handed on. The first time a destination is used, only the
+    /// newest counts as new, not everything ever recorded.
+    static func take(for destination: String, limit: Int = 10) -> [LocalRecording] {
+        let defaults = UserDefaults.standard
+        let all = LocalStore.shared.recordings
+        let ready = all.values.filter(deliverable).sorted { $0.startedAt < $1.startedAt }
+        var seen = defaults.stringArray(forKey: key(destination)).map(Set.init) ?? Set(ready.dropLast().map(\.id))
+        let fresh = Array(ready.filter { !seen.contains($0.id) }.prefix(limit))
+        seen.formUnion(fresh.map(\.id))
+        defaults.set(Array(seen.filter { all[$0] != nil }), forKey: key(destination))
+        return fresh
+    }
+}
+
 enum IntentFailure: LocalizedError {
     case nothingYet, nothingThatDay, notRecording, notReady, gone
     var errorDescription: String? {
@@ -138,7 +234,40 @@ private func titled(_ detail: SessionDetail) -> (detail: SessionDetail, title: S
     (detail, detail.title ?? Format.provisionalTitle(detail.startedAt))
 }
 
-/// One recording's transcript, as text.
+/// Every transcript not yet handed on to a destination: the one action an
+/// automation needs.
+struct GetNewTranscriptsIntent: AppIntent {
+    static let title: LocalizedStringResource = "Get New Transcripts"
+    static let description = IntentDescription(
+        "Transcripts that are ready and haven't come out of this action before, oldest first, each laid out by a send template. Run it from an automation for when Jotto sends a notification: every recording is handed on once, even after a run was missed. Give each automation its own name under For, and each keeps its own track.",
+        categoryName: "Transcripts",
+        searchKeywords: ["automation", "export", "sync", "save", "send"]
+    )
+
+    @Parameter(title: "Template", description: "Leave empty for the one you used last.")
+    var template: TemplateEntity?
+
+    @Parameter(title: "For", description: "A name for where they go, like Obsidian or Email.", default: "Shortcuts")
+    var destination: String
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Get new transcripts for \(\.$destination) with \(\.$template)")
+    }
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ReturnsValue<[TranscriptEntity]> {
+        let using = template?.template ?? SendTemplates.shared.preferred
+        let items = HandedOn.take(for: destination).compactMap { r -> TranscriptEntity? in
+            guard let detail = try? LocalStore.shared.session(r.id) else { return nil }
+            let item = titled(detail)
+            return TranscriptEntity(item.detail, title: item.title, template: using)
+        }
+        PhoneLog.shared.note("shortcut_new", "\(items.count) for \(destination)")
+        return .result(value: items)
+    }
+}
+
+/// One recording's transcript.
 struct GetTranscriptIntent: AppIntent {
     static let title: LocalizedStringResource = "Get Transcript"
     static let description = IntentDescription(
@@ -158,12 +287,12 @@ struct GetTranscriptIntent: AppIntent {
     }
 
     @MainActor
-    func perform() async throws -> some IntentResult & ReturnsValue<String> {
+    func perform() async throws -> some IntentResult & ReturnsValue<TranscriptEntity> {
         guard let r = LocalStore.shared.recordings[recording.id] else { throw IntentFailure.gone }
         guard r.status == "ready" else { throw IntentFailure.notReady }
         let item = titled(try LocalStore.shared.session(r.id))
         let using = template?.template ?? SendTemplates.shared.preferred
-        return .result(value: Composer.compose(item.detail, title: item.title, with: using))
+        return .result(value: TranscriptEntity(item.detail, title: item.title, template: using))
     }
 }
 
@@ -171,7 +300,7 @@ struct GetTranscriptIntent: AppIntent {
 struct GetLatestTranscriptIntent: AppIntent {
     static let title: LocalizedStringResource = "Get Latest Transcript"
     static let description = IntentDescription(
-        "The newest finished recording's transcript as text, laid out by a send template. Made for the automation that runs when Jotto's \"ready\" notice comes in.",
+        "The newest finished recording's transcript, laid out by a send template. For an automation, Get New Transcripts is surer: it hands each recording on once.",
         categoryName: "Transcripts",
         searchKeywords: ["text", "export", "newest", "last"]
     )
@@ -184,13 +313,13 @@ struct GetLatestTranscriptIntent: AppIntent {
     }
 
     @MainActor
-    func perform() async throws -> some IntentResult & ReturnsValue<String> {
+    func perform() async throws -> some IntentResult & ReturnsValue<TranscriptEntity> {
         guard let latest = LocalStore.shared.recordings.values
             .filter({ $0.status == "ready" })
             .max(by: { $0.startedAt < $1.startedAt }) else { throw IntentFailure.nothingYet }
         let item = titled(try LocalStore.shared.session(latest.id))
         let using = template?.template ?? SendTemplates.shared.preferred
-        return .result(value: Composer.compose(item.detail, title: item.title, with: using))
+        return .result(value: TranscriptEntity(item.detail, title: item.title, template: using))
     }
 }
 
@@ -214,7 +343,7 @@ struct GetDayTranscriptsIntent: AppIntent {
     }
 
     @MainActor
-    func perform() async throws -> some IntentResult & ReturnsValue<String> {
+    func perform() async throws -> some IntentResult & ReturnsValue<TranscriptEntity> {
         let calendar = Calendar.current
         let start = calendar.startOfDay(for: day ?? .now)
         let items = LocalStore.shared.recordings.values
@@ -224,7 +353,11 @@ struct GetDayTranscriptsIntent: AppIntent {
             .map(titled)
         guard !items.isEmpty else { throw IntentFailure.nothingThatDay }
         let using = template?.template ?? SendTemplates.shared.preferred
-        return .result(value: Composer.composeDay(items, day: start, with: using))
+        return .result(value: TranscriptEntity(
+            title: start.formatted(.dateTime.weekday(.wide).day().month(.wide)),
+            text: Composer.composeDay(items, day: start, with: using),
+            date: start, markdown: using.format == .markdown
+        ))
     }
 }
 

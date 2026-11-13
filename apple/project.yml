@@ -25,6 +25,12 @@ targets:
     dependencies:
       - target: JottoWatch
       - target: JottoLiveActivity
+      - target: JottoAssets
+    # Shared with the asset-pack downloader (and the watch's complications).
+    entitlements:
+      path: Apps/iOS/Jotto.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.neethanwu.jotto]
     info:
       path: Apps/iOS/Info.plist
       properties:
@@ -45,10 +51,35 @@ targets:
         # Lets the app talk to a dev server on localhost / the Mac's LAN address.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+        # The Qwen3-ASR model as an asset pack App Store Connect hosts
+        # (AssetPacks/qwen3-asr), fetched through the App Store.
+        BAAppGroupID: group.com.neethanwu.jotto
+        BAHasManagedAssetPacks: true
+        BAUsesAppleHosting: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.neethanwu.jotto
         TARGETED_DEVICE_FAMILY: "1"  # iPhone only
+  JottoAssets:
+    type: extensionkit-extension
+    platform: iOS
+    sources: [Apps/Assets]
+    entitlements:
+      path: Apps/Assets/JottoAssets.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.neethanwu.jotto]
+    info:
+      path: Apps/Assets/Info.plist
+      properties:
+        CFBundleDisplayName: jotto
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        EXAppExtensionAttributes:
+          EXExtensionPointIdentifier: com.apple.background-asset-downloader-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.neethanwu.jotto.assets
+        TARGETED_DEVICE_FAMILY: "1"
   JottoLiveActivity:
     type: app-extension
     platform: iOS

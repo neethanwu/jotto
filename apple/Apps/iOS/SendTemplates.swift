@@ -239,10 +239,16 @@ struct SendView: View {
                 sectionTitle("Automations", top: 16)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("When a transcript is ready").font(.rowTitle).foregroundStyle(Color.jText)
-                    Text("Jotto posts a notice when a recording is ready. In Shortcuts, make an automation for it: Get Latest Transcript with a template, then send it anywhere.")
+                    Text("Jotto sends a notification once a recording is ready. In Shortcuts, add an automation for it that runs Get New Transcripts with a template, then hands each one on: Send Email, Ask ChatGPT, or Save File into iCloud Drive or an Obsidian vault.")
                         .font(.summary)
                         .foregroundStyle(Color.jText2)
                         .fixedSize(horizontal: false, vertical: true)
+                    // The automation starts from that notification.
+                    if !AppConfig.shared.notifiesWhenReady {
+                        Text("Needs Notify when ready, in Settings.")
+                            .font(.summary)
+                            .foregroundStyle(Color.jLive)
+                    }
                     Button {
                         if let url = URL(string: "shortcuts://") { UIApplication.shared.open(url) }
                     } label: {

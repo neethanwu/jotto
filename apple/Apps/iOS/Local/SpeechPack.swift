@@ -1,12 +1,18 @@
+import BackgroundAssets
 import Foundation
 import Observation
+import System
 import UIKit
 
 /// The speech model you can download: Qwen3-ASR 0.6B, about 950 MB, for
 /// recordings with Chinese and English mixed together. Never downloaded
-/// unless asked for (Settings → Processing). The files come from Hugging
-/// Face at fixed revisions, in a background download that carries on
-/// when Jotto isn't open; nothing about your recordings is sent.
+/// unless asked for (Settings → Processing). In App Store and TestFlight
+/// builds the files come through the App Store, as an asset pack App
+/// Store Connect hosts (AssetPacks/qwen3-asr), which reaches every
+/// storefront, mainland China included. Other builds, or if the App
+/// Store can't give it, fetch the same files from Hugging Face at fixed
+/// revisions. Either way the download carries on when Jotto isn't open,
+/// and nothing about your recordings is sent.
 @MainActor @Observable
 final class SpeechPack: NSObject {
     static let shared = SpeechPack()
@@ -32,16 +38,16 @@ final class SpeechPack: NSObject {
     static let name = "Qwen3-ASR"
     static let sizeLabel = "950 MB"
 
-    private struct File {
+    private struct File: Sendable {
         let path: String
         let size: Int64
         let base: String
     }
 
-    private static let models = "https://huggingface.co/aufklarer/Qwen3-ASR-CoreML/resolve/8c6bc87b87856930b435550e94ce47de710ce4ed/"
-    private static let tokenizer = "https://huggingface.co/Qwen/Qwen3-ASR-0.6B/resolve/5eb144179a02acc5e5ba31e748d22b0cf3e303b0/"
+    nonisolated private static let models = "https://huggingface.co/aufklarer/Qwen3-ASR-CoreML/resolve/8c6bc87b87856930b435550e94ce47de710ce4ed/"
+    nonisolated private static let tokenizer = "https://huggingface.co/Qwen/Qwen3-ASR-0.6B/resolve/5eb144179a02acc5e5ba31e748d22b0cf3e303b0/"
 
-    private static let files: [File] = [
+    nonisolated private static let files: [File] = [
         ("config.json", 656),
         ("decoder_part1.mlmodelc/analytics/coremldata.bin", 243),
         ("decoder_part1.mlmodelc/coremldata.bin", 1263),
@@ -68,7 +74,7 @@ final class SpeechPack: NSObject {
         ("vocab.json", 2_776_833),
     ].map { File(path: $0.0, size: $0.1, base: tokenizer) }
 
-    private static var totalBytes: Int64 { files.reduce(0) { $0 + $1.size } }
+    nonisolated private static var totalBytes: Int64 { files.reduce(0) { $0 + $1.size } }
 
     /// Kept out of backups: it can always be downloaded again.
     nonisolated static var directory: URL {
@@ -129,6 +135,91 @@ final class SpeechPack: NSObject {
         written = [:]
         state = .downloading(fraction())
         watchProgress()
+        fromStore?.cancel()
+        fromStore = Task { await downloadFromStore() }
+    }
+
+    // MARK: Through the App Store
+
+    /// The asset pack's ID in App Store Connect (letters, digits and
+    /// hyphens only) and the folder its files sit in.
+    nonisolated static let packID = "qwen3-asr-0-6b"
+    nonisolated static let packFolder = "qwen3-asr-0.6b"
+    @ObservationIgnored private var fromStore: Task<Void, Never>?
+
+    /// The asset pack, when this build is served one: App Store and
+    /// TestFlight builds are, others aren't. Asked with a time limit, as
+    /// a build that isn't may not answer at all.
+    private static func storePack() async -> AssetPack? {
+        await withTaskGroup(of: AssetPack?.self) { group in
+            group.addTask {
+                if #available(iOS 27, *) {
+                    return try? await AssetPackManager.shared.manifest.assetPack(withID: packID)
+                }
+                return try? await AssetPackManager.shared.assetPack(withID: packID)
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(10))
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+    }
+
+    private func downloadFromStore() async {
+        guard let pack = await Self.storePack() else {
+            if !Task.isCancelled, wanted { downloadFromWeb(missing()) }
+            return
+        }
+        PhoneLog.shared.note("pack_store", "v\(pack.version) \(pack.downloadSize / 1_000_000) MB")
+        let updates = Task { @MainActor [weak self] in
+            for await update in AssetPackManager.shared.statusUpdates(forAssetPackWithID: Self.packID) {
+                guard let self else { return }
+                if case let .downloading(_, progress) = update, self.downloading {
+                    self.lastProgress = .now
+                    if self.stalled { self.stalled = false }
+                    self.state = .downloading(progress.fractionCompleted)
+                }
+            }
+        }
+        defer { updates.cancel() }
+        do {
+            try await AssetPackManager.shared.ensureLocalAvailability(of: pack)
+            guard wanted else { return }
+            // Into Jotto's own folder, where the model loads from; on the
+            // same disk a copy is a clone, so it takes no more room. Then
+            // the pack itself can go.
+            try await Task.detached { try Self.copyFromStore() }.value
+            try? await AssetPackManager.shared.remove(assetPackWithID: Self.packID)
+            PhoneLog.shared.note("pack_store_done")
+            if missing().isEmpty { prepare() } else { downloadFromWeb(missing()) }
+        } catch {
+            guard !Task.isCancelled, wanted else { return }
+            PhoneLog.shared.note("pack_store_failed", error.localizedDescription)
+            downloadFromWeb(missing())
+        }
+    }
+
+    nonisolated private static func copyFromStore() throws {
+        let manager = FileManager.default
+        for file in files {
+            let source = try AssetPackManager.shared.url(for: FilePath("\(packFolder)/\(file.path)"))
+            let destination = directory.appending(path: file.path)
+            try manager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? manager.removeItem(at: destination)
+            try manager.copyItem(at: source, to: destination)
+        }
+    }
+
+    // MARK: From Hugging Face
+
+    private func downloadFromWeb(_ needed: [File]) {
+        guard !needed.isEmpty else { prepare(); return }
+        written = [:]
+        state = .downloading(fraction())
+        watchProgress()
         PhoneLog.shared.note("pack_download", "\(needed.count) files")
         session.getAllTasks { tasks in
             tasks.forEach { $0.cancel() }
@@ -145,6 +236,8 @@ final class SpeechPack: NSObject {
 
     func cancel() {
         wanted = false
+        fromStore?.cancel()
+        Task { try? await AssetPackManager.shared.remove(assetPackWithID: Self.packID) }
         session.getAllTasks { tasks in tasks.forEach { $0.cancel() } }
         written = [:]
         if state != .ready { state = .absent }
@@ -153,6 +246,8 @@ final class SpeechPack: NSObject {
     /// Deletes the files. Recordings go back to Apple's model.
     func remove() {
         wanted = false
+        fromStore?.cancel()
+        Task { try? await AssetPackManager.shared.remove(assetPackWithID: Self.packID) }
         session.getAllTasks { tasks in tasks.forEach { $0.cancel() } }
         QwenEngine.shared.unload()
         try? FileManager.default.removeItem(at: Self.directory)
