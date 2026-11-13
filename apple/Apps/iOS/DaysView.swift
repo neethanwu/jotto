@@ -647,27 +647,23 @@ struct WeekStrip: View {
     }
 }
 
-/// Day numbers sit by their ink's weight, not its box. A "1" is a thin
-/// stem with its flag out to the left, so "11" or "14" centred by the box
-/// looks pushed right inside the pill; this moves each number back by most
-/// of the gap between its box centre and its ink centroid (SF Pro, 16 pt).
+/// Day numbers centred by what the eye takes as their edges, not by
+/// their box. A "1" reads from its stem: its flag is a short stroke out
+/// to the left, so "13" centred by its box (or by its ink's weight) still
+/// looks pushed right in the pill, with more room on the left. Each value
+/// is how far right of its box centre a number's seen middle is, the
+/// stem of a leading "1" counted as its left edge (SF Pro 16 Semibold,
+/// measured from the rendered glyphs; Medium is within 0.1 pt).
 enum OpticalCentre {
     private static let offsets: [CGFloat] = [
-        1.01, 0.17, 0.57, 0.4, -0.08, -0.14, 0.28, 0, 0.15, 0.86,
-        1.01, 0.79, 1.03, 0.86, 0.82, 0.93, 0.26, 1.07, 1.12, 0.3,
-        0.33, 0.17, 0.38, 0.21, 0.25, 0.43, -0.44, 0.57, 0.59, 0.49, 0.57,
+        1.14, 0.19, 0.18, 0.10, 0.29, 0.14, 0.11, 0.14, 0.14, 1.61,
+        1.09, 1.58, 1.57, 1.62, 1.62, 1.59, 1.69, 1.60, 1.59, 0.16,
+        -0.36, 0.13, 0.12, 0.18, 0.17, 0.14, 0.24, 0.15, 0.14, 0.17, -0.31,
     ]
 
     static func nudge(_ number: String) -> CGFloat {
         guard let n = Int(number), (1...31).contains(n) else { return 0 }
-        return -(offsets[n - 1] * 0.75).rounded(toPlaces: 2)
-    }
-}
-
-private extension CGFloat {
-    func rounded(toPlaces places: Int) -> CGFloat {
-        let k = pow(10, CGFloat(places))
-        return (self * k).rounded() / k
+        return -offsets[n - 1]
     }
 }
 

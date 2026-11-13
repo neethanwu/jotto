@@ -9,14 +9,22 @@ struct ProcessingView: View {
     @State private var draftKey = ""
     @FocusState private var keyFocused: Bool
     @FocusState private var addressFocused: Bool
-    @FocusState private var modelFocused: Bool
+    @FocusState private var modelFocus: Cloud.ModelSlot?
     @State private var editingKey = false
     @State private var check: KeyCheck = .unknown
     @State private var confirmingRemove = false
     /// The model row open in place, showing its choices.
     @State private var openSlot: Cloud.ModelSlot?
-    /// Another model, typed into the open row's last line.
-    @State private var typedModel = ""
+    /// The row that opens once the other one has folded away.
+    @State private var nextSlot: Cloud.ModelSlot?
+    /// Another model, typed into a row's last line.
+    @State private var typed: [Cloud.ModelSlot: String] = [:]
+    /// Each row's choices, open, measured.
+    @State private var choicesHeight: [Cloud.ModelSlot: CGFloat] = [:]
+    /// Room kept at the bottom of the page while one row folds and the
+    /// other opens, so a page scrolled to its end isn't pulled down by
+    /// the fold and then pushed back up.
+    @State private var reserve: CGFloat = 0
 
     enum KeyCheck { case unknown, checking, works, fails, unanswered }
 
@@ -55,7 +63,7 @@ struct ProcessingView: View {
                 }
             }
             .padding(.horizontal, 20)
-            .padding(.bottom, 48)
+            .padding(.bottom, 48 + reserve)
             .animation(.easeOut(duration: 0.2), value: config.usesOwnKey)
             .keyboardFriendly()
         }
@@ -64,7 +72,8 @@ struct ProcessingView: View {
         .onChange(of: openSlot) { _, slot in
             guard slot != nil else { return }
             Task {
-                try? await Task.sleep(for: .milliseconds(60))
+                // Once it has unfolded, so the page doesn't move with it.
+                try? await Task.sleep(for: .milliseconds(280))
                 withAnimation(.easeOut(duration: 0.3)) { proxy.scrollTo(Self.modelsEnd) }
             }
         }
@@ -181,7 +190,7 @@ struct ProcessingView: View {
             ServicePicker(selection: $config.cloudService)
             Text(config.cloudService == .openRouter
                  ? "One key for transcription and polish. Recommended."
-                 : "Any service with the OpenAI API: OpenAI, Groq, and others.")
+                 : "For services built to the same standard as OpenAI's, like Groq, Together or OpenAI itself. The address and the key both come from that service.")
                 .font(.scaled(13, .regular, relativeTo: .footnote))
                 .foregroundStyle(Color.jText3)
                 .padding(.top, 8)
@@ -255,7 +264,7 @@ struct ProcessingView: View {
                 modelRow(.write)
             }
             .card()
-            if openSlot != nil {
+            if openSlot != nil || nextSlot != nil {
                 Text(config.cloudService == .openRouter
                      ? "Any other model goes in as OpenRouter names it, like provider/model. Return to use it."
                      : "Any other model goes in as your service names it. Return to use it.")
@@ -337,40 +346,71 @@ struct ProcessingView: View {
             .buttonStyle(.plain)
             .accessibilityHint(open ? "Hides the models" : "Shows the models to choose from")
 
-            if open {
-                ModelChoices(slot: slot, typed: $typedModel, focused: $modelFocused) { id in
-                    ModelPick.set(id, for: slot)
-                    typedModel = ""
-                    modelFocused = false
-                    // A beat to see the check move, then fold away.
-                    Task {
-                        try? await Task.sleep(for: .milliseconds(250))
-                        if openSlot == slot { withAnimation(Self.fold) { openSlot = nil } }
-                    }
-                } submit: {
-                    useTypedModel()
-                    withAnimation(Self.fold) { openSlot = nil }
+            // Always there, folded to nothing when closed: it opens and
+            // closes as a fold (cut off at its bottom edge) rather than
+            // fading in place while the row under it slides over.
+            ModelChoices(slot: slot, typed: typedBinding(slot), focus: $modelFocus) { id in
+                ModelPick.set(id, for: slot)
+                typed[slot] = ""
+                modelFocus = nil
+                // A beat to see the check move, then fold away.
+                Task {
+                    try? await Task.sleep(for: .milliseconds(250))
+                    if openSlot == slot { withAnimation(Self.fold) { openSlot = nil } }
                 }
-                .transition(.opacity)
+            } submit: {
+                useTypedModel()
+                withAnimation(Self.fold) { openSlot = nil }
             }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { choicesHeight[slot] = $0 }
+            .frame(height: open ? nil : 0, alignment: .top)
+            .clipped()
+            .allowsHitTesting(open)
+            .accessibilityHidden(!open)
         }
     }
 
-    private static let fold = Animation.easeOut(duration: 0.24)
+    private static let fold = Animation.smooth(duration: 0.26)
     private static let modelsEnd = "models-end"
 
+    private func typedBinding(_ slot: Cloud.ModelSlot) -> Binding<String> {
+        Binding(get: { typed[slot] ?? "" }, set: { typed[slot] = $0 })
+    }
+
+    /// Open a row, or close it. With the other row open, that one folds
+    /// away first and this one opens after: one closing, then one
+    /// opening, rather than both at once with the rows sliding past.
     private func toggle(_ slot: Cloud.ModelSlot) {
         useTypedModel()
-        modelFocused = false
-        let opening = openSlot != slot
-        typedModel = opening && !ModelPick.isListed(ModelPick.value(slot), for: slot) ? ModelPick.value(slot) : ""
-        withAnimation(Self.fold) { openSlot = opening ? slot : nil }
+        modelFocus = nil
+        if openSlot == slot {
+            withAnimation(Self.fold) { openSlot = nil }
+            return
+        }
+        typed[slot] = ModelPick.isListed(ModelPick.value(slot), for: slot) ? "" : ModelPick.value(slot)
+        guard openSlot != nil else {
+            withAnimation(Self.fold) { openSlot = slot }
+            return
+        }
+        nextSlot = slot
+        reserve = choicesHeight[openSlot!] ?? 0
+        withAnimation(Self.fold) { openSlot = nil }
+        Task {
+            try? await Task.sleep(for: .milliseconds(230))
+            guard nextSlot == slot else { return }
+            nextSlot = nil
+            withAnimation(Self.fold) { openSlot = slot }
+            try? await Task.sleep(for: .milliseconds(300))
+            var quiet = Transaction()
+            quiet.disablesAnimations = true
+            withTransaction(quiet) { reserve = 0 }
+        }
     }
 
     /// The typed model, if there is one and it isn't already in use.
     private func useTypedModel() {
         guard let slot = openSlot else { return }
-        let model = typedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let model = (typed[slot] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !model.isEmpty, model != ModelPick.value(slot) else { return }
         ModelPick.set(model, for: slot)
     }
@@ -612,7 +652,7 @@ enum ModelPick {
 private struct ModelChoices: View {
     let slot: Cloud.ModelSlot
     @Binding var typed: String
-    var focused: FocusState<Bool>.Binding
+    var focus: FocusState<Cloud.ModelSlot?>.Binding
     let pick: (String) -> Void
     let submit: () -> Void
     @Bindable private var config: AppConfig = .shared
@@ -654,9 +694,9 @@ private struct ModelChoices: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .submitLabel(.done)
-                    .focused(focused)
+                    .focused(focus, equals: slot)
                     .onSubmit(submit)
-                ClearButton(text: $typed, label: "Clear model") { focused.wrappedValue = true }
+                ClearButton(text: $typed, label: "Clear model") { focus.wrappedValue = slot }
             }
             .padding(.leading, 16)
             .padding(.trailing, 10)
