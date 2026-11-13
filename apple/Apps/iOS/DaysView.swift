@@ -95,8 +95,10 @@ struct DaysView: View {
                 }
                 .padding(.top, searching ? 12 : 20)
                 .padding(.bottom, 140)
+                .keyboardFriendly()
             }
             .scrollPosition($scroll)
+            .scrollDismissesKeyboard(.immediately)
             .onScrollPhaseChange { _, phase in
                 if phase == .interacting, swiped != nil { withAnimation(.spring(duration: 0.3)) { swiped = nil } }
             }
@@ -179,7 +181,7 @@ struct DaysView: View {
             }
             .padding(.horizontal, 14)
             .frame(height: 40)
-            .background(Color.jFill, in: Capsule())
+            .fieldBackground()
 
             Button("Cancel", action: stopSearching)
                 .font(.label)

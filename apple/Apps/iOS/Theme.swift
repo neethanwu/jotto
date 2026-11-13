@@ -312,13 +312,22 @@ struct CircleIconButton: View {
     }
 }
 
-/// Corner radii. Cards are rounded, but only just: big radii read as
-/// toy-like next to text this size.
+/// Corner radii. One radius for every rectangle that stands on the page
+/// (cards, text fields, wells, the playing paragraph's band), rounded
+/// only just: big radii read as toy-like next to text this size. Pills
+/// are for buttons and chips, never for fields.
 enum Radius {
-    /// Cards and filled panels.
-    static let card: CGFloat = 14
-    /// Fields and wells inside a card or sheet.
-    static let inner: CGFloat = 10
+    /// Cards, fields, wells, panels.
+    static let card: CGFloat = 12
+    /// Something 3 pt inside one of those, like the segmented knob.
+    static let inner: CGFloat = 9
+}
+
+extension View {
+    /// A text field's grey ground: the same rectangle as a card.
+    func fieldBackground(_ fill: Color = .jFill) -> some View {
+        background(fill, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+    }
 }
 
 extension View {

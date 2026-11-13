@@ -9,13 +9,25 @@ struct ProcessingView: View {
     @State private var draftKey = ""
     @FocusState private var keyFocused: Bool
     @FocusState private var addressFocused: Bool
+    @FocusState private var modelFocused: Bool
     @State private var editingKey = false
     @State private var check: KeyCheck = .unknown
     @State private var confirmingRemove = false
+    /// The model row open in place, showing its choices.
+    @State private var openSlot: Cloud.ModelSlot?
+    /// Another model, typed into the open row's last line.
+    @State private var typedModel = ""
 
-    enum KeyCheck { case unknown, checking, works, fails }
+    enum KeyCheck { case unknown, checking, works, fails, unanswered }
+
+    /// Nothing to send recordings with: no key, or one the service
+    /// turned down. Until there is, they stay on this iPhone.
+    private var keyMissing: Bool {
+        draftKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || check == .fails
+    }
 
     var body: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 PageHeader(title: "Processing", detail: "How your recordings turn into text.") { dismiss() }
@@ -45,16 +57,43 @@ struct ProcessingView: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 48)
             .animation(.easeOut(duration: 0.2), value: config.usesOwnKey)
+            .keyboardFriendly()
         }
-        .scrollDismissesKeyboard(.interactively)
+        // A row opened low on the page: its choices come up into view,
+        // no further than needed.
+        .onChange(of: openSlot) { _, slot in
+            guard slot != nil else { return }
+            Task {
+                try? await Task.sleep(for: .milliseconds(60))
+                withAnimation(.easeOut(duration: 0.3)) { proxy.scrollTo(Self.modelsEnd) }
+            }
+        }
+        }
+        .scrollDismissesKeyboard(.immediately)
         .statusBarCover()
         .background(Color.jBg)
         .toolbar(.hidden, for: .navigationBar)
+        .sensoryFeedback(.selection, trigger: config.transcribeModel)
+        .sensoryFeedback(.selection, trigger: config.writeModel)
         .onAppear { loadKey() }
-        // Typed, then left without pressing return: keep it all the same.
-        .onDisappear { saveKey() }
+        .onDisappear(perform: leave)
         .onChange(of: config.usesOwnKey) { saveKey() }
-        .onChange(of: config.cloudService) { loadKey() }
+        .onChange(of: config.cloudService) {
+            loadKey()
+            openSlot = nil
+        }
+    }
+
+    /// Typed, then left without pressing return: keep it all the same.
+    /// Your own key picked but nothing that works to use it with: back
+    /// to this iPhone, which always does, rather than recordings waiting.
+    private func leave() {
+        saveKey()
+        useTypedModel()
+        if config.usesOwnKey, keyMissing {
+            config.usesOwnKey = false
+            Pipeline.shared.languageChanged()
+        }
     }
 
     private func choose(ownKey: Bool) {
@@ -162,7 +201,7 @@ struct ProcessingView: View {
                 .padding(.leading, 16)
                 .padding(.trailing, 10)
                 .frame(height: 52)
-                .background(Color.jFill, in: Capsule())
+                .fieldBackground()
                 .animation(.easeOut(duration: 0.15), value: config.cloudBaseURL.isEmpty)
             }
 
@@ -171,6 +210,8 @@ struct ProcessingView: View {
                 if editingKey || draftKey.isEmpty {
                     SecureField("Paste your key", text: $draftKey)
                         .font(.system(size: 15, design: .monospaced))
+                        // A key, not a password: no offer to save it as one.
+                        .textContentType(.oneTimeCode)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .focused($keyFocused)
@@ -189,14 +230,22 @@ struct ProcessingView: View {
             .padding(.leading, 16)
             .padding(.trailing, editingKey && !draftKey.isEmpty ? 10 : 16)
             .frame(height: 52)
-            .background(Color.jFill, in: Capsule())
-            .contentShape(Capsule())
+            .fieldBackground()
+            .contentShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             .onTapGesture {
                 editingKey = true
                 keyFocused = true
             }
             .onChange(of: keyFocused) { _, focused in
                 if focused { editingKey = true } else { editingKey = false; saveKey() }
+            }
+            if keyMissing {
+                Text("Until there's a key that works, recordings stay on this iPhone.")
+                    .font(.scaled(13, .regular, relativeTo: .footnote))
+                    .foregroundStyle(Color.jText3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 8)
+                    .transition(.opacity)
             }
 
             label("Models").padding(.top, 24).padding(.horizontal, 4)
@@ -206,6 +255,18 @@ struct ProcessingView: View {
                 modelRow(.write)
             }
             .card()
+            if openSlot != nil {
+                Text(config.cloudService == .openRouter
+                     ? "Any other model goes in as OpenRouter names it, like provider/model. Return to use it."
+                     : "Any other model goes in as your service names it. Return to use it.")
+                    .font(.scaled(13, .regular, relativeTo: .footnote))
+                    .foregroundStyle(Color.jText3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 8)
+                    .padding(.horizontal, 4)
+                    .transition(.opacity)
+            }
+            Color.clear.frame(height: 8).id(Self.modelsEnd)
 
             if config.cloudService == .openRouter {
                 Link(destination: URL(string: "https://openrouter.ai/keys")!) {
@@ -216,9 +277,10 @@ struct ProcessingView: View {
                     .font(.scaled(15, .medium, relativeTo: .subheadline))
                     .foregroundStyle(Color.jText)
                 }
-                .padding(.top, 24)
+                .padding(.top, 16)
             }
         }
+        .animation(.easeOut(duration: 0.2), value: keyMissing)
     }
 
     @ViewBuilder
@@ -237,27 +299,80 @@ struct ProcessingView: View {
             Text("Didn't work")
                 .font(.scaled(13, .medium, relativeTo: .footnote))
                 .foregroundStyle(Color.jLive)
+        case .unanswered:
+            Text("Couldn't check")
+                .font(.scaled(13, .medium, relativeTo: .footnote))
+                .foregroundStyle(Color.jText3)
         }
     }
 
-    /// A row that opens the model's own page: the pick stays in view
-    /// while you choose, and another model can be typed in there.
+    /// A model, picked in place (design 13f): tap the row and its
+    /// choices open under it, with a last line to type any other. The
+    /// pick stays in the row while you choose.
     private func modelRow(_ slot: Cloud.ModelSlot) -> some View {
-        NavigationLink(value: Route.model(slot)) {
-            HStack(spacing: 12) {
-                Text(ModelView.title(slot)).font(.reading).foregroundStyle(Color.jText)
-                Spacer(minLength: 8)
-                Text(Cloud.displayName(ModelView.value(slot), in: ModelView.choices(slot)))
-                    .font(.scaled(15, .medium, relativeTo: .subheadline))
-                    .foregroundStyle(Color.jText2)
-                    .lineLimit(1)
-                Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.jText4)
+        let open = openSlot == slot
+        return VStack(spacing: 0) {
+            Button { toggle(slot) } label: {
+                HStack(spacing: 6) {
+                    Text(ModelPick.title(slot))
+                        .font(.reading)
+                        .foregroundStyle(Color.jText)
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                    Spacer(minLength: 6)
+                    Text(Cloud.displayName(ModelPick.value(slot), in: ModelPick.choices(slot)))
+                        .font(.scaled(15, .medium, relativeTo: .subheadline))
+                        .foregroundStyle(Color.jText2)
+                        .lineLimit(1)
+                        .contentTransition(.opacity)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.jText4)
+                        .rotationEffect(.degrees(open ? 180 : 0))
+                }
+                .padding(.horizontal, 16)
+                .frame(height: 52)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 16)
-            .frame(height: 52)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .accessibilityHint(open ? "Hides the models" : "Shows the models to choose from")
+
+            if open {
+                ModelChoices(slot: slot, typed: $typedModel, focused: $modelFocused) { id in
+                    ModelPick.set(id, for: slot)
+                    typedModel = ""
+                    modelFocused = false
+                    // A beat to see the check move, then fold away.
+                    Task {
+                        try? await Task.sleep(for: .milliseconds(250))
+                        if openSlot == slot { withAnimation(Self.fold) { openSlot = nil } }
+                    }
+                } submit: {
+                    useTypedModel()
+                    withAnimation(Self.fold) { openSlot = nil }
+                }
+                .transition(.opacity)
+            }
         }
-        .buttonStyle(.plain)
+    }
+
+    private static let fold = Animation.easeOut(duration: 0.24)
+    private static let modelsEnd = "models-end"
+
+    private func toggle(_ slot: Cloud.ModelSlot) {
+        useTypedModel()
+        modelFocused = false
+        let opening = openSlot != slot
+        typedModel = opening && !ModelPick.isListed(ModelPick.value(slot), for: slot) ? ModelPick.value(slot) : ""
+        withAnimation(Self.fold) { openSlot = opening ? slot : nil }
+    }
+
+    /// The typed model, if there is one and it isn't already in use.
+    private func useTypedModel() {
+        guard let slot = openSlot else { return }
+        let model = typedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !model.isEmpty, model != ModelPick.value(slot) else { return }
+        ModelPick.set(model, for: slot)
     }
 
     private func label(_ text: String) -> some View {
@@ -291,8 +406,11 @@ struct ProcessingView: View {
     private func runCheck() async {
         guard !draftKey.isEmpty else { check = .unknown; return }
         check = .checking
-        let ok = await Cloud.check(key: draftKey, service: config.cloudService, base: config.cloudBaseURL)
-        check = ok ? .works : .fails
+        switch await Cloud.check(key: draftKey, service: config.cloudService, base: config.cloudBaseURL) {
+        case .works: check = .works
+        case .turnedDown: check = .fails
+        case .unanswered: check = .unanswered
+        }
     }
 }
 
@@ -358,7 +476,7 @@ private struct QwenRow: View {
             case let .downloading(fraction):
                 VStack(alignment: .leading, spacing: 7) {
                     ProgressBar(fraction: fraction)
-                    Text("\(Int(fraction * 950)) of \(SpeechPack.sizeLabel). Fine to leave this page.")
+                    Text("\(Int(fraction * 950)) of \(SpeechPack.sizeLabel). Apple's model carries on until this is done, then it takes over. Fine to leave this page.")
                         .monospacedDigit()
                 }
                 .padding(.top, 6)
@@ -464,16 +582,10 @@ private struct ServicePicker: View {
     }
 }
 
-/// One model to pick (design 13f): the suggested ones, then a field for
-/// any other the service has. Picking one saves it; a typed one is
-/// saved on return or on the way back.
-struct ModelView: View {
-    let slot: Cloud.ModelSlot
-    @Environment(\.dismiss) private var dismiss
-    @Bindable private var config: AppConfig = .shared
-    @State private var typed = ""
-    @FocusState private var typing: Bool
-
+/// The models you can pick for transcription and for writing (titles,
+/// summaries, formatting), and how to set them.
+@MainActor
+enum ModelPick {
     static func title(_ slot: Cloud.ModelSlot) -> String {
         slot == .transcribe ? "Transcription" : "Titles and formatting"
     }
@@ -482,89 +594,89 @@ struct ModelView: View {
         slot == .transcribe ? Cloud.transcribeModels : Cloud.writeModels
     }
 
-    @MainActor static func value(_ slot: Cloud.ModelSlot) -> String {
+    static func value(_ slot: Cloud.ModelSlot) -> String {
         slot == .transcribe ? AppConfig.shared.transcribeModel : AppConfig.shared.writeModel
     }
 
-    private var value: String {
-        get { Self.value(slot) }
-        nonmutating set {
-            if slot == .transcribe { config.transcribeModel = newValue } else { config.writeModel = newValue }
-        }
+    static func set(_ model: String, for slot: Cloud.ModelSlot) {
+        if slot == .transcribe { AppConfig.shared.transcribeModel = model } else { AppConfig.shared.writeModel = model }
     }
 
-    private var isOther: Bool { !Self.choices(slot).contains { $0.id == value } }
+    static func isListed(_ model: String, for slot: Cloud.ModelSlot) -> Bool {
+        choices(slot).contains { $0.id == model }
+    }
+}
+
+/// Under an open model row: the suggested models, each with its full
+/// name, a check on the one in use, then a line to type any other.
+private struct ModelChoices: View {
+    let slot: Cloud.ModelSlot
+    @Binding var typed: String
+    var focused: FocusState<Bool>.Binding
+    let pick: (String) -> Void
+    let submit: () -> Void
+    @Bindable private var config: AppConfig = .shared
+
+    private var value: String { ModelPick.value(slot) }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                PageHeader(
-                    title: Self.title(slot),
-                    detail: slot == .transcribe
-                        ? "The model that hears your recordings."
-                        : "The model that names recordings and tidies the text."
-                ) { dismiss() }
-
-                SettingsGroup {
-                    ForEach(Self.choices(slot), id: \.id) { choice in
-                        ChoiceRow(label: choice.name, detail: choice.id, selected: choice.id == value) {
-                            value = choice.id
-                            typed = ""
-                            typing = false
+        VStack(spacing: 0) {
+            ForEach(Array(ModelPick.choices(slot).enumerated()), id: \.element.id) { i, choice in
+                if i > 0 { line }
+                Button { pick(choice.id) } label: {
+                    HStack(spacing: 12) {
+                        check(choice.id == value)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(choice.name)
+                                .font(.scaled(16, .regular, relativeTo: .body))
+                                .foregroundStyle(Color.jText)
+                            Text(choice.id)
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundStyle(Color.jText3)
+                                .lineLimit(1)
                         }
+                        Spacer(minLength: 0)
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 9)
+                    .frame(minHeight: 54)
+                    .contentShape(Rectangle())
                 }
-                .padding(.top, 24)
-
-                Text("Another model")
-                    .font(.scaled(11, .medium, relativeTo: .caption2))
-                    .foregroundStyle(Color.jText3)
-                    .padding(.top, 28)
-                    .padding(.bottom, 8)
-                HStack(spacing: 4) {
-                    TextField(config.cloudService == .openRouter ? "provider/model" : "model-name", text: $typed)
-                        .font(.system(size: 15, design: .monospaced))
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .submitLabel(.done)
-                        .focused($typing)
-                        .onSubmit(useTyped)
-                    ClearButton(text: $typed, label: "Clear model") { typing = true }
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(Color.jText)
-                        .opacity(isOther && !typed.isEmpty && typed == value ? 1 : 0)
-                        .frame(width: 24)
-                }
-                .padding(.leading, 16)
-                .padding(.trailing, 10)
-                .frame(height: 52)
-                .background(Color.jFill, in: Capsule())
-                .animation(.easeOut(duration: 0.15), value: typed.isEmpty)
-                Text(config.cloudService == .openRouter
-                     ? "As OpenRouter names it, like provider/model. Return to use it."
-                     : "As your service names it. Return to use it.")
-                    .font(.scaled(13, .regular, relativeTo: .footnote))
-                    .foregroundStyle(Color.jText3)
-                    .padding(.top, 8)
-                    .padding(.horizontal, 4)
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(choice.id == value ? .isSelected : [])
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 48)
+            line
+            HStack(spacing: 12) {
+                check(!typed.isEmpty && typed == value && !ModelPick.isListed(value, for: slot))
+                TextField(config.cloudService == .openRouter ? "Another, like provider/model" : "Another model",
+                          text: $typed)
+                    .font(.system(size: 15, design: .monospaced))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.done)
+                    .focused(focused)
+                    .onSubmit(submit)
+                ClearButton(text: $typed, label: "Clear model") { focused.wrappedValue = true }
+            }
+            .padding(.leading, 16)
+            .padding(.trailing, 10)
+            .frame(height: 54)
+            .animation(.easeOut(duration: 0.15), value: typed.isEmpty)
         }
-        .scrollDismissesKeyboard(.interactively)
-        .statusBarCover()
-        .background(Color.jBg)
-        .toolbar(.hidden, for: .navigationBar)
-        .sensoryFeedback(.selection, trigger: value)
-        .onAppear { if isOther { typed = value } }
-        .onDisappear(perform: useTyped)
+        .padding(.bottom, 2)
     }
 
-    private func useTyped() {
-        let model = typed.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !model.isEmpty, model != value else { return }
-        value = model
+    /// Hairlines start where the names do.
+    private var line: some View {
+        Rectangle().fill(Color.jHairline).frame(height: 1).padding(.leading, 48).padding(.trailing, 16)
+    }
+
+    private func check(_ on: Bool) -> some View {
+        Image(systemName: "checkmark")
+            .font(.system(size: 14, weight: .bold))
+            .foregroundStyle(Color.jText)
+            .opacity(on ? 1 : 0)
+            .frame(width: 20)
     }
 }
 

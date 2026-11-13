@@ -125,15 +125,24 @@ enum Cloud {
     }
 
     /// Whether the key and address work: a cheap request that needs both.
-    static func check(key: String, service: Service, base: String) async -> Bool {
+    /// What trying a key said: it works, the service turned it down (or
+    /// the address can't be one), or the service couldn't be asked.
+    enum Check { case works, turnedDown, unanswered }
+
+    static func check(key: String, service: Service, base: String) async -> Check {
         let address = service == .openRouter ? "https://openrouter.ai/api/v1/key"
             : base.trimmingCharacters(in: CharacterSet(charactersIn: "/ ")) + "/models"
-        guard let url = URL(string: address) else { return false }
+        guard let url = URL(string: address), url.scheme?.hasPrefix("http") == true, url.host() != nil else { return .turnedDown }
         var request = URLRequest(url: url)
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.timeoutInterval = 20
-        guard let (_, response) = try? await URLSession.shared.data(for: request) else { return false }
-        return ((response as? HTTPURLResponse)?.statusCode ?? 0) / 100 == 2
+        guard let (_, response) = try? await URLSession.shared.data(for: request) else { return .unanswered }
+        switch (response as? HTTPURLResponse)?.statusCode ?? 0 {
+        case 200..<300: return .works
+        case 401, 403: return .turnedDown
+        // Some services have no list of models to ask for: say nothing.
+        default: return .unanswered
+        }
     }
 
     // MARK: Transcription

@@ -60,6 +60,8 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
     }
 
     static let gutter: CGFloat = 44
+    /// How far the playing paragraph's band reaches past the column.
+    static let bandBleed: CGFloat = 12
     private static let chipRow: CGFloat = 22
     private static let rowGap: CGFloat = 6
     private static let paragraphGap: CGFloat = 22
@@ -113,7 +115,7 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
             UIColor(Color.jText).resolvedColor(with: traits)
                 .withAlphaComponent(traits.userInterfaceStyle == .dark ? 0.08 : 0.045)
         }
-        band.layer.cornerRadius = 10
+        band.layer.cornerRadius = Radius.card
         band.layer.cornerCurve = .continuous
         band.alpha = 0
         band.isUserInteractionEnabled = false
@@ -306,17 +308,20 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
         }
     }
 
-    /// Wider than the text and a little above and below it, so the
-    /// paragraph reads as picked out, with its time inside.
+    /// A little wider than the paragraph and a little above and below
+    /// it, so it reads as picked out, with its time inside.
     private func placeBand(animated: Bool) {
         guard let current, let i = paragraphs.firstIndex(where: { $0.id == current }),
-              i < textTops.count, i < bottoms.count else {
+              i < tops.count, i < textTops.count, i < bottoms.count else {
             UIView.animate(withDuration: animated ? 0.2 : 0) { self.band.alpha = 0 }
             return
         }
-        // Around the words only: the time stays out in the gutter, in orange.
-        let frame = CGRect(x: Self.gutter - 12, y: textTops[i] - 7,
-                           width: bounds.width - Self.gutter + 24, height: bottoms[i] - textTops[i] + 14)
+        // The whole paragraph, its time included: 12 pt out on both sides,
+        // so the time and the text keep their margins and the band hangs
+        // evenly past them. From the speaker or chips when there are any.
+        let top = tops[i] < textTops[i] ? tops[i] - 8 : textTops[i] - 7
+        let frame = CGRect(x: -Self.bandBleed, y: top,
+                           width: bounds.width + Self.bandBleed * 2, height: bottoms[i] + 7 - top)
         if band.alpha == 0 || !animated {
             band.frame = frame
             UIView.animate(withDuration: animated ? 0.2 : 0) { self.band.alpha = 1 }

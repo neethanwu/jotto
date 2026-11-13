@@ -458,7 +458,7 @@ struct TemplateEditor: View {
                     .padding(.leading, 16)
                     .padding(.trailing, 40)
                     .padding(.vertical, 14)
-                    .background(Color.jSheetFill, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                    .fieldBackground(.jSheetFill)
                     .overlay(alignment: .topTrailing) {
                         ClearButton(text: $draft.instruction, visible: instructionFocused, label: "Clear instruction") { instructionFocused = true }
                             .padding(.top, 4)
@@ -488,8 +488,8 @@ struct TemplateEditor: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 14)
-                    .background(Color.jSheetWell, in: RoundedRectangle(cornerRadius: Radius.inner, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: Radius.inner, style: .continuous).strokeBorder(Color.jSheetHairline, lineWidth: 1))
+                    .background(Color.jSheetWell, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).strokeBorder(Color.jSheetHairline, lineWidth: 1))
 
                 if !isNew, SendTemplates.shared.all.count > 1 {
                     Button("Delete template", role: .destructive) { confirmDelete = true }
@@ -501,8 +501,9 @@ struct TemplateEditor: View {
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 40)
+            .keyboardFriendly()
         }
-        .scrollDismissesKeyboard(.interactively)
+        .scrollDismissesKeyboard(.immediately)
     }
 
     private func label(_ text: String) -> some View {

@@ -10,7 +10,6 @@ enum AppTab: Hashable {
 enum Route: Hashable {
     case transcript(id: String, at: Double? = nil, rename: Bool = false)
     case processing
-    case model(Cloud.ModelSlot)
     case language
     case keepAudio
     case openIn
@@ -47,7 +46,11 @@ struct RootView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             // Keep both alive so each keeps its scroll position and stack.
+            // Days' search sits at the top and its results scroll away
+            // the keyboard; the other tabs' pages make room for it, so a
+            // field low on a page can come up above it.
             tab(.days) { DaysView(router: router) }
+                .ignoresSafeArea(.keyboard)
             tab(.send) { SendView(router: router) }
             tab(.settings) { SettingsView(router: router) }
 
@@ -56,10 +59,11 @@ struct RootView: View {
                     if tab == .days { router.daysReselected += 1 }
                 }, accessory: AnyView(RecordButton(router: router)))
                 .transition(.opacity)
+                // Stays behind the keyboard rather than riding on it.
+                .ignoresSafeArea(.keyboard)
             }
         }
         .animation(.easeOut(duration: 0.2), value: router.showsTabBar)
-        .ignoresSafeArea(.keyboard)
         .background(Color.jBg)
         .fullScreenCover(item: $router.live) {
             // Clear behind it, so pulling it down shows the app underneath.
@@ -94,7 +98,6 @@ struct RootView: View {
                     switch route {
                     case let .transcript(id, at, rename): TranscriptView(id: id, startAt: at, startsRenaming: rename)
                     case .processing: ProcessingView()
-                    case let .model(slot): ModelView(slot: slot)
                     case .language: LanguageView()
                     case .keepAudio: KeepAudioView()
                     case .openIn: OpenInView()
