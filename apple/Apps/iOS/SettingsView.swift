@@ -361,7 +361,7 @@ struct MonthCard: View {
             .accessibilityHidden(true)
         }
         .padding(18)
-        .card(radius: 24)
+        .card()
         .accessibilityElement(children: .combine)
     }
 

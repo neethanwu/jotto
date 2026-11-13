@@ -21,7 +21,14 @@ struct TranscriptView: View {
     @State private var shown: Tab = AppConfig.shared.opensOriginal ? .original : .clean
     /// How far the page is pushed sideways while swiping between tabs.
     @State private var slide: CGFloat = 0
-    @State private var swipeAxis: Axis?
+    /// The pages beside the shown one, moved up or down so the paragraph
+    /// you're reading lines up with itself as they slide in.
+    @State private var shifts: [Tab: CGFloat] = [:]
+    /// A sideways swipe holds the page still: no scrolling until it lets go.
+    @State private var swiping = false
+    /// True while a finger is on the page; a swipe the system cancels never
+    /// gets its end, so this is what lets the page scroll again.
+    @GestureState private var touching = false
     /// Each page's rows and paragraphs, worked out once per change to the
     /// recording rather than on every frame of a slide.
     @State private var models: [Tab: PageModel] = [:]
@@ -30,9 +37,10 @@ struct TranscriptView: View {
     /// Bumped by Rename in the menu: scroll up to the title, then edit it.
     @State private var renameRequests = 0
     @State private var pageWidth: CGFloat = 400
-    /// A highlight was tapped in the Highlights tab: scroll here in Clean.
-    @State private var jumpTarget: Int?
     @State private var player = RecordingPlayer()
+    @State private var scroll = ScrollPosition(edge: .top)
+    /// The paragraph playing on each page, changed only when it moves on.
+    @State private var playing = Playing()
     @State private var sharing = false
     @State private var renaming = false
     @State private var draftTitle = ""
@@ -40,12 +48,8 @@ struct TranscriptView: View {
     @State private var confirmDelete = false
     @State private var scrolledToStart = false
     @State private var pickingLanguages = false
-    /// Where each paragraph starts in the body, for scrolling to it.
-    @State private var paragraphTops: [Tab: [Int: CGFloat]] = [:]
-    /// Playback doesn't scroll the page for a moment after a scroll by hand.
-    @State private var followPausedUntil = Date.distantPast
-    /// A paragraph tapped in the text: brought into view if it isn't.
-    @State private var revealTarget: Int?
+    /// Where each paragraph starts and ends in the body, for scrolling to it.
+    @State private var spans: [Tab: [Int: TranscriptBodyView.Span]] = [:]
     /// Where things are on screen, kept outside SwiftUI's state so that
     /// following the scroll doesn't redraw the page every frame.
     @State private var where_ = Whereabouts()
@@ -61,104 +65,99 @@ struct TranscriptView: View {
     var body: some View {
         VStack(spacing: 0) {
             topBar
-            ScrollViewReader { proxy in
-                ScrollView {
-                    if let detail {
-                        // Meta and title scroll away; the view switch stays
-                        // at the top, so more of the screen is the text.
-                        LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-                            head(detail)
-                                .padding(.horizontal, 20)
-                                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headHeight = $0 }
-                                .id(Self.headID)
-                            Section {
-                                pages(detail)
-                                    .onGeometryChange(for: CGFloat.self) { $0.frame(in: .scrollView).minY } action: { where_.bodyTop = $0 }
-                                    .padding(.top, 20)
-                                    .padding(.bottom, 140)
-                                    // While the title is being edited the transcript
-                                    // steps back. A veil over it rather than changing
-                                    // the rows themselves: touching the selectable
-                                    // text's modifiers rebuilt it, and it slid into
-                                    // place as the keyboard went.
-                                    .overlay {
-                                        Color.jBg
-                                            .opacity(renaming ? 0.7 : 0)
-                                            .allowsHitTesting(renaming)
-                                            .accessibilityHidden(true)
-                                    }
-                            } header: {
-                                pinnedHeader(detail)
-                            }
+            ScrollView {
+                if let detail {
+                    // Meta and title scroll away; the view switch stays
+                    // at the top, so more of the screen is the text.
+                    LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                        head(detail)
+                            .padding(.horizontal, 20)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headHeight = $0 }
+                            .background { ScrollViewHook { where_.scrollView = $0 } }
+                        Section {
+                            pages(detail)
+                                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { where_.bodyTop = $0 }
+                                .padding(.top, 20)
+                                .padding(.bottom, 140)
+                                // While the title is being edited the transcript
+                                // steps back. A veil over it rather than changing
+                                // the rows themselves: touching the selectable
+                                // text's modifiers rebuilt it, and it slid into
+                                // place as the keyboard went.
+                                .overlay {
+                                    Color.jBg
+                                        .opacity(renaming ? 0.7 : 0)
+                                        .allowsHitTesting(renaming)
+                                        .accessibilityHidden(true)
+                                }
+                        } header: {
+                            pinnedHeader(detail)
                         }
-                    } else if let error {
-                        Text(error).font(.summary).foregroundStyle(Color.jText3).padding(20)
-                    } else {
-                        ProgressView().padding(.top, 80)
                     }
+                } else if let error {
+                    Text(error).font(.summary).foregroundStyle(Color.jText3).padding(20)
+                } else {
+                    ProgressView().padding(.top, 80)
                 }
-                .scrollIndicators(.hidden)
-                .onScrollGeometryChange(for: Bool.self) { geo in
-                    geo.contentOffset.y + geo.contentInsets.top > headHeight - 1
-                } action: { _, now in pinned = now }
-                // Swipe sideways to move between the tabs: the page follows
-                // the finger and slides over. Not from the left edge, which
-                // goes back, and not past the first or last tab.
-                .simultaneousGesture(DragGesture(minimumDistance: 14)
-                    .onChanged { value in swipeChanged(value) }
-                    .onEnded { value in swipeEnded(value) })
-                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pageWidth = $0 }
-                .sensoryFeedback(.selection, trigger: tab)
-                .onChange(of: detail?.blocks.count) { _, _ in scrollToStart(proxy) }
-                .onChange(of: currentBlock) { _, block in
-                    // Playing on: follow, unless the reader is scrolling about by hand.
-                    guard shown != .highlights, player.isPlaying, player.scrubTime == nil,
-                          Date.now > followPausedUntil, let block else { return }
-                    reveal(block, proxy)
+            }
+            .scrollIndicators(.hidden)
+            .scrollPosition($scroll)
+            .scrollDisabled(swiping)
+            .onScrollGeometryChange(for: Bool.self) { geo in
+                geo.contentOffset.y + geo.contentInsets.top > headHeight - 1
+            } action: { _, now in pinned = now }
+            .onScrollGeometryChange(for: ScrollGeometry.self) { $0 } action: { _, geo in
+                where_.offset = geo.contentOffset.y
+                where_.minOffset = -geo.contentInsets.top
+                where_.maxOffset = max(where_.minOffset, geo.contentSize.height + geo.contentInsets.bottom - geo.containerSize.height)
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { where_.scrollTop = $0 }
+            // Swipe sideways to move between the tabs: the page follows
+            // the finger and slides over. Not from the left edge, which
+            // goes back, and not past the first or last tab.
+            .simultaneousGesture(DragGesture(minimumDistance: 14)
+                .updating($touching) { _, state, _ in state = true }
+                .onChanged { value in swipeChanged(value) }
+                .onEnded { value in swipeEnded(value) })
+            .onChange(of: touching) { _, now in
+                guard !now, swiping, tab == shown else { return }
+                where_.swipeAxis = nil
+                withAnimation(.spring(duration: 0.3, bounce: 0.1)) { slide = 0 } completion: { shifts = [:] }
+                swiping = false
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pageWidth = $0 }
+            .sensoryFeedback(.selection, trigger: tab)
+            .onChange(of: detail?.blocks.count) { _, _ in scrollToStart() }
+            .onScrollPhaseChange { _, phase in
+                // Scrolling by hand: playback leaves the page alone for a bit.
+                if phase == .interacting { where_.followPausedUntil = .now.addingTimeInterval(4) }
+            }
+            .onChange(of: renameRequests) {
+                // Rename from the menu with the title scrolled away: the
+                // field isn't there to focus until it's back on screen.
+                withAnimation(Self.editMotion) { scroll.scrollTo(edge: .top) }
+                Task {
+                    try? await Task.sleep(for: .milliseconds(350))
+                    titleFocused = true
                 }
-                .onChange(of: player.seeks) {
-                    // Moved by hand (the wave, the line, the text): always show where it went.
-                    followPausedUntil = .distantPast
-                    guard shown != .highlights, let block = currentBlock else { return }
-                    reveal(block, proxy, fast: player.scrubTime != nil)
-                }
-                .onChange(of: revealTarget) { _, target in
-                    guard let target else { return }
-                    reveal(target, proxy)
-                    revealTarget = nil
-                }
-                .onScrollPhaseChange { _, phase in
-                    // Scrolling by hand: playback leaves the page alone for a bit.
-                    if phase == .interacting { followPausedUntil = .now.addingTimeInterval(4) }
-                }
-                .onScrollGeometryChange(for: CGFloat.self) { $0.containerSize.height } action: { _, h in where_.viewport = h }
-                .onChange(of: jumpTarget) { _, target in
-                    guard let target, let detail else { return }
-                    Task {
-                        // Let Clean lay out first.
-                        try? await Task.sleep(for: .milliseconds(150))
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            // Clear of the pinned view switch.
-                            proxy.scrollTo(groupID(of: target, in: detail), anchor: UnitPoint(x: 0.5, y: 0.2))
-                        }
-                        jumpTarget = nil
-                    }
-                }
-                .onChange(of: renameRequests) {
-                    // Rename from the menu with the title scrolled away: the
-                    // field isn't there to focus until it's back on screen.
-                    withAnimation(Self.editMotion) { proxy.scrollTo(Self.headID, anchor: .top) }
-                    Task {
-                        try? await Task.sleep(for: .milliseconds(350))
-                        titleFocused = true
-                    }
-                }
-                .sensoryFeedback(.selection, trigger: currentBlock) { _, _ in player.scrubTime != nil }
+            }
+            .sensoryFeedback(.selection, trigger: playing) { _, _ in player.scrubTime != nil }
+        }
+        // Watches the player so this page doesn't have to: it redraws when
+        // the paragraph playing changes, not on every tick or scrub step.
+        .background {
+            if let detail {
+                PlayFollower(player: player, blocks: detail.blocks) { now, seeked in follow(now, seeked: seeked) }
             }
         }
         .background(Color.jBg)
         .overlay(alignment: .bottom) {
-            if let detail { PlayerBar(player: player, hasAudio: !detail.segments.isEmpty) }
+            if let detail {
+                PlayerBar(player: player, hasAudio: !detail.segments.isEmpty)
+                    .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: {
+                        where_.playerTop = $0 + PlayerBar.lead
+                    }
+            }
         }
         .toolbar(.hidden, for: .navigationBar)
         // Only the title is ever typed into, and it sits above the
@@ -194,7 +193,15 @@ struct TranscriptView: View {
     /// One curve for everything that changes when a rename starts or ends.
     static let editMotion = Animation.smooth(duration: 0.32)
 
-    /// Both bars are always there and cross-fade, so nothing reflows.
+    /// The bar going away is gone before the other arrives: crossed over
+    /// the same stretch, the dark Done pill showed through the round
+    /// buttons as a grey smear.
+    private static let barSwap = AnyTransition.asymmetric(
+        insertion: .opacity.animation(.easeOut(duration: 0.18).delay(0.09)),
+        removal: .opacity.animation(.easeIn(duration: 0.09))
+    )
+
+    /// One bar or the other in the same 52 points, so nothing reflows.
     private var topBar: some View {
         ZStack {
             if renaming {
@@ -207,10 +214,10 @@ struct TranscriptView: View {
                         .buttonStyle(PrimaryPillStyle(height: 36))
                 }
                 .padding(.horizontal, 20)
-                .transition(.opacity)
+                .transition(Self.barSwap)
             } else {
                 browsingBar
-                    .transition(.opacity)
+                    .transition(Self.barSwap)
             }
         }
         .frame(height: 52)
@@ -276,8 +283,6 @@ struct TranscriptView: View {
 
     // MARK: - Content
 
-    private static let headID = "head"
-
     /// Meta and title, scrolling with the text.
     private func head(_ detail: SessionDetail) -> some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -330,6 +335,7 @@ struct TranscriptView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.jBg)
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { where_.header = $0 }
+        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY } action: { where_.headerBottom = $0 }
         // While the title is being edited, the rest steps back.
         .opacity(renaming ? 0.3 : 1)
         .allowsHitTesting(!renaming)
@@ -420,40 +426,80 @@ struct TranscriptView: View {
 
     /// The pages sit side by side, a screen apart, and slide together:
     /// the next one comes in attached to the one going out. The switch
-    /// above moves as the pages do.
+    /// above moves as the pages do. The next page arrives lined up on the
+    /// paragraph you were reading, and stays there.
     private func go(to next: Tab, then: (() -> Void)? = nil) {
         guard let detail, next != shown else {
             tab = next
             withAnimation(.spring(duration: 0.3, bounce: 0.1)) { slide = 0 }
+            swiping = false
             then?()
             return
         }
         let order = tabs(detail)
         let from = order.firstIndex(of: shown) ?? 0
         let to = order.firstIndex(of: next) ?? 0
+        if shifts.isEmpty { shifts = alignments() }
+        let lift = -(shifts[next] ?? 0)
         tab = next
-        withAnimation(.spring(duration: 0.38, bounce: 0.06)) {
+        withAnimation(.spring(duration: 0.36, bounce: 0.04)) {
             slide = -CGFloat(to - from) * pageWidth
         } completion: {
-            // The page that arrived becomes the shown one, where it already is.
+            // The page that arrived becomes the shown one, where it already
+            // is: its shift turns into scrolling, all in the same frame.
             var still = Transaction()
             still.disablesAnimations = true
             withTransaction(still) {
                 shown = next
                 slide = 0
+                shifts = [:]
+                swiping = false
+                if lift != 0 { scroll.scrollTo(y: min(max(where_.offset + lift, where_.minOffset), where_.maxOffset + abs(lift))) }
             }
             then?()
         }
     }
 
+    /// How far each neighbouring page must move so the paragraph at the
+    /// top of the screen is in the same place on it. Formatted drops the
+    /// "嗯"s and the fillers, so the same paragraph sits higher there.
+    private func alignments() -> [Tab: CGFloat] {
+        guard let here = spans[shown], !here.isEmpty else { return [:] }
+        // The first paragraph still showing under the switch.
+        let line = where_.headerBottom - where_.bodyTop
+        guard line > 0 else { return [:] }
+        let order = here.sorted { $0.value.top < $1.value.top }
+        guard let anchor = order.first(where: { $0.value.bottom > line }) else { return [:] }
+        var out: [Tab: CGFloat] = [:]
+        for t in [Tab.clean, .original] where t != shown {
+            guard let there = spans[t] else { continue }
+            // A paragraph only Original has: use the next one both have.
+            let match = order.drop { $0.key != anchor.key }.first { there[$0.key] != nil }
+            guard let match, let span = there[match.key] else { continue }
+            out[t] = match.value.top - span.top
+        }
+        return out
+    }
+
     private func swipeChanged(_ value: DragGesture.Value) {
         guard let detail, value.startLocation.x > 32 else { return }
         let dx = value.translation.width, dy = value.translation.height
-        // Decide once per swipe whether it's sideways or a scroll.
-        if swipeAxis == nil || hypot(dx, dy) < 20 {
-            swipeAxis = abs(dx) > abs(dy) * 1.5 ? .horizontal : .vertical
+        // Decide once per swipe whether it's sideways or a scroll. Sideways
+        // holds the page still until the finger lets go.
+        if where_.swipeAxis == nil || hypot(dx, dy) < 20 {
+            where_.swipeAxis = abs(dx) > abs(dy) * 1.5 ? .horizontal : .vertical
         }
-        guard swipeAxis == .horizontal, tab == shown else { return }
+        guard where_.swipeAxis == .horizontal, tab == shown else { return }
+        if !swiping {
+            swiping = true
+            shifts = alignments()
+            // The scroll already under way stops here: turning the scroll
+            // off only keeps a new one from starting.
+            if let pan = where_.scrollView?.panGestureRecognizer {
+                pan.isEnabled = false
+                pan.isEnabled = true
+            }
+        }
         let order = tabs(detail)
         let i = order.firstIndex(of: shown) ?? 0
         let n = dx < 0 ? i + 1 : i - 1
@@ -466,8 +512,8 @@ struct TranscriptView: View {
     }
 
     private func swipeEnded(_ value: DragGesture.Value) {
-        defer { swipeAxis = nil }
-        guard swipeAxis == .horizontal, let detail, tab == shown else { return }
+        defer { where_.swipeAxis = nil }
+        guard where_.swipeAxis == .horizontal, let detail, tab == shown else { return }
         let dx = value.translation.width
         let flung = value.predictedEndTranslation.width
         let order = tabs(detail)
@@ -476,7 +522,8 @@ struct TranscriptView: View {
         if order.indices.contains(next), abs(dx) > pageWidth * 0.3 || (abs(flung) > pageWidth * 0.5 && flung.sign == dx.sign) {
             go(to: order[next])
         } else {
-            withAnimation(.spring(duration: 0.3, bounce: 0.1)) { slide = 0 }
+            withAnimation(.spring(duration: 0.3, bounce: 0.1)) { slide = 0 } completion: { shifts = [:] }
+            swiping = false
         }
     }
 
@@ -611,8 +658,9 @@ struct TranscriptView: View {
         let here = order.firstIndex(of: shown) ?? 0
         return SlidingPages(slide: $slide, here: here, width: pageWidth) {
             ForEach(order, id: \.self) { t in
-                page(detail, t, main: t == shown)
+                page(detail, t)
                     .padding(.horizontal, 20)
+                    .offset(y: t == shown ? 0 : shifts[t] ?? 0)
                     .allowsHitTesting(t == shown)
                     .accessibilityHidden(t != shown)
             }
@@ -620,7 +668,7 @@ struct TranscriptView: View {
     }
 
     @ViewBuilder
-    private func page(_ detail: SessionDetail, _ t: Tab, main: Bool) -> some View {
+    private func page(_ detail: SessionDetail, _ t: Tab) -> some View {
         if detail.blocks.isEmpty {
             if detail.status == "ready" {
                 VStack(alignment: .leading, spacing: 6) {
@@ -641,33 +689,27 @@ struct TranscriptView: View {
             highlightList(detail)
         } else if let model = models[t] {
             let rows = model.rows
-            ZStack(alignment: .topLeading) {
-                TranscriptBody(
-                    paragraphs: model.items, version: modelVersion, current: currentBlock(on: t),
-                    play: { id in
-                        revealTarget = id
-                        if let b = rows.first(where: { $0.id == id })?.block { player.seek(to: b.start) }
-                    },
-                    // Tapping the text moves the playhead; it only plays if it already was.
-                    moveHere: { id in
-                        revealTarget = id
-                        if let b = rows.first(where: { $0.id == id })?.block { player.seek(to: b.start, play: player.isPlaying) }
-                    },
-                    highlight: { first, last in highlight(from: first, to: last, in: rows) },
-                    anchors: { if paragraphTops[t] != $0 { paragraphTops[t] = $0 } }
-                )
-                // Scroll targets where each paragraph begins; only on the
-                // shown page, so each id is in the page once.
-                if main {
-                    ForEach(rows) { row in
-                        VStack(spacing: 0) {
-                            Color.clear.frame(height: paragraphTops[t]?[row.id] ?? 0)
-                            Color.clear.frame(height: 1).id(row.id)
-                        }
-                        .allowsHitTesting(false)
+            TranscriptBody(
+                paragraphs: model.items, version: modelVersion, current: currentBlock(on: t),
+                play: { id in
+                    reveal(id)
+                    if let b = rows.first(where: { $0.id == id })?.block { player.seek(to: b.start) }
+                },
+                // Tapping the text moves the playhead; it only plays if it already was.
+                moveHere: { id in
+                    reveal(id)
+                    if let b = rows.first(where: { $0.id == id })?.block { player.seek(to: b.start, play: player.isPlaying) }
+                },
+                highlight: { first, last in highlight(from: first, to: last, in: rows) },
+                anchors: { found in
+                    guard spans[t] != found else { return }
+                    spans[t] = found
+                    if t == shown, let id = where_.pending, found[id] != nil {
+                        where_.pending = nil
+                        reveal(id, animated: false)
                     }
                 }
-            }
+            )
         }
     }
 
@@ -724,7 +766,14 @@ struct TranscriptView: View {
     private func highlightItem(_ h: Highlight, said: [TranscriptBlock]) -> some View {
         let open = {
             player.seek(to: h.start, play: false)
-            go(to: .clean) { jumpTarget = said.first?.id }
+            go(to: .clean) {
+                guard let id = said.first?.id else { return }
+                // Once Clean is the page and laid out.
+                Task {
+                    try? await Task.sleep(for: .milliseconds(60))
+                    reveal(id, force: true)
+                }
+            }
         }
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
@@ -791,34 +840,80 @@ struct TranscriptView: View {
     /// leaves out the "嗯"s, so one of those never counts there.
     private var currentBlock: Int? { currentBlock(on: shown) }
 
-    private func currentBlock(on t: Tab) -> Int? {
-        guard let detail, player.shownTime > 0 else { return nil }
-        let original = t == .original
-        // A seek can land a hair before the paragraph it was aimed at.
-        return detail.blocks.last { (original || $0.backchannel != true) && $0.start <= player.shownTime + 0.3 }?.id
+    private func currentBlock(on t: Tab, in now: Playing? = nil) -> Int? {
+        let now = now ?? playing
+        return t == .original ? now.original : now.clean
     }
 
-    /// Positions read off the screen as it scrolls.
+    /// From the player: the paragraph moved on, or the playhead was moved
+    /// by hand (the wave, the line, the text).
+    private func follow(_ now: Playing, seeked: Bool) {
+        if now != playing { playing = now }
+        guard shown != .highlights, let block = currentBlock(on: shown, in: now) else { return }
+        if seeked {
+            // Moved by hand: always show where it went.
+            where_.followPausedUntil = .distantPast
+            reveal(block, quick: player.scrubTime != nil)
+        } else if player.isPlaying, player.scrubTime == nil, Date.now > where_.followPausedUntil {
+            // Playing on: follow, unless the reader is scrolling about by hand.
+            reveal(block)
+        }
+    }
+
+    /// Positions read off the screen as it scrolls, all in screen points.
     final class Whereabouts {
-        /// Top of the transcript body, in the scroll view's visible frame.
+        /// Top of the transcript body.
         var bodyTop: CGFloat = 0
-        var viewport: CGFloat = 800
-        /// The pinned view switch and status line.
+        /// Top of the scroll view, under the top bar.
+        var scrollTop: CGFloat = 0
+        /// Bottom of the view switch (and status line), pinned or not.
+        var headerBottom: CGFloat = 0
+        /// Height of the view switch and status line.
         var header: CGFloat = 60
+        /// Top of the player.
+        var playerTop: CGFloat = 800
+        var offset: CGFloat = 0
+        var minOffset: CGFloat = 0
+        var maxOffset: CGFloat = 0
+        var swipeAxis: Axis?
+        weak var scrollView: UIScrollView?
+        /// Playback doesn't scroll the page for a moment after a scroll by hand.
+        var followPausedUntil = Date.distantPast
+        /// A paragraph to show once its page has been laid out.
+        var pending: Int?
+        /// The last paragraph scrolled to, and when: a scrub asks again
+        /// and again while the page is still on its way there.
+        var revealed: (id: Int, at: Date)?
     }
 
-    /// Scrolls just enough to have this paragraph's start in view: under
-    /// the pinned switch, clear of the player. One already in view stays
-    /// where it is, so reading along is a page turn now and then, not a
-    /// page that moves under you.
-    private func reveal(_ id: Int, _ proxy: ScrollViewProxy, fast: Bool = false) {
-        let top = paragraphTops[shown]?[id].map { where_.bodyTop + $0 }
-        let upper = where_.header + 8
-        let lower = where_.viewport - 210
-        if let top, top >= upper, top <= lower { return }
-        let anchor = min(0.4, (where_.header + 24) / max(where_.viewport, 1))
-        withAnimation(.easeInOut(duration: fast ? 0.15 : 0.35)) {
-            proxy.scrollTo(id, anchor: UnitPoint(x: 0.5, y: anchor))
+    /// Scrolls so the whole paragraph is in view, between the pinned switch
+    /// and the player; a long one starts just under the switch. One already
+    /// all in view stays where it is, so reading along is a page turn now
+    /// and then, not a page that moves under you.
+    private func reveal(_ id: Int, quick: Bool = false, animated: Bool = true, force: Bool = false) {
+        guard let span = spans[shown]?[id] else {
+            where_.pending = id
+            return
+        }
+        let top = where_.bodyTop + span.top
+        let bottom = where_.bodyTop + span.bottom
+        let upper = where_.headerBottom + 12
+        let lower = where_.playerTop - 16
+        if !force, top >= upper, bottom <= lower { return }
+        if !force, let last = where_.revealed, last.id == id, Date.now.timeIntervalSince(last.at) < 0.6 { return }
+        // Where its top lands once the switch is pinned: a little under it,
+        // leaving the end of the paragraph before for context, unless that
+        // would push this one's end under the player.
+        let pinnedUpper = where_.scrollTop + where_.header + 12
+        let room = lower - pinnedUpper
+        let target = pinnedUpper + max(0, min(room * 0.12, room - (bottom - top)))
+        let y = min(max(where_.offset + top - target, where_.minOffset), where_.maxOffset)
+        guard abs(y - where_.offset) > 1 else { return }
+        where_.revealed = (id, .now)
+        if animated {
+            withAnimation(.smooth(duration: quick ? 0.25 : 0.42)) { scroll.scrollTo(y: y) }
+        } else {
+            scroll.scrollTo(y: y)
         }
     }
 
@@ -852,13 +947,15 @@ struct TranscriptView: View {
         }
     }
 
-    private func scrollToStart(_ proxy: ScrollViewProxy) {
+    /// Opened from search: the moment found, in view, with the playhead on it.
+    private func scrollToStart() {
         guard let startAt, !scrolledToStart, let detail,
               let block = detail.blocks.last(where: { $0.start <= startAt + 0.5 }) else { return }
         scrolledToStart = true
+        reveal(block.id, animated: false, force: true)
         Task {
-            try? await Task.sleep(for: .milliseconds(150))
-            proxy.scrollTo(block.id, anchor: .center)
+            // Once the audio is there to seek in.
+            for _ in 0..<40 where player.availability == .loading { try? await Task.sleep(for: .milliseconds(100)) }
             player.seek(to: block.start, play: false)
         }
     }
@@ -923,6 +1020,8 @@ struct HighlightChip: View {
 struct PlayerBar: View {
     let player: RecordingPlayer
     let hasAudio: Bool
+    /// Room above the pill, where the text fades out under it.
+    static let lead: CGFloat = 28
 
     var body: some View {
 
@@ -975,7 +1074,7 @@ struct PlayerBar: View {
         .frame(height: 62)
         .playerPill()
         .padding(.horizontal, 16)
-        .padding(.top, 28)
+        .padding(.top, Self.lead)
         .padding(.bottom, 34)
         .background(alignment: .bottom) {
             LinearGradient(
@@ -1255,7 +1354,8 @@ struct PendingLines: View {
 
 /// The transcript's pages in a row, a screen apart, moved together by
 /// `slide`. Sized by the page that's shown, so a longer neighbour adds no
-/// space below. Only this redraws as a finger drags the pages.
+/// space below. Only this redraws as a finger drags the pages, and the
+/// slide is an offset, so nothing is laid out again while it moves.
 private struct SlidingPages<Content: View>: View {
     @Binding var slide: CGFloat
     let here: Int
@@ -1263,20 +1363,14 @@ private struct SlidingPages<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        PagesLayout(here: here, width: width, slide: slide) { content }
+        PagesLayout(here: here, width: width) { content }
+            .offset(x: slide)
     }
 }
 
-private struct PagesLayout: Layout, Animatable {
+private struct PagesLayout: Layout {
     let here: Int
     let width: CGFloat
-    var slide: CGFloat
-
-    /// So a slide set inside `withAnimation` moves the pages smoothly.
-    var animatableData: CGFloat {
-        get { slide }
-        set { slide = newValue }
-    }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let w = proposal.width ?? width
@@ -1288,8 +1382,73 @@ private struct PagesLayout: Layout, Animatable {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         for (i, subview) in subviews.enumerated() {
             let size = subview.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
-            let x = bounds.minX + slide + CGFloat(i - here) * width
+            let x = bounds.minX + CGFloat(i - here) * width
             subview.place(at: CGPoint(x: x, y: bounds.minY), proposal: ProposedViewSize(width: bounds.width, height: size.height))
+        }
+    }
+}
+
+/// The paragraph playing on each page. Formatted leaves out the "嗯"s,
+/// so one of those never counts there.
+struct Playing: Equatable {
+    var clean: Int?
+    var original: Int?
+
+    init() {}
+
+    init(time: Double, blocks: [TranscriptBlock]) {
+        guard time > 0 else { return }
+        // A seek can land a hair before the paragraph it was aimed at.
+        let t = time + 0.3
+        original = blocks.last { $0.start <= t }?.id
+        clean = blocks.last { $0.backchannel != true && $0.start <= t }?.id
+    }
+}
+
+/// Reads the player on every tick and scrub step, so the transcript page
+/// around it doesn't: it hears only when the paragraph changes, or when
+/// the playhead is moved by hand.
+private struct PlayFollower: View {
+    let player: RecordingPlayer
+    let blocks: [TranscriptBlock]
+    let changed: (_ now: Playing, _ seeked: Bool) -> Void
+
+    var body: some View {
+        let now = Playing(time: player.shownTime, blocks: blocks)
+        Color.clear
+            .onChange(of: now, initial: true) { _, now in changed(now, false) }
+            .onChange(of: player.seeks) { changed(now, true) }
+            .accessibilityHidden(true)
+    }
+}
+
+/// Hands over the UIScrollView a SwiftUI ScrollView is drawn with, for the
+/// one thing SwiftUI can't do: stop a scroll the finger has already started.
+private struct ScrollViewHook: UIViewRepresentable {
+    let found: (UIScrollView) -> Void
+
+    func makeUIView(context: Context) -> Finder {
+        let view = Finder()
+        view.found = found
+        view.isUserInteractionEnabled = false
+        return view
+    }
+
+    func updateUIView(_ view: Finder, context: Context) {}
+
+    final class Finder: UIView {
+        var found: ((UIScrollView) -> Void)?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            var view = superview
+            while let v = view {
+                if let scroll = v as? UIScrollView {
+                    found?(scroll)
+                    return
+                }
+                view = v.superview
+            }
         }
     }
 }

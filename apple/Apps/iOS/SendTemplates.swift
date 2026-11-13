@@ -342,7 +342,7 @@ struct SendView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
         .card()
-        .contentShape(RoundedRectangle(cornerRadius: 20))
+        .contentShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
     }
 
     private func usage(_ id: UUID) -> String {
@@ -371,6 +371,7 @@ struct TemplateEditor: View {
     @State private var draft: SendTemplate
     @State private var confirmDelete = false
     @FocusState private var nameFocused: Bool
+    @FocusState private var instructionFocused: Bool
     private let isNew: Bool
 
     init(template: SendTemplate) {
@@ -435,6 +436,14 @@ struct TemplateEditor: View {
                             nameFocused = false
                         }
                     }
+                    // Room for the clear button even when it's hidden, so the
+                    // name never rewraps as it comes and goes.
+                    .padding(.trailing, 32)
+                    .overlay(alignment: .trailing) {
+                        ClearButton(text: $draft.name, visible: nameFocused, label: "Clear name") { nameFocused = true }
+                            .padding(.trailing, -4)
+                    }
+                    .animation(.easeOut(duration: 0.15), value: nameFocused && !draft.name.isEmpty)
                     .padding(.top, 20)
                     .padding(.bottom, 10)
                 Rectangle().fill(Color.jText).frame(height: 1.5)
@@ -445,9 +454,17 @@ struct TemplateEditor: View {
                     .lineSpacing(4)
                     .foregroundStyle(Color.jText)
                     .lineLimit(4...10)
-                    .padding(.horizontal, 16)
+                    .focused($instructionFocused)
+                    .padding(.leading, 16)
+                    .padding(.trailing, 40)
                     .padding(.vertical, 14)
-                    .background(Color.jSheetFill, in: RoundedRectangle(cornerRadius: 20))
+                    .background(Color.jSheetFill, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                    .overlay(alignment: .topTrailing) {
+                        ClearButton(text: $draft.instruction, visible: instructionFocused, label: "Clear instruction") { instructionFocused = true }
+                            .padding(.top, 4)
+                            .padding(.trailing, 8)
+                    }
+                    .animation(.easeOut(duration: 0.15), value: instructionFocused && !draft.instruction.isEmpty)
 
                 label("Send")
                 HStack(spacing: 8) {
@@ -471,8 +488,8 @@ struct TemplateEditor: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 14)
-                    .background(Color.jSheetWell, in: RoundedRectangle(cornerRadius: 16))
-                    .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.jSheetHairline, lineWidth: 1))
+                    .background(Color.jSheetWell, in: RoundedRectangle(cornerRadius: Radius.inner, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Radius.inner, style: .continuous).strokeBorder(Color.jSheetHairline, lineWidth: 1))
 
                 if !isNew, SendTemplates.shared.all.count > 1 {
                     Button("Delete template", role: .destructive) { confirmDelete = true }

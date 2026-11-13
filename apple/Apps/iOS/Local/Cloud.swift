@@ -14,6 +14,10 @@ enum Cloud {
         var name: String { self == .openRouter ? "OpenRouter" : "OpenAI-compatible" }
     }
 
+    /// What a model is picked for: hearing the audio, or writing titles
+    /// and tidying the text.
+    enum ModelSlot: Hashable { case transcribe, write }
+
     /// Suggested models; any other can be typed in.
     static let transcribeModels: [(id: String, name: String)] = [
         ("microsoft/mai-transcribe-2", "MAI-2"),

@@ -35,8 +35,8 @@ struct TranscriptBody: UIViewRepresentable {
     let play: (Int) -> Void
     let moveHere: (Int) -> Void
     let highlight: (_ first: Int, _ last: Int) -> Void
-    /// Where each paragraph starts, from the top, for scrolling to it.
-    let anchors: ([Int: CGFloat]) -> Void
+    /// Where each paragraph starts and ends, from the top, for scrolling to it.
+    let anchors: ([Int: TranscriptBodyView.Span]) -> Void
 
     func makeUIView(context: Context) -> TranscriptBodyView { TranscriptBodyView() }
 
@@ -52,6 +52,13 @@ struct TranscriptBody: UIViewRepresentable {
 }
 
 final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerDelegate {
+    /// A paragraph's extent: from its first row (speaker, chips or text)
+    /// to the bottom of its last line.
+    struct Span: Equatable {
+        let top: CGFloat
+        let bottom: CGFloat
+    }
+
     static let gutter: CGFloat = 44
     private static let chipRow: CGFloat = 22
     private static let rowGap: CGFloat = 6
@@ -59,7 +66,7 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
     private static let sectionGap: CGFloat = 45
 
     var handlers: (play: (Int) -> Void, moveHere: (Int) -> Void, highlight: (Int, Int) -> Void,
-                   anchors: ([Int: CGFloat]) -> Void)?
+                   anchors: ([Int: Span]) -> Void)?
 
     private let textView = UITextView()
     private var paragraphs: [TranscriptParagraph] = []
@@ -77,8 +84,11 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
     private var version = -1
     /// A soft band behind the paragraph playing, or where the playhead is.
     private let band = UIView()
-    private var reportedAnchors: [Int: CGFloat] = [:]
+    private var reportedAnchors: [Int: Span] = [:]
     private var laidOutWidth: CGFloat = 0
+    /// Measuring the text is a full layout: done once per width and text,
+    /// not on every frame of a slide or a scrub.
+    private var measured: (width: CGFloat, height: CGFloat)?
 
     static let font = UIFontMetrics(forTextStyle: .body).scaledFont(for: .systemFont(ofSize: 17))
     private static let timeFont = UIFontMetrics(forTextStyle: .caption1)
@@ -157,6 +167,7 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
             }
         }
         textView.attributedText = whole
+        measured = nil
         // Space asked for above the very first paragraph is ignored by the
         // text system; give its chips room with an inset instead.
         textView.textContainerInset.top = paragraphs.first.map(rowsAbove) ?? 0
@@ -173,7 +184,10 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
     // MARK: Layout
 
     func height(for width: CGFloat) -> CGFloat {
-        ceil(textView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height)
+        if let measured, measured.width == width { return measured.height }
+        let height = ceil(textView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height)
+        measured = (width, height)
+        return height
     }
 
     override func layoutSubviews() {
@@ -268,7 +282,9 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
         styleTimes()
         placeBand(animated: false)
 
-        let anchors = Dictionary(uniqueKeysWithValues: zip(paragraphs.map(\.id), tops))
+        let anchors = Dictionary(uniqueKeysWithValues: paragraphs.indices.map {
+            (paragraphs[$0].id, Span(top: tops[$0], bottom: bottoms[$0]))
+        })
         if anchors != reportedAnchors {
             reportedAnchors = anchors
             let report = handlers?.anchors
@@ -305,7 +321,7 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
             band.frame = frame
             UIView.animate(withDuration: animated ? 0.2 : 0) { self.band.alpha = 1 }
         } else {
-            UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0,
+            UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0,
                            options: [.allowUserInteraction, .beginFromCurrentState]) {
                 self.band.frame = frame
             }

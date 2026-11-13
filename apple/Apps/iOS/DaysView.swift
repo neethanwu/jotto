@@ -171,15 +171,11 @@ struct DaysView: View {
                     .submitLabel(.search)
                     .autocorrectionDisabled()
                     .onSubmit { RecentSearches.add(trimmed) }
-                if !query.isEmpty {
-                    Button { query = ""; searchDay = nil } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 17))
-                            .foregroundStyle(Color.jText4)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Clear")
+                ClearButton(text: $query) {
+                    searchDay = nil
+                    searchFocused = true
                 }
+                .padding(.trailing, -6)
             }
             .padding(.horizontal, 14)
             .frame(height: 40)
@@ -977,7 +973,7 @@ struct TimelineRow: View {
                 .lineLimit(3)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(14)
-                .card(radius: 16)
+                .card()
         }
     }
 

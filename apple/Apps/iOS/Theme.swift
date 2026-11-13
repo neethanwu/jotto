@@ -312,11 +312,48 @@ struct CircleIconButton: View {
     }
 }
 
+/// Corner radii. Cards are rounded, but only just: big radii read as
+/// toy-like next to text this size.
+enum Radius {
+    /// Cards and filled panels.
+    static let card: CGFloat = 14
+    /// Fields and wells inside a card or sheet.
+    static let inner: CGFloat = 10
+}
+
 extension View {
     /// A content card: the page colour inside a hairline.
-    func card(radius: CGFloat = 20) -> some View {
-        background(Color.jSurface, in: RoundedRectangle(cornerRadius: radius))
-            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(Color.jCardLine, lineWidth: 1))
+    func card(radius: CGFloat = Radius.card) -> some View {
+        background(Color.jSurface, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(Color.jCardLine, lineWidth: 1))
+    }
+}
+
+/// The ⓧ at the end of a text field: empties it in one tap. Only there
+/// when there is something to clear.
+struct ClearButton: View {
+    @Binding var text: String
+    var visible = true
+    var label = "Clear"
+    /// After clearing: usually, put the cursor back in the field.
+    var then: () -> Void = {}
+
+    var body: some View {
+        if visible, !text.isEmpty {
+            Button {
+                text = ""
+                then()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 17))
+                    .foregroundStyle(Color.jText4)
+                    .frame(width: 28, height: 40)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(label)
+            .transition(.opacity)
+        }
     }
 }
 

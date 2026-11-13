@@ -10,6 +10,7 @@ enum AppTab: Hashable {
 enum Route: Hashable {
     case transcript(id: String, at: Double? = nil, rename: Bool = false)
     case processing
+    case model(Cloud.ModelSlot)
     case language
     case keepAudio
     case openIn
@@ -93,6 +94,7 @@ struct RootView: View {
                     switch route {
                     case let .transcript(id, at, rename): TranscriptView(id: id, startAt: at, startsRenaming: rename)
                     case .processing: ProcessingView()
+                    case let .model(slot): ModelView(slot: slot)
                     case .language: LanguageView()
                     case .keepAudio: KeepAudioView()
                     case .openIn: OpenInView()
