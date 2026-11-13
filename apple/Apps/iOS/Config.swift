@@ -75,6 +75,14 @@ final class AppConfig {
     var writeModel: String {
         didSet { UserDefaults.standard.set(writeModel, forKey: "writeModel") }
     }
+    /// The same two on an OpenAI-compatible service, which names its
+    /// models its own way; the ones above are OpenRouter's.
+    var compatibleTranscribeModel: String {
+        didSet { UserDefaults.standard.set(compatibleTranscribeModel, forKey: "compatibleTranscribeModel") }
+    }
+    var compatibleWriteModel: String {
+        didSet { UserDefaults.standard.set(compatibleWriteModel, forKey: "compatibleWriteModel") }
+    }
 
     private init() {
         let defaults = UserDefaults.standard
@@ -84,6 +92,8 @@ final class AppConfig {
         cloudBaseURL = defaults.string(forKey: "cloudBaseURL") ?? "https://api.openai.com/v1"
         transcribeModel = defaults.string(forKey: "transcribeModel") ?? Cloud.defaultTranscribeModel
         writeModel = defaults.string(forKey: "writeModel") ?? Cloud.defaultWriteModel
+        compatibleTranscribeModel = defaults.string(forKey: "compatibleTranscribeModel") ?? Cloud.defaultCompatibleTranscribeModel
+        compatibleWriteModel = defaults.string(forKey: "compatibleWriteModel") ?? Cloud.defaultCompatibleWriteModel
         // Before 2026-11-11 there was one language, or Automatic (none).
         mixesLanguages = defaults.bool(forKey: "mixesLanguages")
         languages = defaults.stringArray(forKey: "transcriptionLocales")

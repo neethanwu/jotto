@@ -18,25 +18,98 @@ enum Cloud {
     /// and tidying the text.
     enum ModelSlot: Hashable { case transcribe, write }
 
-    /// Suggested models; any other can be typed in.
-    static let transcribeModels: [(id: String, name: String)] = [
-        ("microsoft/mai-transcribe-2", "MAI-2"),
-        ("elevenlabs/scribe-v2", "Scribe v2"),
-        ("openai/gpt-transcribe", "GPT Transcribe"),
-        ("google/gemini-3.5-transcribe", "Gemini 3.5 Transcribe"),
+    /// A model to suggest, as the service names it; any other can be
+    /// typed in. `by` is the service it's on, for services you reach by
+    /// address.
+    struct Suggestion: Hashable {
+        let id: String
+        let name: String
+        var by: String?
+    }
+
+    /// On OpenRouter.
+    static let transcribeModels: [Suggestion] = [
+        .init(id: "microsoft/mai-transcribe-2", name: "MAI-2"),
+        .init(id: "elevenlabs/scribe-v2", name: "Scribe v2"),
+        .init(id: "openai/gpt-transcribe", name: "GPT Transcribe"),
+        .init(id: "google/gemini-3.5-transcribe", name: "Gemini 3.5 Transcribe"),
     ]
-    static let writeModels: [(id: String, name: String)] = [
-        ("anthropic/claude-haiku-5.5", "Claude Haiku 5.5"),
-        ("anthropic/claude-sonnet-5.5", "Claude Sonnet 5.5"),
-        ("openai/gpt-5-mini", "GPT-5 mini"),
+    static let writeModels: [Suggestion] = [
+        .init(id: "anthropic/claude-haiku-5.5", name: "Claude Haiku 5.5"),
+        .init(id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5"),
+        .init(id: "openai/gpt-5-mini", name: "GPT-5 mini"),
     ]
     static let defaultTranscribeModel = "microsoft/mai-transcribe-2"
     static let defaultWriteModel = "anthropic/claude-haiku-5.5"
 
+    /// On services reached by address, under their own names: OpenAI's
+    /// and Groq's (Groq's Whisper gives times for each stretch; OpenAI's
+    /// GPT Transcribe gives the text, which is then spread over the speech).
+    static let compatibleTranscribeModels: [Suggestion] = [
+        .init(id: "gpt-transcribe", name: "GPT Transcribe", by: "OpenAI"),
+        .init(id: "whisper-large-v3-turbo", name: "Whisper Large v3 Turbo", by: "Groq"),
+        .init(id: "whisper-large-v3", name: "Whisper Large v3", by: "Groq"),
+    ]
+    static let compatibleWriteModels: [Suggestion] = [
+        .init(id: "gpt-5-mini", name: "GPT-5 mini", by: "OpenAI"),
+        .init(id: "openai/gpt-oss-120b", name: "GPT-OSS 120B", by: "Groq"),
+        .init(id: "openai/gpt-oss-20b", name: "GPT-OSS 20B", by: "Groq"),
+    ]
+    static let defaultCompatibleTranscribeModel = "gpt-transcribe"
+    static let defaultCompatibleWriteModel = "gpt-5-mini"
+
+    /// The known service an address belongs to, by its host.
+    static func provider(of base: String) -> String? {
+        guard let host = URL(string: base.trimmingCharacters(in: .whitespacesAndNewlines))?.host()?.lowercased() else { return nil }
+        if host == "openai.com" || host.hasSuffix(".openai.com") { return "OpenAI" }
+        if host == "groq.com" || host.hasSuffix(".groq.com") { return "Groq" }
+        return nil
+    }
+
+    /// What to suggest for the service in use; at an address we know,
+    /// that service's own models first.
+    @MainActor static func suggestions(_ slot: ModelSlot) -> [Suggestion] {
+        if config.cloudService == .openRouter { return slot == .transcribe ? transcribeModels : writeModels }
+        let all = slot == .transcribe ? compatibleTranscribeModels : compatibleWriteModels
+        guard let here = provider(of: config.cloudBaseURL) else { return all }
+        return all.filter { $0.by == here } + all.filter { $0.by != here }
+    }
+
+    /// The model in use for each job, on the service in use.
+    @MainActor static var transcribeModel: String {
+        config.cloudService == .openRouter ? config.transcribeModel : config.compatibleTranscribeModel
+    }
+    @MainActor static var writeModel: String {
+        config.cloudService == .openRouter ? config.writeModel : config.compatibleWriteModel
+    }
+
+    @MainActor static func setModel(_ model: String, for slot: ModelSlot) {
+        switch (config.cloudService, slot) {
+        case (.openRouter, .transcribe): config.transcribeModel = model
+        case (.openRouter, .write): config.writeModel = model
+        case (.compatible, .transcribe): config.compatibleTranscribeModel = model
+        case (.compatible, .write): config.compatibleWriteModel = model
+        }
+    }
+
+    /// The address now points at a service we know, and a model picked
+    /// is one of another known service's: switch to this one's own.
+    @MainActor static func matchModelsToAddress() {
+        guard config.cloudService == .compatible, let here = provider(of: config.cloudBaseURL) else { return }
+        for slot in [ModelSlot.transcribe, .write] {
+            let all = slot == .transcribe ? compatibleTranscribeModels : compatibleWriteModels
+            let current = slot == .transcribe ? config.compatibleTranscribeModel : config.compatibleWriteModel
+            if let picked = all.first(where: { $0.id == current }), picked.by != here,
+               let own = all.first(where: { $0.by == here }) {
+                setModel(own.id, for: slot)
+            }
+        }
+    }
+
     /// Models whose service won't take m4a; their audio goes as WAV.
     private static let wavOnly: Set<String> = ["microsoft/mai-transcribe-2", "meta/muse-voice-transcribe-1.0"]
 
-    static func displayName(_ model: String, in list: [(id: String, name: String)]) -> String {
+    static func displayName(_ model: String, in list: [Suggestion]) -> String {
         list.first { $0.id == model }?.name ?? model.split(separator: "/").last.map(String.init) ?? model
     }
 
@@ -179,7 +252,7 @@ enum Cloud {
     /// model tells them apart).
     @MainActor static func transcribe(_ url: URL, duration: Double) async throws -> (phrases: [Phrase], language: String?) {
         let endpoint = try endpoint()
-        let model = config.transcribeModel
+        let model = transcribeModel
         let address = endpoint.base.appending(path: "audio/transcriptions")
         let data: Data
         if endpoint.service == .openRouter {
@@ -214,26 +287,54 @@ enum Cloud {
             guard let answer else { throw last }
             data = answer
         } else {
-            let boundary = "jotto-\(UUID().uuidString)"
-            var request = authorized(address, endpoint)
-            request.httpMethod = "POST"
-            request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-            var body = Data()
-            func field(_ name: String, _ value: String) {
-                body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".data(using: .utf8)!)
-            }
-            field("model", model)
-            field("response_format", "verbose_json")
-            field("timestamp_granularities[]", "segment")
             let audio = try await Task.detached { try Data(contentsOf: url) }.value
-            body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"part.m4a\"\r\nContent-Type: audio/mp4\r\n\r\n".data(using: .utf8)!)
-            body.append(audio)
-            body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
-            request.httpBody = body
-            data = try await send(request)
+            // Times for each stretch where the model gives them (Whisper);
+            // fewer options on each 400, down to the bare text.
+            let attempts: [[(String, String)]] = [
+                [("response_format", "verbose_json"), ("timestamp_granularities[]", "segment")],
+                [("response_format", "verbose_json")],
+                [("response_format", "json")],
+            ]
+            var last: Error = Failure.unreadable
+            var answer: Data?
+            for options in attempts {
+                let boundary = "jotto-\(UUID().uuidString)"
+                var request = authorized(address, endpoint)
+                request.httpMethod = "POST"
+                request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+                var body = Data()
+                for (name, value) in [("model", model)] + options {
+                    body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".data(using: .utf8)!)
+                }
+                body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"part.m4a\"\r\nContent-Type: audio/mp4\r\n\r\n".data(using: .utf8)!)
+                body.append(audio)
+                body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+                request.httpBody = body
+                do {
+                    answer = try await send(request)
+                    break
+                } catch let Failure.refused(why) {
+                    last = Failure.refused(why)
+                }
+            }
+            guard let answer else { throw last }
+            data = answer
         }
         guard let t = try? JSONDecoder().decode(Transcription.self, from: data) else { throw Failure.unreadable }
-        return (phrases(t, duration: duration), t.language)
+        var out = phrases(t, duration: duration)
+        // Text without times: spread it over the speech in the audio, as
+        // with Qwen3-ASR, so playback still follows it sentence by sentence.
+        if t.segments?.isEmpty ?? true, t.words?.isEmpty ?? true, !out.isEmpty {
+            let text = out.map(\.text).joined(separator: " ")
+            if let spread = try? await Task.detached(operation: { () throws -> [Phrase] in
+                let samples = try QwenTranscriber.load(url)
+                let energy = QwenASR.frameEnergy(samples, hop: QwenASR.sampleRate / 100)
+                return QwenTranscriber.timed(text, energy: energy, offset: 0)
+            }).value, !spread.isEmpty {
+                out = spread
+            }
+        }
+        return (out, t.language)
     }
 
     /// Speakers from the words when the segments don't carry them
@@ -300,7 +401,7 @@ enum Cloud {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var body: [String: Any] = [
-            "model": config.writeModel,
+            "model": writeModel,
             "temperature": 0.2,
             "messages": [["role": "system", "content": system], ["role": "user", "content": user]],
         ]

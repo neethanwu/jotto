@@ -23,6 +23,11 @@ final class SpeechPack: NSObject {
 
     private(set) var state: State = .absent
     var isReady: Bool { state == .ready }
+    /// Downloading, but nothing has come for a while: the server can't be
+    /// reached from here (a network that blocks it, or none at all).
+    private(set) var stalled = false
+    @ObservationIgnored private var lastProgress = Date.now
+    @ObservationIgnored private var watchdog: Task<Void, Never>?
 
     static let name = "Qwen3-ASR"
     static let sizeLabel = "950 MB"
@@ -93,6 +98,7 @@ final class SpeechPack: NSObject {
         } else if wanted {
             // A download that was going when Jotto last closed: carry on.
             state = .downloading(fraction())
+            watchProgress()
             session.getAllTasks { tasks in
                 guard tasks.isEmpty else { return }
                 Task { @MainActor in self.download() }
@@ -122,6 +128,7 @@ final class SpeechPack: NSObject {
         guard !needed.isEmpty else { prepare(); return }
         written = [:]
         state = .downloading(fraction())
+        watchProgress()
         PhoneLog.shared.note("pack_download", "\(needed.count) files")
         session.getAllTasks { tasks in
             tasks.forEach { $0.cancel() }
@@ -167,8 +174,28 @@ final class SpeechPack: NSObject {
         }
     }
 
+    /// Notices when the download has gone quiet for 20 s.
+    private func watchProgress() {
+        lastProgress = .now
+        stalled = false
+        watchdog?.cancel()
+        watchdog = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                guard let self, case .downloading = self.state else { return }
+                let quiet = Date.now.timeIntervalSince(self.lastProgress) > 20
+                if quiet != self.stalled {
+                    self.stalled = quiet
+                    if quiet { PhoneLog.shared.note("pack_stalled") }
+                }
+            }
+        }
+    }
+
     fileprivate func progressed(_ path: String, _ bytes: Int64) {
         guard downloading else { return }
+        lastProgress = .now
+        if stalled { stalled = false }
         written[path] = bytes
         state = .downloading(fraction())
     }

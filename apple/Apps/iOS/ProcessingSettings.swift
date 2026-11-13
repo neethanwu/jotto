@@ -70,7 +70,9 @@ struct ProcessingView: View {
         // A row opened low on the page: its choices come up into view,
         // no further than needed.
         .onChange(of: openSlot) { _, slot in
-            guard slot != nil else { return }
+            // Not when changing from one row to the other: the page holds
+            // still for that (see `reserve`).
+            guard slot != nil, reserve == 0 else { return }
             Task {
                 // Once it has unfolded, so the page doesn't move with it.
                 try? await Task.sleep(for: .milliseconds(280))
@@ -82,8 +84,8 @@ struct ProcessingView: View {
         .statusBarCover()
         .background(Color.jBg)
         .toolbar(.hidden, for: .navigationBar)
-        .sensoryFeedback(.selection, trigger: config.transcribeModel)
-        .sensoryFeedback(.selection, trigger: config.writeModel)
+        .sensoryFeedback(.selection, trigger: ModelPick.value(.transcribe))
+        .sensoryFeedback(.selection, trigger: ModelPick.value(.write))
         .onAppear { loadKey() }
         .onDisappear(perform: leave)
         .onChange(of: config.usesOwnKey) { saveKey() }
@@ -204,7 +206,13 @@ struct ProcessingView: View {
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
                         .focused($addressFocused)
-                        .onSubmit { Task { await runCheck() } }
+                        .onSubmit {
+                            Cloud.matchModelsToAddress()
+                            Task { await runCheck() }
+                        }
+                        .onChange(of: addressFocused) { _, focused in
+                            if !focused { Cloud.matchModelsToAddress() }
+                        }
                     ClearButton(text: $config.cloudBaseURL, label: "Clear address") { addressFocused = true }
                 }
                 .padding(.leading, 16)
@@ -356,11 +364,19 @@ struct ProcessingView: View {
                 // A beat to see the check move, then fold away.
                 Task {
                     try? await Task.sleep(for: .milliseconds(250))
-                    if openSlot == slot { withAnimation(Self.fold) { openSlot = nil } }
+                    if openSlot == slot {
+                        withAnimation(Self.fold) {
+                            openSlot = nil
+                            reserve = 0
+                        }
+                    }
                 }
             } submit: {
                 useTypedModel()
-                withAnimation(Self.fold) { openSlot = nil }
+                withAnimation(Self.fold) {
+                    openSlot = nil
+                    reserve = 0
+                }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { choicesHeight[slot] = $0 }
             .frame(height: open ? nil : 0, alignment: .top)
@@ -384,11 +400,15 @@ struct ProcessingView: View {
         useTypedModel()
         modelFocus = nil
         if openSlot == slot {
-            withAnimation(Self.fold) { openSlot = nil }
+            withAnimation(Self.fold) {
+                openSlot = nil
+                reserve = 0
+            }
             return
         }
         typed[slot] = ModelPick.isListed(ModelPick.value(slot), for: slot) ? "" : ModelPick.value(slot)
         guard openSlot != nil else {
+            reserve = 0
             withAnimation(Self.fold) { openSlot = slot }
             return
         }
@@ -398,12 +418,21 @@ struct ProcessingView: View {
         Task {
             try? await Task.sleep(for: .milliseconds(230))
             guard nextSlot == slot else { return }
-            nextSlot = nil
-            withAnimation(Self.fold) { openSlot = slot }
+            // In one transaction: withAnimation first applies changes made
+            // outside it, which for a moment left neither row open nor
+            // waiting, and the footnote under the card went and came back.
+            withAnimation(Self.fold) {
+                openSlot = slot
+                nextSlot = nil
+            }
             try? await Task.sleep(for: .milliseconds(300))
+            // Keep the page as long as it was: if the new choices are
+            // shorter, the difference stays as room at the bottom, so a
+            // page at its end doesn't settle down by a row afterwards.
+            let kept = max(0, reserve - (choicesHeight[slot] ?? 0))
             var quiet = Transaction()
             quiet.disablesAnimations = true
-            withTransaction(quiet) { reserve = 0 }
+            withTransaction(quiet) { reserve = kept }
         }
     }
 
@@ -516,8 +545,13 @@ private struct QwenRow: View {
             case let .downloading(fraction):
                 VStack(alignment: .leading, spacing: 7) {
                     ProgressBar(fraction: fraction)
-                    Text("\(Int(fraction * 950)) of \(SpeechPack.sizeLabel). Apple's model carries on until this is done, then it takes over. Fine to leave this page.")
-                        .monospacedDigit()
+                    if pack.stalled {
+                        Text("Can't reach the download server from this network yet. It keeps trying, even with Jotto closed; Apple's model carries on meanwhile.")
+                            .foregroundStyle(Color.jLive)
+                    } else {
+                        Text("\(Int(fraction * 950)) of \(SpeechPack.sizeLabel). Apple's model carries on until this is done, then it takes over. Fine to leave this page.")
+                            .monospacedDigit()
+                    }
                 }
                 .padding(.top, 6)
             case .preparing:
@@ -630,16 +664,18 @@ enum ModelPick {
         slot == .transcribe ? "Transcription" : "Titles and formatting"
     }
 
-    static func choices(_ slot: Cloud.ModelSlot) -> [(id: String, name: String)] {
-        slot == .transcribe ? Cloud.transcribeModels : Cloud.writeModels
+    /// For the service in use: OpenRouter's names, or the service at the
+    /// address's own.
+    static func choices(_ slot: Cloud.ModelSlot) -> [Cloud.Suggestion] {
+        Cloud.suggestions(slot)
     }
 
     static func value(_ slot: Cloud.ModelSlot) -> String {
-        slot == .transcribe ? AppConfig.shared.transcribeModel : AppConfig.shared.writeModel
+        slot == .transcribe ? Cloud.transcribeModel : Cloud.writeModel
     }
 
     static func set(_ model: String, for slot: Cloud.ModelSlot) {
-        if slot == .transcribe { AppConfig.shared.transcribeModel = model } else { AppConfig.shared.writeModel = model }
+        Cloud.setModel(model, for: slot)
     }
 
     static func isListed(_ model: String, for slot: Cloud.ModelSlot) -> Bool {
@@ -667,9 +703,12 @@ private struct ModelChoices: View {
                     HStack(spacing: 12) {
                         check(choice.id == value)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(choice.name)
-                                .font(.scaled(16, .regular, relativeTo: .body))
-                                .foregroundStyle(Color.jText)
+                            HStack(spacing: 0) {
+                                Text(choice.name).foregroundStyle(Color.jText)
+                                // Which service it's on, at an address.
+                                if let by = choice.by { Text(" · \(by)").foregroundStyle(Color.jText3) }
+                            }
+                            .font(.scaled(16, .regular, relativeTo: .body))
                             Text(choice.id)
                                 .font(.system(size: 12, design: .monospaced))
                                 .foregroundStyle(Color.jText3)
