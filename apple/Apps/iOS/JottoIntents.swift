@@ -4,15 +4,15 @@ import CoreTransferable
 import UniformTypeIdentifiers
 
 // Jotto in the Shortcuts app. Recording: start, stop and mark, each
-// handing on the recording. Transcripts: new ones (each handed on once),
+// handing on the recording. Transcripts: finished ones not yet sent on,
 // one recording's, the latest, or a whole day's, laid out by a send
 // template, as a Transcript that works as text (Mail, ChatGPT, Notes) and
 // as a named .md or .txt file (Save File into iCloud Drive or an Obsidian
 // vault), with its title for a subject line. Recordings are entities, so
 // Shortcuts also offers "Find Recording" (by day, title, ready) and "Open
 // Recording". With a "when Jotto sends a notification" automation and
-// Get New Transcripts, every recording goes somewhere by itself about a
-// minute after it ends.
+// Get Finished Transcripts, every recording goes somewhere by itself about
+// a minute after it ends.
 //
 // Titles, descriptions and phrases here must not name Apple products
 // (App Store rule ITMS-90626): "phone" and "watch", never the brands.
@@ -185,7 +185,7 @@ extension TranscriptEntity: Transferable {
     }
 }
 
-/// Which recordings have been handed on where, so Get New Transcripts
+/// Which recordings have been sent where, so Get Finished Transcripts
 /// gives each one once per destination, and catches up on any an
 /// automation missed.
 @MainActor
@@ -234,24 +234,25 @@ private func titled(_ detail: SessionDetail) -> (detail: SessionDetail, title: S
     (detail, detail.title ?? Format.provisionalTitle(detail.startedAt))
 }
 
-/// Every transcript not yet handed on to a destination: the one action an
-/// automation needs.
+/// The transcripts of finished recordings not yet sent to a destination:
+/// the one action an automation needs. (The type keeps its first name so
+/// shortcuts made with it go on working.)
 struct GetNewTranscriptsIntent: AppIntent {
-    static let title: LocalizedStringResource = "Get New Transcripts"
+    static let title: LocalizedStringResource = "Get Finished Transcripts"
     static let description = IntentDescription(
-        "Transcripts that are ready and haven't come out of this action before, oldest first, each laid out by a send template. Run it from an automation for when Jotto sends a notification: every recording is handed on once, even after a run was missed. Give each automation its own name under For, and each keeps its own track.",
+        "Transcripts of recordings that are completely done (every part heard, formatted and titled) and haven't been sent to this destination yet, oldest first, laid out by a send template. Use it in an automation for when Jotto sends a notification: each recording goes out once, and any that a missed run left behind go with the next. Give each automation its own destination, like Email or Obsidian.",
         categoryName: "Transcripts",
-        searchKeywords: ["automation", "export", "sync", "save", "send"]
+        searchKeywords: ["automation", "new", "ready", "export", "sync", "save", "send"]
     )
 
     @Parameter(title: "Template", description: "Leave empty for the one you used last.")
     var template: TemplateEntity?
 
-    @Parameter(title: "For", description: "A name for where they go, like Obsidian or Email.", default: "Shortcuts")
+    @Parameter(title: "Destination", description: "A name for where they go, like Email or Obsidian. Each name keeps its own track of what it has had.", default: "Shortcuts")
     var destination: String
 
     static var parameterSummary: some ParameterSummary {
-        Summary("Get new transcripts for \(\.$destination) with \(\.$template)")
+        Summary("Get finished transcripts not yet sent to \(\.$destination) with \(\.$template)")
     }
 
     @MainActor
@@ -300,7 +301,7 @@ struct GetTranscriptIntent: AppIntent {
 struct GetLatestTranscriptIntent: AppIntent {
     static let title: LocalizedStringResource = "Get Latest Transcript"
     static let description = IntentDescription(
-        "The newest finished recording's transcript, laid out by a send template. For an automation, Get New Transcripts is surer: it hands each recording on once.",
+        "The newest finished recording's transcript, laid out by a send template. For an automation, Get Finished Transcripts is surer: it sends each recording once.",
         categoryName: "Transcripts",
         searchKeywords: ["text", "export", "newest", "last"]
     )

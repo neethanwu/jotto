@@ -239,7 +239,7 @@ struct SendView: View {
                 sectionTitle("Automations", top: 16)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("When a transcript is ready").font(.rowTitle).foregroundStyle(Color.jText)
-                    Text("Jotto sends a notification once a recording is ready. In Shortcuts, add an automation for it that runs Get New Transcripts with a template, then hands each one on: Send Email, Ask ChatGPT, or Save File into iCloud Drive or an Obsidian vault.")
+                    Text("Jotto sends a notification once a recording is ready. In Shortcuts, add an automation for it that runs Get Finished Transcripts with a template, then hands each one on: Send Email, Ask ChatGPT, or Save File into iCloud Drive or an Obsidian vault.")
                         .font(.summary)
                         .foregroundStyle(Color.jText2)
                         .fixedSize(horizontal: false, vertical: true)
