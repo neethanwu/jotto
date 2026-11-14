@@ -24,7 +24,7 @@
   <img src=".github/readme/02-talk.jpg" width="32%" alt="Live: the timer, the record dot and the latest words">
   <img src=".github/readme/03-clean.jpg" width="32%" alt="A transcript, original view with the fillers struck through">
   <img src=".github/readme/04-mark.jpg" width="32%" alt="A transcript with highlights marked from the watch">
-  <img src=".github/readme/05-send.jpg" width="32%" alt="Send, with templates for your own agent">
+  <img src=".github/readme/05-send.jpg" width="32%" alt="Send: jotto writes it down, your own agent does the rest">
   <img src=".github/readme/06-private.jpg" width="32%" alt="Processing: on this iPhone or with your own API key">
 </p>
 
