@@ -5,7 +5,7 @@ import SwiftUI
 
 /// What goes out when a recording is sent: an instruction for whoever
 /// receives it (usually someone's own agent), then the transcript in the
-/// chosen form. No model is involved; it's text put together (docs/06 §4).
+/// chosen form. No model is involved; it's text put together.
 struct SendTemplate: Codable, Identifiable, Hashable {
     enum Content: String, Codable, CaseIterable {
         case clean, original, highlights

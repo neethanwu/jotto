@@ -2,8 +2,7 @@ import StoreKit
 import SwiftUI
 
 /// The Settings tab: this month's numbers on the one card, then plain
-/// rows grouped under small labels. Rows appear as their
-/// features land (prompts, templates, highlights; see docs/06).
+/// rows grouped under small labels.
 struct SettingsView: View {
     let router: Router
     private var config: AppConfig { .shared }

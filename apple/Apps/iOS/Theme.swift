@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// Design tokens from docs/04-ios-design.md. Views use only the semantic
+/// Design tokens. Views use only the semantic
 /// layer (`Color.jBg`, `.jText2`…); the ink and orange scales stay private.
 enum Ink {
     static let i0 = UIColor(hex: 0xFFFFFF)
@@ -258,7 +258,7 @@ struct GlyphView: View {
 
 /// The 40-pt ring every top-bar button sits in, with an 18-pt glyph:
 /// the page colour inside a 1-pt ring, like the rings on the timeline.
-/// Top-bar buttons (docs/04, "Icon buttons"): a filled circle with an
+/// Top-bar buttons: a filled circle with an
 /// outline glyph; the screen's one main action is inverted, with a
 /// filled glyph. No ring.
 struct CircleGlyph: View {

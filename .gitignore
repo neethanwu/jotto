@@ -4,3 +4,7 @@ xcuserdata/
 DerivedData/
 build/
 .build/
+
+# Private notes and App Store materials stay on this Mac
+docs/
+store/

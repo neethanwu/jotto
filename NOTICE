@@ -1,0 +1,37 @@
+Jotto
+Copyright (C) 2026 Hallidai Inc.
+
+Jotto is free software: you can redistribute it and/or modify it under the
+terms of the GNU General Public License as published by the Free Software
+Foundation, version 3 (see LICENSE).
+
+Additional permission under GNU GPL version 3 section 7
+
+As an additional permission under section 7, you are allowed to distribute
+this software through an app store, even if that store has restrictive terms
+and conditions that are incompatible with the GPL, provided that the source
+is also available under the GPL, with or without this permission, through a
+channel without those restrictive terms and conditions.
+
+Name and logo
+
+The Jotto name, wordmark and icons are not covered by the licence. A version
+you publish yourself needs its own name and icons.
+
+Third-party work
+
+- speech-swift (https://github.com/soniqo/speech-swift)
+  Copyright 2025 Ivan Digital. Apache License 2.0.
+  apple/Apps/iOS/Local/QwenASR.swift is adapted from its Core ML path: the
+  mel features, the fixed-size decoder calls and the token ids.
+
+- Qwen3-ASR 0.6B (https://huggingface.co/Qwen/Qwen3-ASR-0.6B)
+  By the Qwen team, Alibaba Cloud. Apache License 2.0.
+  Downloaded by the app at run time; not part of this repository.
+
+- Qwen3-ASR Core ML export (https://huggingface.co/aufklarer/Qwen3-ASR-CoreML)
+  By aufklarer. Apache License 2.0.
+  Downloaded by the app at run time; not part of this repository.
+
+The Apache License 2.0 is in apple/Apps/iOS/Apache-2.0.txt, and the app shows
+it under Settings → Acknowledgements.
