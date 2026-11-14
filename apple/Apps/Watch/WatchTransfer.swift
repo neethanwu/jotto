@@ -167,8 +167,19 @@ extension WatchTransfer: WCSessionDelegate {
         case "stop": Recorder.shared.stopFromPhone(session: session)
         case "mark": Recorder.shared.markedOnPhone(session: session, section: false)
         case "section": Recorder.shared.markedOnPhone(session: session, section: true)
+        case "levels": Recorder.shared.phoneWantsLevels(session: session)
         default: break
         }
+    }
+
+    /// Levels for the phone's Live screen: live only, nothing queued, since
+    /// they're stale a moment later. Outside the main actor, so no handler
+    /// inherits its isolation on WatchConnectivity's queue.
+    nonisolated static func sendLevels(_ levels: [Float], session id: String) {
+        let session = WCSession.default
+        guard session.activationState == .activated, session.isReachable else { return }
+        session.sendMessage(["kind": "levels", "session": id, "levels": levels.map(Double.init)],
+                            replyHandler: nil, errorHandler: nil)
     }
 
     nonisolated func session(_ session: WCSession, didReceiveApplicationContext context: [String: Any]) {

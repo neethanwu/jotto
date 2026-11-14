@@ -47,8 +47,11 @@ struct LiveView: View {
             }
             .padding(.top, 40)
 
+            LevelStrip()
+                .padding(.top, 16)
+
             HoldToStopDot(holding: $holding) { stop() }
-                .padding(.top, 36)
+                .padding(.top, 24)
 
             if let startedAt {
                 HStack(spacing: 10) {
@@ -104,6 +107,8 @@ struct LiveView: View {
         .preferredColorScheme(.dark)
         .toolbar(.hidden, for: .navigationBar)
         .task { await poll() }
+        .onAppear { LiveLevels.shared.open(id) }
+        .onDisappear { LiveLevels.shared.close(id) }
         .onChange(of: entry?.state) { old, state in
             // Finished on the watch: show the transcript instead. Gone
             // altogether: stopped within a few seconds, taken for a mistake.
@@ -191,6 +196,109 @@ struct LiveView: View {
             if let fresh = try? await API.session(id) { detail = fresh }
             try? await Task.sleep(for: .seconds(5))
         }
+    }
+}
+
+/// Recent input levels for the Live screen's strip, newest last, ten a
+/// second: from this iPhone's microphone when it's the one recording, or
+/// sent over by the watch while the screen is open and the watch in reach.
+@MainActor @Observable
+final class LiveLevels {
+    static let shared = LiveLevels()
+    static let count = 52
+
+    private(set) var levels: [Float] = Array(repeating: 0, count: LiveLevels.count)
+    /// Levels are coming in. Not, while the watch is out of reach: the
+    /// strip stops and dims rather than pretend it's quiet.
+    private(set) var flowing = false
+    @ObservationIgnored private var watching: String?
+    @ObservationIgnored private var pending: [Float] = []
+    @ObservationIgnored private var lastArrival: Date?
+    @ObservationIgnored private var ticker: Task<Void, Never>?
+
+    func open(_ id: String) {
+        guard watching != id else { return }
+        watching = id
+        levels = Array(repeating: 0, count: Self.count)
+        pending = []
+        lastArrival = nil
+        flowing = false
+        ticker?.cancel()
+        ticker = Task { [weak self] in
+            var tick = 0
+            while !Task.isCancelled {
+                self?.step(tick)
+                tick += 1
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
+    }
+
+    func close(_ id: String) {
+        guard watching == id else { return }
+        watching = nil
+        ticker?.cancel()
+        ticker = nil
+    }
+
+    /// From the watch, three at a time.
+    func received(_ id: String, _ values: [Float]) {
+        guard id == watching else { return }
+        pending.append(contentsOf: values)
+        if pending.count > 30 { pending.removeFirst(pending.count - 30) }
+        lastArrival = .now
+    }
+
+    private func step(_ tick: Int) {
+        guard let id = watching else { return }
+        if PhoneRecorder.shared.sessionID == id {
+            if !PhoneRecorder.shared.interrupted {
+                pending.append(PhoneRecorder.shared.takeLevel())
+                lastArrival = .now
+            }
+        } else {
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["JOTTO_SIMULATE_LIVE"] != nil {
+                let t = Double(tick)
+                received(id, [Float(max(0, 0.45 + 0.4 * sin(t * 0.5) * sin(t * 0.13) + .random(in: -0.15...0.15)))])
+            }
+            #endif
+            if tick % 50 == 0 { Inbox.shared.askWatchForLevels(id) }
+        }
+        // One bar a tick; two while catching up after a batch.
+        if !pending.isEmpty {
+            let take = min(pending.count, pending.count > 6 ? 2 : 1)
+            levels.append(contentsOf: pending.prefix(take))
+            pending.removeFirst(take)
+            levels.removeFirst(levels.count - Self.count)
+        }
+        let now = lastArrival.map { Date.now.timeIntervalSince($0) < 1.5 } ?? false
+        if now != flowing { flowing = now }
+    }
+}
+
+/// Thin bars as on the watch: the oldest faint on the left, the newest
+/// orange on the right. Reads the levels itself, so only it redraws ten
+/// times a second.
+private struct LevelStrip: View {
+    var body: some View {
+        let source = LiveLevels.shared
+        let levels = source.levels
+        Canvas { context, size in
+            let n = levels.count
+            let step = size.width / CGFloat(n)
+            for (i, level) in levels.enumerated() {
+                let height = max(2, (CGFloat(level) * size.height).rounded())
+                let rect = CGRect(x: CGFloat(i) * step + (step - 2) / 2, y: (size.height - height) / 2, width: 2, height: height)
+                let age = Double(i) / Double(max(1, n - 1))
+                let color = i == n - 1 ? Color.jLive : Color.ink50.opacity(0.22 + 0.78 * age)
+                context.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(color))
+            }
+        }
+        .frame(width: 260, height: 28)
+        .opacity(source.flowing ? 1 : 0.35)
+        .animation(.easeOut(duration: 0.3), value: source.flowing)
+        .accessibilityHidden(true)
     }
 }
 

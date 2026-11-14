@@ -12,6 +12,8 @@ struct DaysView: View {
     /// The week the strip shows; may differ from `day` after a swipe.
     @State private var stripWeek: Date?
     @State private var picking = false
+    /// The header has had its real size at least once.
+    @State private var headerPlaced = false
     /// The row swiped open, if any; one at a time.
     @State private var swiped: String?
     @State private var sharing: SessionDetail?
@@ -113,6 +115,9 @@ struct DaysView: View {
         }
         .drawer(item: $sharingDay) { send in
             SendPanel(day: send.day, items: send.items)
+        }
+        .drawer(isPresented: $picking) {
+            DayPicker(selection: $day, marked: library.daysWithRecordings, earliest: library.earliest)
         }
         .task(id: query) { await search() }
         .alert("Delete this recording?", isPresented: Binding(
@@ -428,7 +433,12 @@ struct DaysView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.9)))
             }
         }
-        .animation(.easeOut(duration: 0.2), value: entries.isEmpty)
+        // Only once the header is in place: at launch the page is first
+        // laid out at no size, before the recordings have loaded, and
+        // animating their arrival would fly the day's name in from the
+        // corner.
+        .animation(headerPlaced ? .easeOut(duration: 0.2) : nil, value: entries.isEmpty)
+        .onGeometryChange(for: Bool.self) { $0.size.width > 200 } action: { if $0 { headerPlaced = true } }
     }
 
     private var dayButton: some View {
@@ -453,9 +463,6 @@ struct DaysView: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityHint("Pick another day")
-        .sheet(isPresented: $picking) {
-            DayPicker(selection: $day, marked: library.daysWithRecordings, earliest: library.earliest)
-        }
     }
 
     private var meta: String {

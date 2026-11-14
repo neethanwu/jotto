@@ -138,3 +138,32 @@ final class SegmentWriter: @unchecked Sendable {
         onSegmentClosed(segment)
     }
 }
+
+/// Peak level of the audio since it was last read, for the level bars on
+/// the watch and the phone's Live screen. Written on the audio thread,
+/// read on the main actor.
+final class LevelMeter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var peak: Float = 0
+
+    func add(_ buffer: AVAudioPCMBuffer) {
+        guard let samples = buffer.floatChannelData?[0] else { return }
+        var sum: Float = 0
+        let n = Int(buffer.frameLength)
+        for i in stride(from: 0, to: n, by: 2) { sum += samples[i] * samples[i] }
+        let rms = sqrt(sum / Float(max(1, n / 2)))
+        lock.lock()
+        peak = max(peak, rms)
+        lock.unlock()
+    }
+
+    /// 0…1 on a rough speech scale (−50 dB … −10 dB).
+    func take() -> Float {
+        lock.lock()
+        let value = peak
+        peak = 0
+        lock.unlock()
+        let db = 20 * log10(max(value, 1e-6))
+        return min(1, max(0, (db + 50) / 40))
+    }
+}

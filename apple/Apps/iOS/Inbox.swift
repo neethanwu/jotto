@@ -100,6 +100,20 @@ final class Inbox: NSObject {
         return reply.value
     }
 
+    /// The Live screen is open on a recording the watch is making: ask it
+    /// to send its levels for a while (asked again every few seconds while
+    /// the screen stays open). Only when it's in reach right now; nothing
+    /// is queued.
+    func askWatchForLevels(_ session: String) {
+        guard WCSession.isSupported(), WCSession.default.activationState == .activated,
+              WCSession.default.isReachable else { return }
+        Self.sendNow(["kind": "levels", "session": session])
+    }
+
+    nonisolated private static func sendNow(_ message: [String: Any]) {
+        WCSession.default.sendMessage(message, replyHandler: nil, errorHandler: nil)
+    }
+
     /// A mark or section made on the phone's Live screen, so the watch's
     /// count includes it.
     func tellWatchMarked(_ session: String, section: Bool) {
@@ -235,6 +249,14 @@ extension Inbox: WCSessionDelegate {
         default:
             break
         }
+    }
+
+    /// Live from the watch: its levels, for the Live screen's strip.
+    nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+        guard message["kind"] as? String == "levels", let id = message["session"] as? String,
+              let values = message["levels"] as? [Double] else { return }
+        let levels = values.map(Float.init)
+        Task { @MainActor in LiveLevels.shared.received(id, levels) }
     }
 
     nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}

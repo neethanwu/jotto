@@ -25,6 +25,7 @@ final class PhoneRecorder {
 
     @ObservationIgnored private let engine = AVAudioEngine()
     @ObservationIgnored private var writer: SegmentWriter?
+    @ObservationIgnored private let meter = LevelMeter()
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
 
     private init() {
@@ -135,7 +136,7 @@ final class PhoneRecorder {
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, let writer else { return false }
         input.removeTap(onBus: 0)
-        input.installTap(onBus: 0, bufferSize: 4096, format: format, block: Self.tap(writer))
+        input.installTap(onBus: 0, bufferSize: 4096, format: format, block: Self.tap(writer, meter: meter))
         do {
             engine.prepare()
             try engine.start()
@@ -147,9 +148,16 @@ final class PhoneRecorder {
         }
     }
 
-    nonisolated private static func tap(_ writer: SegmentWriter) -> AVAudioNodeTapBlock {
-        { buffer, _ in writer.append(buffer) }
+    nonisolated private static func tap(_ writer: SegmentWriter, meter: LevelMeter) -> AVAudioNodeTapBlock {
+        { buffer, _ in
+            writer.append(buffer)
+            meter.add(buffer)
+        }
     }
+
+    /// The loudest the microphone has been since the last call, 0…1, for
+    /// the Live screen's level strip.
+    func takeLevel() -> Float { meter.take() }
 
     private func stopEngine() {
         engine.inputNode.removeTap(onBus: 0)

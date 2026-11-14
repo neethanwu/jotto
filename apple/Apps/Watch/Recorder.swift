@@ -39,6 +39,10 @@ final class Recorder {
     static let shortest: TimeInterval = 3
     private let meter = LevelMeter()
     private var meterTask: Task<Void, Never>?
+    /// The phone's Live screen is open on this recording and wants the
+    /// levels, until then (it asks again every few seconds).
+    @ObservationIgnored private var phoneWantsLevelsUntil: Date?
+    @ObservationIgnored private var levelsForPhone: [Float] = []
 
     /// Short segments keep transfers small and give Spike 1 plenty of clips.
     let segmentDuration: TimeInterval = 120
@@ -195,6 +199,8 @@ final class Recorder {
         WKInterfaceDevice.current().play(.stop)
         meterTask?.cancel()
         levels = Array(repeating: 0, count: Self.levelCount)
+        phoneWantsLevelsUntil = nil
+        levelsForPhone = []
         sessionID = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         batteryTask?.cancel()
@@ -232,6 +238,25 @@ final class Recorder {
         note("phone_mark", section ? "section" : "moment")
     }
 
+    /// The phone's Live screen is showing this recording: send it the
+    /// levels for a while, so its strip moves with the voice here.
+    func phoneWantsLevels(session: String) {
+        guard state != .idle, sessionID?.uuidString.lowercased() == session.lowercased() else { return }
+        phoneWantsLevelsUntil = .now.addingTimeInterval(12)
+    }
+
+    /// Three at a time (three tenths of a second), only while asked.
+    private func passToPhone(_ level: Float) {
+        guard let until = phoneWantsLevelsUntil, until > .now, let sessionID else {
+            levelsForPhone = []
+            return
+        }
+        levelsForPhone.append(level)
+        guard levelsForPhone.count >= 3 else { return }
+        WatchTransfer.sendLevels(levelsForPhone, session: sessionID.uuidString.lowercased())
+        levelsForPhone = []
+    }
+
     /// The watch-face complication: recording or not, and today's line.
     func updateFace() {
         let today = History.shared.today
@@ -253,8 +278,10 @@ final class Recorder {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(100))
                 guard let self else { return }
+                let level = self.meter.take()
                 self.levels.removeFirst()
-                self.levels.append(self.meter.take())
+                self.levels.append(level)
+                self.passToPhone(level)
             }
         }
     }
@@ -429,34 +456,6 @@ final class Recorder {
     private func note(_ event: String, _ detail: String = "") {
         lastEvent = event
         log.log(event, battery: battery, detail)
-    }
-}
-
-/// Peak level of the audio since it was last read. Written on the audio
-/// thread, read on the main actor.
-final class LevelMeter: @unchecked Sendable {
-    private let lock = NSLock()
-    private var peak: Float = 0
-
-    func add(_ buffer: AVAudioPCMBuffer) {
-        guard let samples = buffer.floatChannelData?[0] else { return }
-        var sum: Float = 0
-        let n = Int(buffer.frameLength)
-        for i in stride(from: 0, to: n, by: 2) { sum += samples[i] * samples[i] }
-        let rms = sqrt(sum / Float(max(1, n / 2)))
-        lock.lock()
-        peak = max(peak, rms)
-        lock.unlock()
-    }
-
-    /// 0…1 on a rough speech scale (−50 dB … −10 dB).
-    func take() -> Float {
-        lock.lock()
-        let value = peak
-        peak = 0
-        lock.unlock()
-        let db = 20 * log10(max(value, 1e-6))
-        return min(1, max(0, (db + 50) / 40))
     }
 }
 

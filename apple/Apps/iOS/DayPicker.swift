@@ -8,7 +8,7 @@ struct DayPicker: View {
     @Binding var selection: Date
     let marked: Set<Date>
     let earliest: Date?
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.closeDrawer) private var closeDrawer
 
     private struct Month: Identifiable {
         let id: Date
@@ -55,10 +55,9 @@ struct DayPicker: View {
                     .foregroundStyle(Color.jText)
                     .accessibilityAddTraits(.isHeader)
                 Spacer()
-                CircleIconButton(glyph: .close, label: "Close", fill: .jSheetFill) { dismiss() }
+                CircleIconButton(glyph: .close, label: "Close", fill: .jSheetFill) { closeDrawer?() }
             }
             .padding(.horizontal, 20)
-            .padding(.top, 24)
             .padding(.bottom, 10)
 
             HStack(spacing: 0) {
@@ -102,11 +101,9 @@ struct DayPicker: View {
             .defaultScrollAnchor(.bottom)
             .scrollIndicators(.hidden)
         }
-        .background(Color.jSheet)
-        .presentationDetents([.fraction(0.78), .large])
-        .presentationDragIndicator(.visible)
-        .presentationCornerRadius(32)
-        .presentationBackground(Color.jSheet)
+        // A drawer like Send's, a little shorter than the screen so the
+        // day it was opened from still shows above it.
+        .containerRelativeFrame(.vertical) { length, _ in (length * 0.78).rounded() }
     }
 
     private var weekdayLetters: [String] {
@@ -128,7 +125,7 @@ struct DayPicker: View {
 
         return Button {
             selection = date
-            dismiss()
+            closeDrawer?()
         } label: {
             VStack(spacing: 2) {
                 let number = date.formatted(.dateTime.day())

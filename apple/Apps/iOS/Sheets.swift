@@ -78,11 +78,15 @@ struct SendPanel: View {
                     }
                     .buttonStyle(.plain)
                 }
+                .padding(.horizontal, 20)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listHeight = $0 }
             }
             // As tall as the list, so the drawer fits it; scrolls past that.
             .frame(maxHeight: listHeight > 0 ? listHeight : nil)
             .scrollBounceBehavior(.basedOnSize)
+            // Edge to edge, so the scroll bar runs down the drawer's edge
+            // instead of over the rows' formats.
+            .padding(.horizontal, -20)
             .padding(.top, 8)
 
             if highlightCount > 0, template.content != .highlights {
