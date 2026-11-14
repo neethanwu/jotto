@@ -23,7 +23,7 @@
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Jotto records through the microphone while you talk.</string>
+	<string>jotto records through the microphone while you talk.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

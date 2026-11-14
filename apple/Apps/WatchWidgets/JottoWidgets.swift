@@ -33,6 +33,6 @@ struct MarkInBackgroundControl: ControlWidget {
             }
         }
         .displayName("Mark Without Opening")
-        .description("Marks a highlight in the recording under way, without opening Jotto.")
+        .description("Marks a highlight in the recording under way, without opening jotto.")
     }
 }

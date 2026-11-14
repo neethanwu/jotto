@@ -74,8 +74,8 @@ struct SettingsView: View {
                         .resizable()
                         .scaledToFit()
                         .frame(height: 22)
-                        .accessibilityLabel("Jotto")
-                    Text("Jotto \(Bundle.main.version) · built by neethan")
+                        .accessibilityLabel("jotto")
+                    Text("jotto \(Bundle.main.version) · built by neethan")
                         .font(.scaled(11, .medium, relativeTo: .caption2).monospacedDigit())
                         .foregroundStyle(Color.jText4)
                 }
@@ -174,7 +174,7 @@ struct SettingsRow: View {
     let label: String
     var value: String = ""
     var chevron = true
-    /// Leaves Jotto for the browser: an arrow out instead of the chevron.
+    /// Leaves jotto for the browser: an arrow out instead of the chevron.
     var opensOutside = false
 
     init(_ label: String, value: String = "", chevron: Bool = true, opensOutside: Bool = false) {

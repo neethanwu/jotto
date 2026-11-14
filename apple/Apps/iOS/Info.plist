@@ -45,7 +45,7 @@
 		<true/>
 	</dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Jotto records through the microphone when you start a recording on your iPhone.</string>
+	<string>jotto records through the microphone when you start a recording on your iPhone.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UIBackgroundModes</key>

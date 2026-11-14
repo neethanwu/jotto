@@ -42,7 +42,7 @@ targets:
         NSSupportsLiveActivities: true
         # Recording on the iPhone keeps going with the screen locked.
         UIBackgroundModes: [audio]
-        NSMicrophoneUsageDescription: Jotto records through the microphone when you start a recording on your iPhone.
+        NSMicrophoneUsageDescription: jotto records through the microphone when you start a recording on your iPhone.
         # Opens a recording's Live screen from its lock-screen activity.
         CFBundleURLTypes:
           - CFBundleURLName: com.neethanwu.jotto
@@ -120,7 +120,7 @@ targets:
         WKCompanionAppBundleIdentifier: com.neethanwu.jotto
         # Keeps recording with the screen off (Background Modes → Audio).
         UIBackgroundModes: [audio]
-        NSMicrophoneUsageDescription: Jotto records through the microphone while you talk.
+        NSMicrophoneUsageDescription: jotto records through the microphone while you talk.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.neethanwu.jotto.watchkitapp

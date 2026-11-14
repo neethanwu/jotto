@@ -2,7 +2,7 @@ import Foundation
 
 /// What the watch-face complications show, shared between the watch app
 /// (which writes it) and the widget extension (which reads it) through
-/// the app group. Without the group the complications still open Jotto;
+/// the app group. Without the group the complications still open jotto;
 /// they just can't say it's recording.
 enum WatchFace {
     static let group = "group.com.neethanwu.jotto"

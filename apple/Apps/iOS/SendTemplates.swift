@@ -124,7 +124,7 @@ enum Composer {
         var out = instruction(template)
         out += md ? "# \(title)\n\n" : "\(title)\n"
         out += body(detail, with: template, marksHighlights: marksHighlights, headings: 2)
-        out += md ? "—\nRecorded with Jotto\n" : "Recorded with Jotto\n"
+        out += md ? "—\nRecorded with jotto\n" : "Recorded with jotto\n"
         return out
     }
 
@@ -145,7 +145,7 @@ enum Composer {
             out += md ? "## \(name)\n\n" : "\(name)\n"
             out += body(detail, with: template, marksHighlights: marksHighlights, headings: 3, showsTime: false)
         }
-        out += md ? "—\nRecorded with Jotto\n" : "Recorded with Jotto\n"
+        out += md ? "—\nRecorded with jotto\n" : "Recorded with jotto\n"
         return out
     }
 
@@ -239,7 +239,7 @@ struct SendView: View {
                 sectionTitle("Automations", top: 16)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("When a transcript is ready").font(.rowTitle).foregroundStyle(Color.jText)
-                    Text("Jotto sends a notification once a recording is ready. In Shortcuts, add an automation for it that runs Get Finished Transcripts with a template, then hands each one on: Send Email, Ask ChatGPT, or Save File into iCloud Drive or an Obsidian vault.")
+                    Text("jotto sends a notification once a recording is ready. In Shortcuts, add an automation for it that runs Get Finished Transcripts with a template, then hands each one on: Send Email, Ask ChatGPT, or Save File into iCloud Drive or an Obsidian vault.")
                         .font(.summary)
                         .foregroundStyle(Color.jText2)
                         .fixedSize(horizontal: false, vertical: true)

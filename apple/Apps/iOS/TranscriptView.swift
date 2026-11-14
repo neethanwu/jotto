@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// One recording: title Jotto wrote (tap to rename), the transcript in its
+/// One recording: title jotto wrote (tap to rename), the transcript in its
 /// Clean or Original form with marked stretches drawn in, a Highlights tab
 /// when there are any, and a player at the bottom.
 struct TranscriptView: View {
@@ -300,7 +300,7 @@ struct TranscriptView: View {
                     Button { titleFocused = true } label: {
                         HStack(spacing: 6) {
                             GlyphView(glyph: .pen, color: .jText3).frame(width: 14, height: 14)
-                            Text(detail.title == nil ? "Jotto names it once there is enough to go on" : "Title by Jotto · tap to rename")
+                            Text(detail.title == nil ? "jotto names it once there is enough to go on" : "Title by jotto · tap to rename")
                         }
                         .font(.metaSmall)
                         .foregroundStyle(Color.jText3)
@@ -385,7 +385,7 @@ struct TranscriptView: View {
             .reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
         if !suggestions.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Jotto suggests")
+                Text("jotto suggests")
                     .font(.metaSmall)
                     .foregroundStyle(Color.jText3)
                     .padding(.top, 14)
@@ -675,7 +675,7 @@ struct TranscriptView: View {
                     Text("Nothing to write down")
                         .font(.rowTitle)
                         .foregroundStyle(Color.jText)
-                    Text("Jotto couldn't make out any words. If people spoke another language, change it in Settings → Language.")
+                    Text("jotto couldn't make out any words. If people spoke another language, change it in Settings → Language.")
                         .font(.summary)
                         .foregroundStyle(Color.jText2)
                         .lineSpacing(3)

@@ -46,7 +46,7 @@ final class PhoneRecorder {
         case noMicrophone, couldNotStart(String)
         var errorDescription: String? {
             switch self {
-            case .noMicrophone: "Jotto needs the microphone to record. Turn it on in Settings → Jotto."
+            case .noMicrophone: "jotto needs the microphone to record. Turn it on in Settings → jotto."
             case let .couldNotStart(reason): "Couldn't start recording. \(reason)"
             }
         }

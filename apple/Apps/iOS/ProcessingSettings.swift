@@ -265,7 +265,7 @@ struct ProcessingView: View {
             // Said either way: where recordings go with this key, before and after it works.
             Text(keyMissing
                  ? "Until there's a key that works, recordings stay on this iPhone. With one, their audio and text go from this iPhone straight to \(sendsTo)."
-                 : "Your recordings' audio and text go from this iPhone straight to \(sendsTo), under its terms. Nothing passes through Jotto.")
+                 : "Your recordings' audio and text go from this iPhone straight to \(sendsTo), under its terms. Nothing passes through jotto.")
                 .font(.scaled(13, .regular, relativeTo: .footnote))
                 .foregroundStyle(Color.jText3)
                 .fixedSize(horizontal: false, vertical: true)
@@ -552,7 +552,7 @@ private struct QwenRow: View {
                 VStack(alignment: .leading, spacing: 7) {
                     ProgressBar(fraction: fraction)
                     if pack.stalled {
-                        Text("Can't reach the download server from this network yet. It keeps trying, even with Jotto closed; Apple's model carries on meanwhile.")
+                        Text("Can't reach the download server from this network yet. It keeps trying, even with jotto closed; Apple's model carries on meanwhile.")
                             .foregroundStyle(Color.jLive)
                     } else {
                         Text("\(Int(fraction * 950)) of \(SpeechPack.sizeLabel). Apple's model carries on until this is done, then it takes over. Fine to leave this page.")
@@ -822,7 +822,7 @@ struct LanguageView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                PageHeader(title: "Languages", detail: "The languages people speak in your recordings. With more than one, Jotto listens to the start of each recording and picks.") { dismiss() }
+                PageHeader(title: "Languages", detail: "The languages people speak in your recordings. With more than one, jotto listens to the start of each recording and picks.") { dismiss() }
 
                 label("Listening for · \(config.languages.count) of \(AppConfig.maxLanguages)")
                     .padding(.top, 28)
@@ -927,7 +927,7 @@ struct LanguageView: View {
         } else {
             let state: String? = models.isInstalled(id) ? "Downloaded"
                 : models.failed.contains(id) ? "Couldn't download. Tap to try again"
-                : picked ? "Downloads with Jotto open" : nil
+                : picked ? "Downloads with jotto open" : nil
             let text = [other, state].compactMap { $0 }.joined(separator: " · ")
             if !text.isEmpty {
                 Text(text).font(.metaSmall).foregroundStyle(Color.jText3)

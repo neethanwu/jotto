@@ -15,7 +15,7 @@ struct BrandBar<Trailing: View>: View {
                 .resizable()
                 .scaledToFit()
                 .frame(height: 32)
-                .accessibilityLabel("Jotto")
+                .accessibilityLabel("jotto")
             Spacer()
             trailing
         }

@@ -1,13 +1,13 @@
 import SwiftUI
 
-/// Where Jotto's pages outside the app live: all in its public repository.
+/// Where jotto's pages outside the app live: all in its public repository.
 enum Links {
     static let source = URL(string: "https://github.com/neethanwu/jotto")!
     static let privacy = URL(string: "https://github.com/neethanwu/jotto/blob/main/PRIVACY.md")!
     static let support = URL(string: "https://github.com/neethanwu/jotto/blob/main/SUPPORT.md")!
 }
 
-/// Whose work Jotto builds on, with the licence it comes under in full
+/// Whose work jotto builds on, with the licence it comes under in full
 /// (the Apache License asks for a copy to go with what's distributed).
 struct AcknowledgementsView: View {
     @Environment(\.dismiss) private var dismiss
@@ -24,7 +24,7 @@ struct AcknowledgementsView: View {
         Credit(name: "Qwen3-ASR Core ML",
                detail: "That model made ready for Core ML, published by aufklarer on Hugging Face. Apache License 2.0."),
         Credit(name: "speech-swift",
-               detail: "Jotto's code for running the model is adapted from it. Copyright 2025 Ivan Digital. Apache License 2.0."),
+               detail: "jotto's code for running the model is adapted from it. Copyright 2025 Ivan Digital. Apache License 2.0."),
     ]
 
     /// The licence as paragraphs: its fixed-width line breaks and indents
@@ -43,7 +43,7 @@ struct AcknowledgementsView: View {
             VStack(alignment: .leading, spacing: 0) {
                 PageHeader(
                     title: "Acknowledgements",
-                    detail: "Jotto is free software under the GNU General Public License, version 3. It builds on the work below."
+                    detail: "jotto is free software under the GNU General Public License, version 3. It builds on the work below."
                 ) { dismiss() }
 
                 SettingsGroup {

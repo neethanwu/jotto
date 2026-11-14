@@ -1,6 +1,6 @@
-# Jotto help
+# jotto help
 
-Jotto records on your Apple Watch or iPhone and turns the recording into text on your iPhone.
+jotto records on your Apple Watch or iPhone and turns the recording into text on your iPhone.
 
 ## Get in touch
 
@@ -11,16 +11,16 @@ Questions about privacy are answered in the [privacy policy](PRIVACY.md).
 ## Common questions
 
 **I stopped recording. Where is the text?**
-Open Jotto on your iPhone. The watch sends a recording over in two-minute parts, and the iPhone turns each part into text when it arrives. If the iPhone was locked or out of reach, it catches up once Jotto is open.
+Open jotto on your iPhone. The watch sends a recording over in two-minute parts, and the iPhone turns each part into text when it arrives. If the iPhone was locked or out of reach, it catches up once jotto is open.
 
 **The first recording is taking a long time.**
-The first time, your iPhone downloads Apple's speech model for your language. Keep Jotto open on Wi-Fi until it finishes.
+The first time, your iPhone downloads Apple's speech model for your language. Keep jotto open on Wi-Fi until it finishes.
 
 **How do I stop a recording?**
 Hold the orange dot for a second. A tap alone doesn't stop it, so a brush of the sleeve can't end a recording.
 
 **My recordings have a time for a name instead of a title.**
-Titles and the tidier formatting are written by Apple Intelligence on your iPhone. Where it isn't available or is turned off, Jotto names a recording by its time and cleans the text up by rule. You can rename any recording by tapping its title.
+Titles and the tidier formatting are written by Apple Intelligence on your iPhone. Where it isn't available or is turned off, jotto names a recording by its time and cleans the text up by rule. You can rename any recording by tapping its title.
 
 **It gets words wrong when I mix languages.**
 Apple's speech model works best when a recording stays in one language. In Settings → Processing you can download Qwen3-ASR, which hears Chinese and English mixed together, or use your own API key.

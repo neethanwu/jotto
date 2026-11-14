@@ -285,7 +285,7 @@ final class Pipeline {
         if wanted.contains(where: { !models.isInstalled($0) }) { waiting = "Downloading the speech model" }
         await models.ensure(wanted)
         waiting = wanted.contains(where: models.failed.contains)
-            ? "Couldn't download the speech model. Open Jotto on Wi-Fi to try again" : nil
+            ? "Couldn't download the speech model. Open jotto on Wi-Fi to try again" : nil
     }
 
     private enum Step {
@@ -489,7 +489,7 @@ final class Pipeline {
     }
 
     /// Paragraph by paragraph, saving as it goes so the transcript fills
-    /// in. Stops when Jotto leaves the front; carries on next time.
+    /// in. Stops when jotto leaves the front; carries on next time.
     private func tidy(_ id: String) async {
         guard let r = store.recordings[id] else { return }
         let blocks = LocalStore.blocks(r).filter { !$0.backchannel }

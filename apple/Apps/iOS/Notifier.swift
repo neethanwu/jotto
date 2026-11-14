@@ -3,7 +3,7 @@ import UIKit
 import UserNotifications
 
 /// "Your recording is ready": its title and what it was about, once the
-/// phone has finished with it. A banner even with Jotto open, since you
+/// phone has finished with it. A banner even with jotto open, since you
 /// may be on another tab; tapping one opens the transcript.
 @MainActor @Observable
 final class Notifier: NSObject {

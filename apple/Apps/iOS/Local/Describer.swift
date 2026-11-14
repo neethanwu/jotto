@@ -22,7 +22,7 @@ enum Describer {
     static var isAvailable: Bool { SystemLanguageModel.default.availability == .available }
 
     private static let instructions = """
-    You name and summarize recordings for Jotto, an app that records conversations on an Apple Watch. \
+    You name and summarize recordings for jotto, an app that records conversations on an Apple Watch. \
     Write the title, suggestions and summary in the language the transcript is mostly in. If it mixes Chinese and English, write in Chinese and keep English terms as said. \
     Only use what is in the transcript; never invent names or facts. Say what happened, not "the speakers discuss".
     """

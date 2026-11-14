@@ -4,8 +4,8 @@ import UIKit
 
 /// Keeps the lock-screen and Dynamic Island activity in step with the
 /// recording. iOS lets an app start one only while it is in front, so it
-/// starts when Jotto is open as a recording begins, or the first time
-/// Jotto is opened during one; after that it stays until the watch stops.
+/// starts when jotto is open as a recording begins, or the first time
+/// jotto is opened during one; after that it stays until the watch stops.
 @MainActor
 final class LiveActivities {
     static let shared = LiveActivities()

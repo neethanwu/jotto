@@ -84,7 +84,7 @@ private struct ReadyScreen: View {
                 // nudged up so its baseline meets the time's.
                 Image("Wordmark").resizable().scaledToFit().frame(height: 17)
                     .offset(y: -7)
-                    .accessibilityLabel("Jotto")
+                    .accessibilityLabel("jotto")
             }
         }
         .onAppear { transfer.refreshPending() }

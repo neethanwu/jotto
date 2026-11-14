@@ -38,7 +38,7 @@ enum Format {
         "\(n) \(word)\(n == 1 ? "" : "s")"
     }
 
-    /// A title for a recording Jotto hasn't named yet.
+    /// A title for a recording jotto hasn't named yet.
     static func provisionalTitle(_ date: Date) -> String {
         switch Calendar.current.component(.hour, from: date) {
         case 5..<12: "Morning recording"

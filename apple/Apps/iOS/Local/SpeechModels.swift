@@ -25,7 +25,7 @@ final class SpeechModels {
     func isInstalled(_ id: String) -> Bool { installed.contains(id) }
 
     /// Downloads whichever of these aren't on the phone yet, side by side.
-    /// Needs Jotto in front; returns when all have finished or failed.
+    /// Needs jotto in front; returns when all have finished or failed.
     func ensure(_ ids: [String]) async {
         await refresh()
         let missing = ids.filter { !installed.contains($0) && progress[$0] == nil }

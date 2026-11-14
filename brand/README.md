@@ -1,4 +1,4 @@
-# Jotto brand
+# jotto brand
 
 Logo v1 and colour v1, decided 2026-10-31. Design boards: Paper file "jotto", page "Brand".
 
@@ -32,8 +32,8 @@ After regenerating, copy `AppIcon.icon` and `icon-watch-1024.png` into the apps 
 
 ## Product page
 
-There is no standalone site. Jotto gets one page at `neethan.com/jotto`, which
-must look like Jotto, not like the rest of neethan.com: scope its styles to the
+There is no standalone site. jotto gets one page at `neethan.com/jotto`, which
+must look like jotto, not like the rest of neethan.com: scope its styles to the
 page and use only the tokens here.
 
 ```html

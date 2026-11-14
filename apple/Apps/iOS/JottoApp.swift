@@ -39,7 +39,7 @@ struct JottoApp: App {
 }
 
 final class AppDelegate: NSObject, UIApplicationDelegate {
-    /// The speech model's download finished while Jotto wasn't running.
+    /// The speech model's download finished while jotto wasn't running.
     func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
                      completionHandler: @escaping () -> Void) {
         MainActor.assumeIsolated { SpeechPack.shared.backgroundCompletion = completionHandler }

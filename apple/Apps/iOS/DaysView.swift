@@ -891,7 +891,7 @@ struct TimelineRow: View {
                 .font(.rowTitle)
                 .foregroundStyle(entry.state == .naming ? Color.jText3 : Color.jText)
                 .lineLimit(2)
-                // The stand-in title shimmers while Jotto writes the real one.
+                // The stand-in title shimmers while jotto writes the real one.
                 .shimmering(entry.state == .naming)
                 .contentTransition(.opacity)
                 .animation(.easeOut(duration: 0.3), value: entry.title)

@@ -180,7 +180,7 @@ enum Cloud {
         switch status {
         case 200..<300: return data
         case 401, 403: throw Failure.rejected
-        case 408, 429, 500...599: throw Failure.unreachable("It answered \(status); Jotto will try again.")
+        case 408, 429, 500...599: throw Failure.unreachable("It answered \(status); jotto will try again.")
         default:
             let message = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
                 .flatMap { ($0["error"] as? [String: Any])?["message"] as? String ?? $0["error"] as? String }
@@ -192,7 +192,7 @@ enum Cloud {
         var request = URLRequest(url: url)
         request.setValue("Bearer \(endpoint.key)", forHTTPHeaderField: "Authorization")
         if endpoint.service == .openRouter {
-            request.setValue("Jotto", forHTTPHeaderField: "X-Title")
+            request.setValue("jotto", forHTTPHeaderField: "X-Title")
         }
         return request
     }
@@ -418,7 +418,7 @@ enum Cloud {
     /// Title, three other titles and a summary, as the on-device `Describer` gives them.
     @MainActor static func describe(_ paragraphs: [String]) async throws -> (title: String, suggestions: [String], summary: String) {
         let system = """
-        You name and summarize recordings for Jotto, an app that records conversations on a watch or phone. \
+        You name and summarize recordings for jotto, an app that records conversations on a watch or phone. \
         Write in the language the transcript is mostly in; if it mixes Chinese and English, write in Chinese and keep English terms as said. \
         Only use what is in the transcript; never invent names or facts. Say what happened, not "the speakers discuss". \
         Reply with JSON only: {"title": "2–6 words, like a calendar entry, sentence case, no quotes or period", \

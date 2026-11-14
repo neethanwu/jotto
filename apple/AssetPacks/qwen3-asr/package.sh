@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds the Qwen3-ASR asset pack that App Store Connect hosts for Jotto
+# Builds the Qwen3-ASR asset pack that App Store Connect hosts for jotto
 # (Settings → Processing → Qwen3-ASR downloads it through the App Store,
 # which reaches every storefront, mainland China included).
 #

@@ -3,14 +3,14 @@ import Foundation
 import CoreTransferable
 import UniformTypeIdentifiers
 
-// Jotto in the Shortcuts app. Recording: start, stop and mark, each
+// jotto in the Shortcuts app. Recording: start, stop and mark, each
 // handing on the recording. Transcripts: finished ones not yet sent on,
 // one recording's, the latest, or a whole day's, laid out by a send
 // template, as a Transcript that works as text (Mail, ChatGPT, Notes) and
 // as a named .md or .txt file (Save File into iCloud Drive or an Obsidian
 // vault), with its title for a subject line. Recordings are entities, so
 // Shortcuts also offers "Find Recording" (by day, title, ready) and "Open
-// Recording". With a "when Jotto sends a notification" automation and
+// Recording". With a "when jotto sends a notification" automation and
 // Get Finished Transcripts, every recording goes somewhere by itself about
 // a minute after it ends.
 //
@@ -224,7 +224,7 @@ enum IntentFailure: LocalizedError {
         case .nothingThatDay: "Nothing was recorded that day."
         case .notRecording: "Nothing is recording."
         case .notReady: "That recording is still being transcribed. Its transcript is usually ready about a minute after it ends."
-        case .gone: "That recording isn't in Jotto any more."
+        case .gone: "That recording isn't in jotto any more."
         }
     }
 }
@@ -240,7 +240,7 @@ private func titled(_ detail: SessionDetail) -> (detail: SessionDetail, title: S
 struct GetNewTranscriptsIntent: AppIntent {
     static let title: LocalizedStringResource = "Get Finished Transcripts"
     static let description = IntentDescription(
-        "Transcripts of recordings that are completely done (every part heard, formatted and titled) and haven't been sent to this destination yet, oldest first, laid out by a send template. Use it in an automation for when Jotto sends a notification: each recording goes out once, and any that a missed run left behind go with the next. Give each automation its own destination, like Email or Obsidian.",
+        "Transcripts of recordings that are completely done (every part heard, formatted and titled) and haven't been sent to this destination yet, oldest first, laid out by a send template. Use it in an automation for when jotto sends a notification: each recording goes out once, and any that a missed run left behind go with the next. Give each automation its own destination, like Email or Obsidian.",
         categoryName: "Transcripts",
         searchKeywords: ["automation", "new", "ready", "export", "sync", "save", "send"]
     )
@@ -368,7 +368,7 @@ struct GetDayTranscriptsIntent: AppIntent {
 struct StartRecordingIntent: AudioRecordingIntent {
     static let title: LocalizedStringResource = "Start Recording"
     static let description = IntentDescription(
-        "Starts a Jotto recording: on your watch if Jotto is open there, otherwise on this phone. Gives the recording, so a later step can open it or get its transcript.",
+        "Starts a jotto recording: on your watch if jotto is open there, otherwise on this phone. Gives the recording, so a later step can open it or get its transcript.",
         categoryName: "Recording",
         searchKeywords: ["record", "begin", "microphone"]
     )
@@ -387,7 +387,7 @@ struct StartRecordingIntent: AudioRecordingIntent {
 struct StopRecordingIntent: AppIntent {
     static let title: LocalizedStringResource = "Stop Recording"
     static let description = IntentDescription(
-        "Stops the Jotto recording going on, on this phone or on your watch, and gives that recording. Its transcript is usually ready about a minute later: Jotto posts a notice then, which an automation can pick up.",
+        "Stops the jotto recording going on, on this phone or on your watch, and gives that recording. Its transcript is usually ready about a minute later: jotto posts a notice then, which an automation can pick up.",
         categoryName: "Recording",
         searchKeywords: ["end", "finish", "record"]
     )
@@ -414,7 +414,7 @@ struct StopRecordingIntent: AppIntent {
 struct MarkNowIntent: AppIntent {
     static let title: LocalizedStringResource = "Mark This Moment"
     static let description = IntentDescription(
-        "Puts a star on what's being said now in the recording going on, the same as tapping the star. The highlight reaches back and forward as set in Jotto's settings.",
+        "Puts a star on what's being said now in the recording going on, the same as tapping the star. The highlight reaches back and forward as set in jotto's settings.",
         categoryName: "Recording",
         searchKeywords: ["star", "highlight", "bookmark"]
     )
@@ -429,11 +429,11 @@ struct MarkNowIntent: AppIntent {
     }
 }
 
-/// Opens a recording's transcript in Jotto.
+/// Opens a recording's transcript in jotto.
 struct OpenRecordingIntent: OpenIntent {
     static let title: LocalizedStringResource = "Open Recording"
     static let description = IntentDescription(
-        "Opens a recording's transcript in Jotto.",
+        "Opens a recording's transcript in jotto.",
         categoryName: "Transcripts",
         searchKeywords: ["show", "view"]
     )

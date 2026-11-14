@@ -126,7 +126,7 @@ private struct Controls: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image("Wordmark").resizable().scaledToFit().frame(height: 16).accessibilityLabel("Jotto")
+            Image("Wordmark").resizable().scaledToFit().frame(height: 16).accessibilityLabel("jotto")
             Spacer()
             Button(intent: MarkMomentIntent(sessionID: context.attributes.sessionID)) {
                 HStack(spacing: 6) {

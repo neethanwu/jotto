@@ -1,7 +1,7 @@
 import SwiftUI
 import WidgetKit
 
-/// Jotto on the watch face: the orange dot that opens it, and while it
+/// jotto on the watch face: the orange dot that opens it, and while it
 /// records, that it is recording and for how long (W6 in Paper).
 struct JottoComplication: Widget {
     var body: some WidgetConfiguration {
@@ -9,7 +9,7 @@ struct JottoComplication: Widget {
             FaceView(entry: entry)
                 .containerBackground(.clear, for: .widget)
         }
-        .configurationDisplayName("Jotto")
+        .configurationDisplayName("jotto")
         .description("Tap to record. Shows the recording while it runs.")
         .supportedFamilies([.accessoryCircular, .accessoryCorner, .accessoryRectangular, .accessoryInline])
     }
@@ -60,7 +60,7 @@ struct FaceView: View {
                 Circle().stroke(orange, lineWidth: 2).padding(9).widgetAccentable()
             }
         }
-        .accessibilityLabel(since == nil ? "Record with Jotto" : "Jotto is recording")
+        .accessibilityLabel(since == nil ? "Record with jotto" : "jotto is recording")
     }
 
     private var corner: some View {

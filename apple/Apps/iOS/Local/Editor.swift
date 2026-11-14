@@ -5,7 +5,7 @@ import FoundationModels
 /// dictation app does: fillers and false starts out, a self-correction
 /// kept as corrected, proper sentences and punctuation. Same words,
 /// same order, nothing added. Runs after the rule-based clean-up
-/// (`Cleanup`), paragraph by paragraph, while Jotto is open: the model
+/// (`Cleanup`), paragraph by paragraph, while jotto is open: the model
 /// is rate-limited in the background.
 ///
 /// Every answer is checked against what was said (`accept`); one that

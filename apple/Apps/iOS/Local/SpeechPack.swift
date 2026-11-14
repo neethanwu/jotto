@@ -11,7 +11,7 @@ import UIKit
 /// Store Connect hosts (AssetPacks/qwen3-asr), which reaches every
 /// storefront, mainland China included. Other builds, or if the App
 /// Store can't give it, fetch the same files from Hugging Face at fixed
-/// revisions. Either way the download carries on when Jotto isn't open,
+/// revisions. Either way the download carries on when jotto isn't open,
 /// and nothing about your recordings is sent.
 @MainActor @Observable
 final class SpeechPack: NSObject {
@@ -83,10 +83,10 @@ final class SpeechPack: NSObject {
 
     @ObservationIgnored private var session: URLSession!
     @ObservationIgnored private var written: [String: Int64] = [:]
-    /// From the app delegate, when iOS wakes Jotto for the download.
+    /// From the app delegate, when iOS wakes jotto for the download.
     @ObservationIgnored var backgroundCompletion: (() -> Void)?
 
-    /// Asked for and not yet cancelled; survives Jotto being closed mid-download.
+    /// Asked for and not yet cancelled; survives jotto being closed mid-download.
     private var wanted: Bool {
         get { UserDefaults.standard.bool(forKey: "speechPackWanted") }
         set { UserDefaults.standard.set(newValue, forKey: "speechPackWanted") }
@@ -102,7 +102,7 @@ final class SpeechPack: NSObject {
             // Closed while it was loading for the first time: once more.
             if wanted { prepare() } else { state = .ready }
         } else if wanted {
-            // A download that was going when Jotto last closed: carry on.
+            // A download that was going when jotto last closed: carry on.
             state = .downloading(fraction())
             watchProgress()
             session.getAllTasks { tasks in
@@ -188,7 +188,7 @@ final class SpeechPack: NSObject {
         do {
             try await AssetPackManager.shared.ensureLocalAvailability(of: pack)
             guard wanted else { return }
-            // Into Jotto's own folder, where the model loads from; on the
+            // Into jotto's own folder, where the model loads from; on the
             // same disk a copy is a clone, so it takes no more room. Then
             // the pack itself can go.
             try await Task.detached { try Self.copyFromStore() }.value
