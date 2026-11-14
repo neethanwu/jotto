@@ -56,27 +56,33 @@ Titles and tidying are written on the iPhone by Apple Intelligence where it's av
 
 ## Shortcuts
 
-On the iPhone:
+jotto adds its own actions to the Shortcuts app, so recordings can start, stop and go places without you opening it.
 
-| Action | What it does |
-|--------|--------------|
-| Start Recording, Stop Recording | On the watch if jotto is open there, otherwise on the iPhone |
-| Mark This Moment | A star in the recording going on |
-| Get Finished Transcripts | Every finished recording not yet sent to a destination you name, once each |
-| Get Transcript, Get Latest Transcript, Get a Day's Transcripts | A transcript laid out by one of your templates |
-| Open Recording, Find Recording | Jump to a recording, or pick one by date or title |
+**Recording**
 
-On the watch: **Record or Mark** (starts a recording, or marks a highlight if one is going; made for the Action Button) and **Mark Without Opening**.
+- **Start Recording** starts on the watch if jotto is open there, otherwise on the iPhone.
+- **Stop Recording** stops whichever one is recording.
+- **Mark This Moment** puts a star on what's being said right now.
+- On the watch, **Record or Mark** starts a recording, or marks the one that's going; it's made for the Action Button. **Mark Without Opening** marks without bringing jotto to the front.
 
-Transcripts come out as text for Mail or ChatGPT, and as a dated, titled `.md` or `.txt` file for Save File.
+**Transcripts**
 
-To send every recording somewhere by itself, turn on *Notify when ready* in jotto's settings. Then, in Shortcuts, add an automation for **when jotto sends a notification**, set to run immediately:
+- **Get Latest Transcript** gives the newest finished recording.
+- **Get Transcript** gives a recording you choose, or one found with **Find Recording** (by date or title).
+- **Get a Day's Transcripts** gives every recording from one day.
+- **Get Finished Transcripts** is for automations. It gives every recording that has finished since it last ran for a destination you name, so each recording goes to each place once: nothing twice, nothing skipped.
+- **Open Recording** opens a recording in jotto.
 
-1. **Get Finished Transcripts**, with Destination *Obsidian* and the template you want.
-2. **Repeat with Each** of them.
-3. **Save File** into your vault (or **Send Email**, or **Ask ChatGPT**).
+Transcripts are laid out by one of your Send templates. Give one to an action that takes text, like Send Email or Ask ChatGPT, and it gets the text. Give it to Save File and it becomes a `.md` or `.txt` file named with the date, time and title.
 
-Each recording goes to each destination once. If a run is missed, the next one catches up.
+### Send every recording somewhere by itself
+
+1. In jotto's settings, turn on **Notify when ready**. jotto then sends one notification per recording, when it's completely transcribed, formatted and titled.
+2. In Shortcuts, add a personal automation for when you get a notification from jotto, set to **Run Immediately**.
+3. Add **Get Finished Transcripts**. Set *Destination* to a name for where they're going, such as *Obsidian*, and choose a template.
+4. Add **Repeat with Each**, and inside it **Save File** into your vault (or **Send Email**, or **Ask ChatGPT**).
+
+If a run is missed, the next one catches up. To send to more than one place, make an automation for each, each with its own Destination name.
 
 ## Privacy
 
