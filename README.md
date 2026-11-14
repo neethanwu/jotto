@@ -20,10 +20,10 @@
 </p>
 
 <p align="center">
-  <img src=".github/readme/01-recorder.jpg" width="32%" alt="Days: a timeline of the day's recordings, with the watch recording">
+  <img src=".github/readme/01-recorder.jpg" width="32%" alt="The watch recording, and the words already on the iPhone">
   <img src=".github/readme/02-talk.jpg" width="32%" alt="Live: the timer, the record dot and the latest words">
   <img src=".github/readme/03-clean.jpg" width="32%" alt="A transcript, original view with the fillers struck through">
-  <img src=".github/readme/04-mark.jpg" width="32%" alt="A transcript with highlights marked from the watch">
+  <img src=".github/readme/04-mark.jpg" width="32%" alt="Highlights, starred from the watch">
   <img src=".github/readme/05-send.jpg" width="32%" alt="Send: jotto writes it down, your own agent does the rest">
   <img src=".github/readme/06-private.jpg" width="32%" alt="Processing: on this iPhone or with your own API key">
 </p>
@@ -53,6 +53,8 @@ Pick one in Settings → Processing.
 | Your own API key | OpenRouter, or any OpenAI-compatible service such as Groq, Together or OpenAI | Telling speakers apart; you pay the service directly |
 
 Titles and tidying are written on the iPhone by Apple Intelligence where it's available, or by the model behind your key.
+
+For a feel of how they differ, including a dozen cloud models and what each costs, see [MODELS.md](MODELS.md).
 
 ## Shortcuts
 

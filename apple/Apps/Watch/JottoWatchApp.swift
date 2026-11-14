@@ -15,7 +15,18 @@ struct JottoWatchApp: App {
                 #if DEBUG
                 // Simulator screenshots: `SIMCTL_CHILD_JOTTO_AUTOSTART=1 xcrun simctl launch …`
                 .task {
-                    if ProcessInfo.processInfo.environment["JOTTO_AUTOSTART"] != nil { recorder.start() }
+                    let env = ProcessInfo.processInfo.environment
+                    if env["JOTTO_AUTOSTART"] != nil {
+                        recorder.start()
+                        // A recording already some minutes in (`JOTTO_AUTOSTART_AGO=255`),
+                        // and the star just pressed (`JOTTO_AUTOMARK=1`).
+                        if let ago = env["JOTTO_AUTOSTART_AGO"].flatMap(Double.init) { recorder.backdate(ago) }
+                        if env["JOTTO_AUTOMARK"] != nil {
+                            // Once the level bars have filled.
+                            try? await Task.sleep(for: .seconds(3.5))
+                            recorder.mark(source: "screenshot")
+                        }
+                    }
                 }
                 #endif
         }

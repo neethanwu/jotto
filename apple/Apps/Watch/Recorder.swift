@@ -238,6 +238,15 @@ final class Recorder {
         note("phone_mark", section ? "section" : "moment")
     }
 
+    #if DEBUG
+    static let fakeLevels = ProcessInfo.processInfo.environment["JOTTO_FAKE_LEVELS"] != nil
+
+    /// Simulator screenshots: the recording as if it began `seconds` ago.
+    func backdate(_ seconds: TimeInterval) {
+        startedAt = startedAt?.addingTimeInterval(-seconds)
+    }
+    #endif
+
     /// The phone's Live screen is showing this recording: send it the
     /// levels for a while, so its strip moves with the voice here.
     func phoneWantsLevels(session: String) {
@@ -278,7 +287,11 @@ final class Recorder {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(100))
                 guard let self else { return }
-                let level = self.meter.take()
+                var level = self.meter.take()
+                #if DEBUG
+                // Store screenshots: speech-like bars without anyone speaking (`JOTTO_FAKE_LEVELS=1`).
+                if Self.fakeLevels { level = Float.random(in: 0.25...0.95) * (Bool.random() ? 1 : 0.55) }
+                #endif
                 self.levels.removeFirst()
                 self.levels.append(level)
                 self.passToPhone(level)
