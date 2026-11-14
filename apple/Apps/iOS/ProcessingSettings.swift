@@ -48,7 +48,7 @@ struct ProcessingView: View {
                     ) { choose(ownKey: false) }
                     ChoiceCard(
                         title: "Your own API key",
-                        detail: "Handles mixed Chinese and English, and tells speakers apart. You pay the provider directly.",
+                        detail: "Sends your recordings to a service you pick. Handles mixed Chinese and English, and tells speakers apart. You pay it directly.",
                         selected: config.usesOwnKey
                     ) { choose(ownKey: true) }
                 }
@@ -186,6 +186,12 @@ struct ProcessingView: View {
 
     // MARK: Your own key
 
+    /// Who gets the recordings with this key: OpenRouter, or the service at the address.
+    private var sendsTo: String {
+        if config.cloudService == .openRouter { return "OpenRouter" }
+        return URL(string: config.cloudBaseURL.trimmingCharacters(in: .whitespaces))?.host() ?? "the service at that address"
+    }
+
     private var keySettings: some View {
         VStack(alignment: .leading, spacing: 0) {
             label("Provider").padding(.top, 28)
@@ -256,14 +262,14 @@ struct ProcessingView: View {
             .onChange(of: keyFocused) { _, focused in
                 if focused { editingKey = true } else { editingKey = false; saveKey() }
             }
-            if keyMissing {
-                Text("Until there's a key that works, recordings stay on this iPhone.")
-                    .font(.scaled(13, .regular, relativeTo: .footnote))
-                    .foregroundStyle(Color.jText3)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 8)
-                    .transition(.opacity)
-            }
+            // Said either way: where recordings go with this key, before and after it works.
+            Text(keyMissing
+                 ? "Until there's a key that works, recordings stay on this iPhone. With one, their audio and text go from this iPhone straight to \(sendsTo)."
+                 : "Your recordings' audio and text go from this iPhone straight to \(sendsTo), under its terms. Nothing passes through Jotto.")
+                .font(.scaled(13, .regular, relativeTo: .footnote))
+                .foregroundStyle(Color.jText3)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 8)
 
             label("Models").padding(.top, 24).padding(.horizontal, 4)
             VStack(spacing: 0) {

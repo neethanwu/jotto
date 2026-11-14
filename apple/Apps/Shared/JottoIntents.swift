@@ -19,8 +19,9 @@ struct RecordOrMarkIntent: AppIntent {
     }
 }
 
-/// Test build: the same action without opening Jotto, to learn whether the
-/// system runs it in the app while the recording carries on in the background.
+/// Marks a highlight without opening Jotto, while the recording carries on
+/// in the background. Only marks: with nothing recording it does nothing,
+/// since a recording shouldn't start out of sight.
 struct MarkInBackgroundIntent: AppIntent {
     static let title: LocalizedStringResource = "Mark Without Opening"
     static let description = IntentDescription("Marks a highlight in the current recording without opening Jotto.")
@@ -29,7 +30,7 @@ struct MarkInBackgroundIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult {
         #if !JOTTO_WIDGETS
-        Recorder.shared.primaryAction(source: "mark_background")
+        Recorder.shared.mark(source: "mark_background")
         #endif
         return .result()
     }

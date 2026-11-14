@@ -14,6 +14,7 @@ enum Route: Hashable {
     case keepAudio
     case openIn
     case inbox
+    case acknowledgements
 }
 
 @MainActor @Observable
@@ -102,6 +103,7 @@ struct RootView: View {
                     case .keepAudio: KeepAudioView()
                     case .openIn: OpenInView()
                     case .inbox: InboxView(inbox: .shared)
+                    case .acknowledgements: AcknowledgementsView()
                     }
                 }
         }

@@ -51,6 +51,15 @@ struct SettingsView: View {
                     }
                 }
 
+                SettingsSection("About") {
+                    Link(destination: Links.privacy) { SettingsRow("Privacy policy", opensOutside: true) }
+                    Link(destination: Links.support) { SettingsRow("Help and feedback", opensOutside: true) }
+                    Link(destination: Links.source) { SettingsRow("Source code", value: "GitHub", opensOutside: true) }
+                    NavigationLink(value: Route.acknowledgements) {
+                        SettingsRow("Acknowledgements")
+                    }
+                }
+
                 // For testing: gone in the App Store build.
                 if isBeta {
                     SettingsSection("Beta") {
@@ -166,11 +175,14 @@ struct SettingsRow: View {
     let label: String
     var value: String = ""
     var chevron = true
+    /// Leaves Jotto for the browser: an arrow out instead of the chevron.
+    var opensOutside = false
 
-    init(_ label: String, value: String = "", chevron: Bool = true) {
+    init(_ label: String, value: String = "", chevron: Bool = true, opensOutside: Bool = false) {
         self.label = label
         self.value = value
         self.chevron = chevron
+        self.opensOutside = opensOutside
     }
 
     var body: some View {
@@ -182,7 +194,7 @@ struct SettingsRow: View {
                 .foregroundStyle(Color.jText2)
                 .lineLimit(1)
             if chevron {
-                Image(systemName: "chevron.right")
+                Image(systemName: opensOutside ? "arrow.up.right" : "chevron.right")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(Color.jText4)
             }

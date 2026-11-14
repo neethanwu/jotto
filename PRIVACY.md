@@ -1,0 +1,65 @@
+# Jotto privacy policy
+
+Last updated 13 November 2026.
+
+Jotto is a recorder for Apple Watch and iPhone, published by Hallidai Inc. This policy covers the Jotto apps.
+
+## The short version
+
+Jotto has no account, no server of ours, no analytics and no ads. We don't collect anything about you. Your recordings and transcripts stay on your devices unless you send them somewhere yourself.
+
+## What Jotto keeps, and where
+
+- **Recordings.** Audio is recorded on your Apple Watch or iPhone. The watch passes it to your iPhone over Apple's own link between the two and deletes its copy once the iPhone has it. On the iPhone, audio is removed 30 days after a recording is transcribed; you can change that to 7 days, 1 year or forever in Settings.
+- **Transcripts, titles, highlights and send templates.** These stay on your iPhone until you delete them.
+- **Settings.** Kept on your iPhone.
+
+All of it sits in Jotto's own storage on the device. If you back up your iPhone, to iCloud or to a computer, Jotto's data is part of that backup, under your Apple account and Apple's terms. Deleting a recording in Jotto removes its audio and text from the iPhone. Deleting the app removes everything.
+
+## Turning speech into text
+
+By default, everything happens on your iPhone:
+
+- Apple's on-device speech model transcribes the audio.
+- Where Apple Intelligence is available, Apple's on-device language model writes the title and tidies the text. Where it isn't, Jotto tidies by fixed rules.
+
+Nothing is sent anywhere for this.
+
+**The optional Qwen3-ASR model.** If you choose to download it, your iPhone fetches the model files from Hugging Face (huggingface.co). As with any download, Hugging Face sees your IP address. The model then runs on your iPhone; no audio or text is sent to anyone.
+
+**Your own API key, if you turn it on.** You can choose to have a cloud service do the work instead: OpenRouter, or any OpenAI-compatible service whose address you enter. While this is on:
+
+- the audio of your recordings and the text of your transcripts go straight from your iPhone to that service, to be transcribed, titled and formatted;
+- the service handles them under its own terms and privacy policy, which you agreed to when you got the key;
+- your key is kept in the iPhone's Keychain and is sent only to that service.
+
+We are not in the middle of this, and we never see your key, your audio or your text. Turn it off in Settings → Processing and everything is done on your iPhone again.
+
+## Sending things out
+
+Jotto sends a transcript or audio out of the app only when you ask it to: with Send, with Copy, or through a shortcut or automation you set up in Apple's Shortcuts app. Where it goes after that is up to the app or service you picked.
+
+## Permissions
+
+- **Microphone**, to record. Jotto records only after you start a recording, and the system shows its recording indicator the whole time.
+- **Notifications**, to tell you when a transcript is ready. These are made on your iPhone; nothing is pushed from a server.
+
+## What we receive
+
+Nothing from the app. If you have agreed to share analytics with developers in your iPhone's settings, Apple may show us crash reports and usage figures for Jotto with nothing in them that identifies you.
+
+## Recording other people
+
+You decide what to record. Laws about recording conversations differ from place to place; tell people before you record them, and follow the law where you are.
+
+## Children
+
+Jotto isn't directed at children, and collects nothing from anyone.
+
+## Changes
+
+If this policy changes, the new version is published here with a new date. The history of this file is public.
+
+## Contact
+
+Questions about this policy: open an issue at <https://github.com/neethanwu/jotto/issues>.
