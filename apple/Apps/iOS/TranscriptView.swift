@@ -699,28 +699,51 @@ struct TranscriptView: View {
             highlightList(detail)
         } else if let model = models[t] {
             let rows = model.rows
-            TranscriptBody(
-                paragraphs: model.items, version: modelVersion, current: currentBlock(on: t),
-                play: { id in
-                    reveal(id)
-                    if let b = rows.first(where: { $0.id == id })?.block { player.seek(to: b.start) }
-                },
-                // Tapping the text moves the playhead; it only plays if it already was.
-                moveHere: { id in
-                    reveal(id)
-                    if let b = rows.first(where: { $0.id == id })?.block { player.seek(to: b.start, play: player.isPlaying) }
-                },
-                highlight: { first, last in highlight(from: first, to: last, in: rows) },
-                anchors: { found in
-                    guard spans[t] != found else { return }
-                    spans[t] = found
-                    if t == shown, let id = where_.pending, found[id] != nil {
-                        where_.pending = nil
-                        reveal(id, animated: false)
+            VStack(alignment: .leading, spacing: 0) {
+                TranscriptBody(
+                    paragraphs: model.items, version: modelVersion, current: currentBlock(on: t),
+                    play: { id in
+                        reveal(id)
+                        if let b = rows.first(where: { $0.id == id })?.block { player.seek(to: b.start) }
+                    },
+                    // Tapping the text moves the playhead; it only plays if it already was.
+                    moveHere: { id in
+                        reveal(id)
+                        if let b = rows.first(where: { $0.id == id })?.block { player.seek(to: b.start, play: player.isPlaying) }
+                    },
+                    highlight: { first, last in highlight(from: first, to: last, in: rows) },
+                    anchors: { found in
+                        guard spans[t] != found else { return }
+                        spans[t] = found
+                        if t == shown, let id = where_.pending, found[id] != nil {
+                            where_.pending = nil
+                            reveal(id, animated: false)
+                        }
                     }
+                )
+                // More is on its way: the next part's place, as lines.
+                if t != .highlights, let from = Self.textComing(detail) {
+                    PendingPart(start: from)
+                        .padding(.top, 22)
+                        .transition(.opacity)
                 }
-            )
+            }
+            .animation(.easeOut(duration: 0.25), value: Self.textComing(detail))
         }
+    }
+
+    /// Where the text still to come starts, while some of it is in: the
+    /// first part not yet heard, or the end of what's in while the watch
+    /// is still recording or parts are still on their way. Nil once every
+    /// part is heard (or given up), even while it's being cleaned up.
+    static func textComing(_ detail: SessionDetail) -> Double? {
+        guard detail.status != "ready" else { return nil }
+        let parts = detail.segments.sorted { $0.index < $1.index }
+        if let first = parts.first(where: { $0.status == "pending" }) { return first.offset }
+        let end = parts.last.map { $0.offset + $0.duration } ?? 0
+        if detail.status == "recording" { return end }
+        if let total = detail.segmentCount, parts.count < total { return end }
+        return nil
     }
 
     /// A paragraph's text as the body draws it: clean, or the original with
@@ -1359,6 +1382,45 @@ struct PendingLines: View {
         }
         .accessibilityElement()
         .accessibilityLabel("The text is on its way")
+    }
+}
+
+/// The part still to come under the text so far: its time in the gutter
+/// and three lines where its paragraph will be, breathing like
+/// `PendingLines`, so a transcript partway through doesn't read as whole.
+struct PendingPart: View {
+    let start: Double
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dim = false
+    private static let widths: [CGFloat] = [1, 0.92, 0.56]
+    private static let bar: CGFloat = 12
+    /// One line of the body's text: its font and line spacing.
+    private static let line = TranscriptBodyView.font.lineHeight + 11
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            Text(Format.clock(start))
+                .font(.metaSmall)
+                .foregroundStyle(Color.jText4)
+                .frame(width: TranscriptBodyView.gutter, alignment: .leading)
+                .frame(height: TranscriptBodyView.font.lineHeight)
+            VStack(alignment: .leading, spacing: Self.line - Self.bar) {
+                ForEach(Array(Self.widths.enumerated()), id: \.offset) { _, width in
+                    GeometryReader { geo in
+                        Capsule().fill(Color.jFill).frame(width: geo.size.width * width)
+                    }
+                    .frame(height: Self.bar)
+                }
+            }
+            .padding(.top, (TranscriptBodyView.font.lineHeight - Self.bar) / 2)
+            .opacity(dim ? 0.45 : 1)
+        }
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { dim = true }
+        }
+        .accessibilityElement()
+        .accessibilityLabel("More text is on its way")
     }
 }
 

@@ -43,7 +43,7 @@ targets:
         # Recording on the iPhone keeps going with the screen locked;
         # processing finishes what a wake from the watch didn't have time for.
         UIBackgroundModes: [audio, processing]
-        BGTaskSchedulerPermittedIdentifiers: [com.neethanwu.jotto.pipeline]
+        BGTaskSchedulerPermittedIdentifiers: [com.neethanwu.jotto.pipeline, com.neethanwu.jotto.finish.*]
         NSMicrophoneUsageDescription: jotto records through the microphone when you start a recording on your iPhone.
         # Opens a recording's Live screen from its lock-screen activity.
         CFBundleURLTypes:

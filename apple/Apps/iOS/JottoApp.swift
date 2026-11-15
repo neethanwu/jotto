@@ -32,6 +32,8 @@ struct JottoApp: App {
             if phase == .background { Pipeline.shared.scheduleCatchUp() }
             if phase == .active {
                 Pipeline.shared.run()
+                // Parts still to hear carry on if jotto is put away.
+                Pipeline.shared.finishInBackgroundIfNeeded()
                 LiveActivities.shared.sync()
                 Task { await Notifier.shared.askIfNeeded() }
                 Task { await Library.shared.refresh() }

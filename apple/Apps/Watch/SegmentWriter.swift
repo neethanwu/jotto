@@ -22,6 +22,11 @@ final class SegmentWriter: @unchecked Sendable {
     static let cutBy: TimeInterval = 75
     /// How long the level has to stay down to count as a pause.
     private static let pause: TimeInterval = 0.25
+    /// From here on, with no clear pause yet, a shorter and softer dip will
+    /// do (12 dB over the floor, a sixth of a second), so the cut at
+    /// `cutBy` mid-word is a last resort.
+    private static let relaxAfter: TimeInterval = 60
+    private static let softPause: TimeInterval = 0.15
 
     private let lock = NSLock()
     private let directory: URL
@@ -35,6 +40,7 @@ final class SegmentWriter: @unchecked Sendable {
     private var levels: [Float] = []
     private var floor: Float = 0
     private var quietFor: TimeInterval = 0
+    private var softFor: TimeInterval = 0
     private var heard = 0
     /// Audio in the part being written, by its samples (not the clock,
     /// which also runs through a call that paused the recording).
@@ -98,7 +104,9 @@ final class SegmentWriter: @unchecked Sendable {
     }
 
     private var timeToCut: Bool {
-        length >= cutBy || (length >= cutAfter && quietFor >= Self.pause)
+        length >= cutBy
+            || (length >= cutAfter && quietFor >= Self.pause)
+            || (length >= Self.relaxAfter && softFor >= Self.softPause)
     }
 
     /// Keeps track of how long it has been quiet. Quiet is measured against
@@ -120,6 +128,7 @@ final class SegmentWriter: @unchecked Sendable {
         }
         let duration = Double(n) / buffer.format.sampleRate
         quietFor = level <= max(floor * 2, 0.0005) ? quietFor + duration : 0
+        softFor = level <= max(floor * 4, 0.001) ? softFor + duration : 0
     }
 
     /// The buffer as 16 kHz mono. The converter keeps its state between

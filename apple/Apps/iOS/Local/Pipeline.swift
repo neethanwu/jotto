@@ -43,6 +43,20 @@ final class Pipeline {
         store.update(id, startedAt: startedAt) { $0.heardAt = .now }
         LiveActivities.shared.sync()
         changed()
+        warmUp()
+    }
+
+    /// A recording has started: load Qwen3-ASR now, in the few seconds the
+    /// watch's nudge gives, so the first part isn't held up by it, and keep
+    /// it loaded while parts are still to come (`QwenEngine.hold`).
+    private func warmUp() {
+        guard AppConfig.shared.usesQwen, !Cloud.isOn, SpeechPack.shared.state == .ready else { return }
+        QwenEngine.shared.hold(true)
+        let time = BackgroundTime(step: "warm up")
+        Task {
+            try? await QwenEngine.shared.prepare()
+            time.end()
+        }
     }
 
     /// The audio is already at `AudioFiles.url(session:index:)`.
@@ -63,8 +77,10 @@ final class Pipeline {
                 }
             }
         }
+        if finishing != nil { finishTotal += 1 }
         changed()
         run()
+        finishInBackgroundIfNeeded()
     }
 
     // MARK: - From the phone's Live screen
@@ -186,6 +202,7 @@ final class Pipeline {
                 }
             } while rerun
             running = false
+            QwenEngine.shared.hold(store.recordings.values.contains { $0.endedAt == nil && $0.imported == nil } || partsToHear > 0)
             // Woken by the watch and out of steps that can run unseen, or
             // left with parts still to hear: ask iOS for a later turn.
             if UIApplication.shared.applicationState == .background { scheduleCatchUp() }
@@ -286,6 +303,97 @@ final class Pipeline {
         PhoneLog.shared.note("retry_asked", "\(id) parts=\(again.sorted())")
         changed()
         run()
+    }
+
+    // MARK: - Finishing with jotto put away
+
+    /// While jotto is in front with parts still to hear, it asks iOS to let
+    /// the work go on if jotto is put away (a continued processing task,
+    /// iOS 26): iOS shows how far it has got and keeps it running until
+    /// it's done. Without it, leaving jotto stopped the work within seconds,
+    /// and a long recording only got done in front.
+    static let finishPrefix = "com.neethanwu.jotto.finish"
+    @ObservationIgnored private var finishing: BGContinuedProcessingTask?
+    @ObservationIgnored private var finishAsked = false
+    /// Parts to hear when the task began, plus any that came in since.
+    @ObservationIgnored private var finishTotal = 0
+
+    /// Parts that have come in and are still to be heard.
+    private var partsToHear: Int {
+        store.recordings.values.reduce(0) { n, r in
+            n + r.segments.values.filter { $0.phrases == nil && $0.failed == nil }.count
+        }
+    }
+
+    func finishInBackgroundIfNeeded() {
+        guard UIApplication.shared.applicationState == .active, finishing == nil, !finishAsked,
+              partsToHear > 0 else { return }
+        finishAsked = true
+        let id = "\(Self.finishPrefix).\(UUID().uuidString)"
+        let registered = BGTaskScheduler.shared.register(forTaskWithIdentifier: id, using: .main) { task in
+            guard let task = task as? BGContinuedProcessingTask else { return task.setTaskCompleted(success: false) }
+            MainActor.assumeIsolated { Pipeline.shared.finish(task) }
+        }
+        guard registered else {
+            finishAsked = false
+            PhoneLog.shared.note("finish_not_registered")
+            return
+        }
+        let (title, subtitle) = finishingText(done: 0, total: partsToHear)
+        let request = BGContinuedProcessingTaskRequest(identifier: id, title: title, subtitle: subtitle)
+        request.strategy = .fail
+        do {
+            try BGTaskScheduler.shared.submit(request)
+            PhoneLog.shared.note("finish_asked", "\(partsToHear) parts")
+        } catch {
+            finishAsked = false
+            PhoneLog.shared.note("finish_refused", error.localizedDescription)
+        }
+    }
+
+    private func finish(_ task: BGContinuedProcessingTask) {
+        finishing = task
+        finishTotal = partsToHear
+        task.progress.totalUnitCount = Int64(max(1, finishTotal))
+        task.progress.completedUnitCount = 0
+        PhoneLog.shared.note("finish_started", "\(finishTotal) parts")
+        task.expirationHandler = {
+            Task { @MainActor in Pipeline.shared.endFinishing(success: false, why: "expired") }
+        }
+        Task {
+            await runUntilIdle()
+            endFinishing(success: partsToHear == 0, why: partsToHear == 0 ? "done" : "stuck")
+        }
+    }
+
+    /// After each step: how far the task has got, for iOS to show.
+    private func reportFinishing() {
+        guard let task = finishing else { return }
+        let total = max(finishTotal, 1)
+        let done = min(total, max(0, finishTotal - partsToHear))
+        task.progress.totalUnitCount = Int64(total)
+        task.progress.completedUnitCount = Int64(done)
+        let (title, subtitle) = finishingText(done: done, total: total)
+        task.updateTitle(title, subtitle: subtitle)
+    }
+
+    private func endFinishing(success: Bool, why: String) {
+        guard let task = finishing else { return }
+        finishing = nil
+        finishAsked = false
+        task.setTaskCompleted(success: success)
+        PhoneLog.shared.note("finish_ended", "\(why) \(partsToHear) left")
+        if UIApplication.shared.applicationState == .background { scheduleCatchUp() }
+    }
+
+    /// "Night recording" / "Transcribing · 2 of 6 parts", or for several
+    /// recordings at once, how many.
+    private func finishingText(done: Int, total: Int) -> (String, String) {
+        let waiting = store.recordings.values.filter { r in r.segments.values.contains { $0.phrases == nil && $0.failed == nil } }
+        let title = waiting.count == 1
+            ? (waiting[0].title ?? Format.provisionalTitle(waiting[0].startedAt))
+            : "\(waiting.count) recordings"
+        return (title, "Transcribing · \(done) of \(Format.plural(total, "part"))")
     }
 
     /// Recordings from the watch build that wrote slowed audio (see
@@ -670,6 +778,7 @@ final class Pipeline {
     }
 
     private func changed() {
+        reportFinishing()
         Task { await Library.shared.refresh() }
         // Marks, sections and new lines show on the lock screen too.
         for r in store.recordings.values where r.endedAt == nil { LiveActivities.shared.update(r.id) }

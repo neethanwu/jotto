@@ -11,6 +11,7 @@
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.neethanwu.jotto.pipeline</string>
+		<string>com.neethanwu.jotto.finish.*</string>
 	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>

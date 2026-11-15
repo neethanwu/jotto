@@ -554,6 +554,9 @@ final class QwenEngine: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.neethanwu.jotto.qwen", qos: .utility)
     private var model: QwenASR?
     private var uses = 0
+    /// Kept loaded while a recording is going or parts are still to come,
+    /// so each wake from the watch doesn't start by loading it again.
+    private var held = false
 
     private init() {
         NotificationCenter.default.addObserver(forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: nil) { _ in
@@ -573,16 +576,33 @@ final class QwenEngine: @unchecked Sendable {
         queue.async { self.model = nil }
     }
 
+    func hold(_ on: Bool) {
+        queue.async {
+            guard self.held != on else { return }
+            self.held = on
+            // Let go: unloaded as after any use, if nothing comes meanwhile.
+            guard !on else { return }
+            let use = self.uses
+            self.queue.asyncAfter(deadline: .now() + 180) {
+                if self.uses == use, !self.held { self.model = nil }
+            }
+        }
+    }
+
     private func run<T: Sendable>(_ work: @escaping @Sendable (QwenASR) throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
                 do {
-                    if self.model == nil { self.model = try QwenASR(directory: SpeechPack.directory) }
+                    if self.model == nil {
+                        let began = Date.now
+                        self.model = try QwenASR(directory: SpeechPack.directory)
+                        PhoneLog.shared.later("qwen_loaded", String(format: "%.1fs", Date.now.timeIntervalSince(began)))
+                    }
                     let result = try work(self.model!)
                     self.uses += 1
                     let use = self.uses
                     self.queue.asyncAfter(deadline: .now() + 180) {
-                        if self.uses == use { self.model = nil }
+                        if self.uses == use, !self.held { self.model = nil }
                     }
                     continuation.resume(returning: result)
                 } catch {
