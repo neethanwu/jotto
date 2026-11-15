@@ -61,9 +61,6 @@ struct DaysView: View {
                         .padding(.bottom, 4)
                 } else {
                     header
-                        .padding(.horizontal, 20)
-                        .padding(.top, 20)
-                        .padding(.bottom, 12)
                 }
 
                 WeekStrip(
@@ -424,12 +421,16 @@ struct DaysView: View {
 
     /// The day's name; tapping it opens the month calendar.
     private var header: some View {
-        HStack(alignment: .center, spacing: 12) {
+        HStack(alignment: .center, spacing: 0) {
             dayButton
             if entries.contains(where: { $0.state != .live }) {
                 // Everything from this day in one go: the template's
                 // instruction once, then each recording in order.
                 CircleIconButton(glyph: .send, label: "Send the day") { Task { await shareDay() } }
+                    .padding(.leading, 12)
+                    .padding(.trailing, 20)
+                    .padding(.top, 20)
+                    .padding(.bottom, 12)
                     .transition(.opacity.combined(with: .scale(scale: 0.9)))
             }
         }
@@ -458,6 +459,14 @@ struct DaysView: View {
                     .foregroundStyle(Color.jText3)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            // The margins are inside the button, so the whole band
+            // between the wordmark and the week strip takes the tap, to
+            // the screen's edge: a thumb aimed at the chevron lands
+            // well wide of an 18-pt glyph.
+            .padding(.leading, 20)
+            .padding(.trailing, entries.contains(where: { $0.state != .live }) ? 0 : 20)
+            .padding(.top, 20)
+            .padding(.bottom, 12)
             .contentShape(Rectangle())
         }
         .buttonStyle(DayTitleStyle())

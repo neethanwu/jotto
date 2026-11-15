@@ -10,6 +10,12 @@ struct DayPicker: View {
     let earliest: Date?
     @Environment(\.closeDrawer) private var closeDrawer
     @Environment(\.drawerBottomInset) private var bottomInset
+    /// A month name's height, and the list's, measured.
+    @State private var titleHeight: CGFloat = 0
+    @State private var viewport: CGFloat = 0
+
+    private static let row: CGFloat = 46
+    private static let fade: CGFloat = 14
 
     private struct Month: Identifiable {
         let id: Date
@@ -44,6 +50,30 @@ struct DayPicker: View {
         return result
     }
 
+    /// Room under the last week: enough to clear the home indicator, plus
+    /// whatever brings a whole week or a month's name to the top edge
+    /// when the list opens at the bottom, so nothing starts cut in half.
+    private var restPadding: CGFloat {
+        let base = 24 + bottomInset
+        guard titleHeight > 0, viewport > 0 else { return base }
+        var tops: [CGFloat] = []
+        var y: CGFloat = 0
+        for month in months {
+            tops.append(y)
+            y += titleHeight
+            for _ in 0..<(month.cells.count / 7) {
+                tops.append(y)
+                y += Self.row
+            }
+        }
+        // A little below the edge, clear of the fade: the room above a
+        // week's numbers shows only empty sheet.
+        let gap: CGFloat = 10
+        let offset = y + base - viewport
+        guard offset > 0, let next = tops.first(where: { $0 - gap >= offset - 0.5 }) else { return base }
+        return base + (next - gap - offset)
+    }
+
     var body: some View {
         let calendar = Calendar.current
         let firstDay = earliest.map { calendar.startOfDay(for: $0) }
@@ -67,8 +97,7 @@ struct DayPicker: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.bottom, 8)
-            .overlay(alignment: .bottom) { Rectangle().fill(Color.jSheetHairline).frame(height: 1) }
+            .padding(.bottom, 6)
             .accessibilityHidden(true)
 
             ScrollView {
@@ -82,6 +111,7 @@ struct DayPicker: View {
                             .padding(.leading, 6)
                             .padding(.top, 16)
                             .padding(.bottom, 6)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { titleHeight = $0 }
                             .accessibilityAddTraits(.isHeader)
                         ForEach(0..<(month.cells.count / 7), id: \.self) { row in
                             HStack(spacing: 0) {
@@ -89,7 +119,7 @@ struct DayPicker: View {
                                     if let date = month.cells[row * 7 + col] {
                                         cell(date, now: now, firstDay: firstDay)
                                     } else {
-                                        Color.clear.frame(maxWidth: .infinity).frame(height: 46)
+                                        Color.clear.frame(maxWidth: .infinity).frame(height: Self.row)
                                     }
                                 }
                             }
@@ -97,7 +127,7 @@ struct DayPicker: View {
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.bottom, 24 + bottomInset)
+                .padding(.bottom, restPadding)
             }
             .defaultScrollAnchor(.bottom)
             .scrollIndicators(.hidden)
@@ -107,6 +137,16 @@ struct DayPicker: View {
             // kept it once open, and dropped it at the first pull: the
             // months jumped down by that much.
             .ignoresSafeArea(edges: .bottom)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewport = $0 }
+            // Months scrolled up fade out under the weekday letters
+            // instead of being cut off at a rule.
+            .mask {
+                VStack(spacing: 0) {
+                    LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                        .frame(height: Self.fade)
+                    Color.black
+                }
+            }
         }
         // A drawer like Send's, a little shorter than the screen so the
         // day it was opened from still shows above it.
@@ -150,7 +190,7 @@ struct DayPicker: View {
                 if selected { Circle().fill(Color.jText) }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 46)
+            .frame(height: Self.row)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

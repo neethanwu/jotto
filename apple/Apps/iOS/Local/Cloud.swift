@@ -37,7 +37,8 @@ enum Cloud {
     static let writeModels: [Suggestion] = [
         .init(id: "anthropic/claude-haiku-5.5", name: "Claude Haiku 5.5"),
         .init(id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5"),
-        .init(id: "openai/gpt-5-mini", name: "GPT-5 mini"),
+        .init(id: "openai/gpt-6-luna", name: "GPT-6 Luna"),
+        .init(id: "google/gemini-4-hydrogen", name: "Gemini 4 Hydrogen"),
     ]
     static let defaultTranscribeModel = "microsoft/mai-transcribe-2"
     static let defaultWriteModel = "anthropic/claude-haiku-5.5"
@@ -51,12 +52,12 @@ enum Cloud {
         .init(id: "whisper-large-v3", name: "Whisper Large v3", by: "Groq"),
     ]
     static let compatibleWriteModels: [Suggestion] = [
-        .init(id: "gpt-5-mini", name: "GPT-5 mini", by: "OpenAI"),
+        .init(id: "gpt-6-luna", name: "GPT-6 Luna", by: "OpenAI"),
         .init(id: "openai/gpt-oss-120b", name: "GPT-OSS 120B", by: "Groq"),
         .init(id: "openai/gpt-oss-20b", name: "GPT-OSS 20B", by: "Groq"),
     ]
     static let defaultCompatibleTranscribeModel = "gpt-transcribe"
-    static let defaultCompatibleWriteModel = "gpt-5-mini"
+    static let defaultCompatibleWriteModel = "gpt-6-luna"
 
     /// The known service an address belongs to, by its host.
     static func provider(of base: String) -> String? {
@@ -394,6 +395,12 @@ enum Cloud {
 
     // MARK: Writing
 
+    /// Models that think before they answer, by name.
+    static func thinks(_ model: String) -> Bool {
+        let name = model.split(separator: "/").last.map(String.init)?.lowercased() ?? model
+        return ["gpt-5", "gpt-6", "o1", "o3", "o4", "gpt-oss", "gemini-3", "gemini-4"].contains { name.hasPrefix($0) }
+    }
+
     /// One chat completion; the reply's text.
     @MainActor static func chat(system: String, user: String, json: Bool = false) async throws -> String {
         let endpoint = try endpoint()
@@ -402,9 +409,19 @@ enum Cloud {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var body: [String: Any] = [
             "model": writeModel,
-            "temperature": 0.2,
             "messages": [["role": "system", "content": system], ["role": "user", "content": user]],
         ]
+        if thinks(writeModel) {
+            // A title or a tidied paragraph needs little thought, and
+            // OpenAI's thinking models turn down any temperature but their own.
+            if config.cloudService == .openRouter {
+                body["reasoning"] = ["effort": "low"]
+            } else {
+                body["reasoning_effort"] = "low"
+            }
+        } else {
+            body["temperature"] = 0.2
+        }
         if json { body["response_format"] = ["type": "json_object"] }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let data = try await send(request)

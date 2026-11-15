@@ -474,10 +474,23 @@ final class Pipeline {
                 }
                 Notifier.shared.ready(id)
             } catch {
-                // Rate-limited or refused: try again next time we're in front,
-                // and send the notice without a title.
-                describeFailed.insert(id)
-                PhoneLog.shared.note("describe_failed", error.localizedDescription)
+                // Busy or offline: try again next time we're in front. A
+                // failure that would only come round again (the model won't
+                // write about this text, or a service keeps turning it
+                // down): after a few, stop asking, so it doesn't flash
+                // "writing the title" at every launch, and it keeps its
+                // time-of-day name, which can be renamed. Either way the
+                // notice goes now, without a title.
+                let verdict = Cloud.isOn ? ((error as? Cloud.Failure)?.isPassing == true ? true : nil) : Describer.isPassing(error)
+                let passing = verdict == true
+                let tries = (r.describeTries ?? 0) + (passing ? 0 : 1)
+                let giveUp = verdict == false || (!passing && tries >= 3)
+                store.update(id, startedAt: r.startedAt) {
+                    $0.describeTries = tries
+                    if giveUp { $0.describedAt = .now }
+                }
+                if !giveUp { describeFailed.insert(id) }
+                PhoneLog.shared.note(giveUp ? "describe_gave_up" : "describe_failed", "\(id) \(error.localizedDescription)")
                 Notifier.shared.ready(id)
                 return
             }

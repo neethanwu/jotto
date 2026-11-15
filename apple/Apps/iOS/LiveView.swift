@@ -34,6 +34,16 @@ struct LiveView: View {
             HStack {
                 CircleIconButton(glyph: .down, label: "Close", fill: .ink900, color: .ink50) { dismiss() }
                 Spacer()
+                // Which one is listening: the record button starts on the
+                // watch when jotto is open there, otherwise on this iPhone.
+                Label(onPhone ? "On this iPhone" : "On your watch", systemImage: onPhone ? "iphone" : "applewatch")
+                    .labelStyle(WhereLabelStyle())
+                    .font(.scaled(13, .medium, relativeTo: .footnote))
+                    .foregroundStyle(Color.ink400)
+                    .padding(.leading, 10)
+                    .padding(.trailing, 12)
+                    .frame(height: 32)
+                    .background(Color.ink900, in: Capsule())
             }
             .padding(.horizontal, 16)
             .frame(height: 52)
@@ -411,5 +421,15 @@ private struct HoldToStopDot: View {
             .accessibilityLabel("Recording")
             .accessibilityHint("Hold for a second to stop")
             .accessibilityAction(named: "Stop recording") { onStop() }
+    }
+}
+
+/// The glyph a little closer to its word than the default.
+private struct WhereLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 6) {
+            configuration.icon
+            configuration.title
+        }
     }
 }
