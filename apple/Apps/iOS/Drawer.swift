@@ -23,6 +23,9 @@ extension View {
 extension EnvironmentValues {
     /// Slides the drawer away. Nil outside a drawer.
     @Entry var closeDrawer: (() -> Void)?
+    /// How far the home indicator reaches up into the drawer, for a list
+    /// that runs on under it.
+    @Entry var drawerBottomInset: CGFloat = 0
 }
 
 private func withoutAnimation(_ body: () -> Void) {
@@ -43,6 +46,11 @@ private struct DrawerItemModifier<Item: Identifiable, Panel: View>: ViewModifier
             .onChange(of: item?.id) { _, id in
                 if id != nil, shown == nil { withoutAnimation { shown = item } }
             }
+            // Taken down some other way: let go of the item too, or the
+            // next one set would look like no change and never open.
+            .onChange(of: shown == nil) { _, gone in
+                if gone, item != nil { item = nil }
+            }
             .fullScreenCover(item: $shown) { value in
                 DrawerCover(onGone: {
                     withoutAnimation { shown = nil }
@@ -61,6 +69,11 @@ private struct DrawerFlagModifier<Panel: View>: ViewModifier {
         content
             .onChange(of: isPresented) { _, now in
                 if now, !shown { withoutAnimation { shown = true } }
+            }
+            // Taken down some other way: clear the flag too, or the next
+            // tap would set it to what it already is and never open.
+            .onChange(of: shown) { _, now in
+                if !now, isPresented { isPresented = false }
             }
             .fullScreenCover(isPresented: $shown) {
                 DrawerCover(onGone: {
@@ -106,6 +119,7 @@ private struct DrawerCover<Panel: View>: View {
                             .accessibilityHidden(true)
                         panel
                             .environment(\.closeDrawer, close)
+                            .environment(\.drawerBottomInset, geo.safeAreaInsets.bottom)
                     }
                     .frame(maxWidth: .infinity)
                     // As tall as its content, up to nine tenths of the screen.

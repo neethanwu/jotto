@@ -9,6 +9,7 @@ struct DayPicker: View {
     let marked: Set<Date>
     let earliest: Date?
     @Environment(\.closeDrawer) private var closeDrawer
+    @Environment(\.drawerBottomInset) private var bottomInset
 
     private struct Month: Identifiable {
         let id: Date
@@ -96,10 +97,16 @@ struct DayPicker: View {
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.bottom, 24)
+                .padding(.bottom, 24 + bottomInset)
             }
             .defaultScrollAnchor(.bottom)
             .scrollIndicators(.hidden)
+            // Runs on under the home indicator, with the room for it kept
+            // in the list itself. A list that stopped at the safe area took
+            // the indicator's inset in as the drawer slid up through it,
+            // kept it once open, and dropped it at the first pull: the
+            // months jumped down by that much.
+            .ignoresSafeArea(edges: .bottom)
         }
         // A drawer like Send's, a little shorter than the screen so the
         // day it was opened from still shows above it.

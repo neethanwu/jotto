@@ -460,9 +460,19 @@ struct DaysView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(DayTitleStyle())
         .accessibilityElement(children: .combine)
         .accessibilityHint("Pick another day")
+    }
+
+    /// Dims while held, so a tap anywhere on the name, the chevron or
+    /// the line under them shows it was taken.
+    private struct DayTitleStyle: ButtonStyle {
+        func makeBody(configuration: Configuration) -> some View {
+            configuration.label
+                .opacity(configuration.isPressed ? 0.5 : 1)
+                .animation(.easeOut(duration: configuration.isPressed ? 0.06 : 0.2), value: configuration.isPressed)
+        }
     }
 
     private var meta: String {

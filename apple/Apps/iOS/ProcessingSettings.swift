@@ -125,21 +125,16 @@ struct ProcessingView: View {
                     selected: !config.usesQwen
                 ) { pick(.apple) }
                 Rectangle().fill(Color.jHairline).frame(height: 1).padding(.leading, 48).padding(.trailing, 16)
-                QwenRow(selected: config.usesQwen) { pick(.qwen) }
+                QwenRow(selected: config.usesQwen, action: { pick(.qwen) }, remove: { confirmingRemove = true })
             }
             .card()
 
             if config.usesQwen {
-                HStack(spacing: 6) {
-                    Text("\(SpeechPack.name) takes \(SpeechPack.sizeLabel) on this phone.")
-                        .foregroundStyle(Color.jText3)
-                    Button("Remove") { confirmingRemove = true }
-                        .font(.scaled(13, .medium, relativeTo: .footnote))
-                        .foregroundStyle(Color.jText)
-                }
-                .font(.scaled(13, .regular, relativeTo: .footnote))
-                .padding(.top, 8)
-                .padding(.horizontal, 4)
+                Text("\(SpeechPack.name) tells the language by itself.")
+                    .font(.scaled(13, .regular, relativeTo: .footnote))
+                    .foregroundStyle(Color.jText3)
+                    .padding(.top, 8)
+                    .padding(.horizontal, 4)
             } else {
                 NavigationLink(value: Route.language) {
                     HStack(spacing: 12) {
@@ -167,10 +162,12 @@ struct ProcessingView: View {
                     .padding(.horizontal, 4)
             }
         }
-        .confirmationDialog("Remove \(SpeechPack.name)?", isPresented: $confirmingRemove, titleVisibility: .visible) {
+        // The same centred alert as deleting a recording.
+        .alert("Remove \(SpeechPack.name)?", isPresented: $confirmingRemove) {
+            Button("Cancel", role: .cancel) {}
             Button("Remove", role: .destructive) { SpeechPack.shared.remove() }
         } message: {
-            Text("Frees \(SpeechPack.sizeLabel). New recordings go back to Apple's model. You can download it again any time.")
+            Text("Frees \(SpeechPack.sizeLabel). New recordings go back to Apple's model; you can download it again any time.")
         }
     }
 
@@ -539,10 +536,12 @@ extension SpeechModelRow where Detail == Text, Trailing == EmptyView {
     }
 }
 
-/// Qwen3-ASR: download it (size on the button), watch it come, then pick it.
+/// Qwen3-ASR: download it (size on the button), watch it come, then pick
+/// it. Once it's here, the bin on the row takes it off again (design 13h).
 private struct QwenRow: View {
     let selected: Bool
     let action: () -> Void
+    let remove: () -> Void
     private var pack: SpeechPack { .shared }
 
     var body: some View {
@@ -551,21 +550,23 @@ private struct QwenRow: View {
             case let .downloading(fraction):
                 VStack(alignment: .leading, spacing: 7) {
                     ProgressBar(fraction: fraction)
-                    if pack.stalled {
-                        Text("Can't reach the download server from this network yet. It keeps trying, even with jotto closed; Apple's model carries on meanwhile.")
-                            .foregroundStyle(Color.jLive)
-                    } else {
-                        Text("\(Int(fraction * 950)) of \(SpeechPack.sizeLabel). Apple's model carries on until this is done, then it takes over. Fine to leave this page.")
-                            .monospacedDigit()
-                    }
+                    Text(progressLine(fraction)).monospacedDigit()
+                        .foregroundStyle(pack.stalled ? Color.jLive : Color.jText2)
                 }
                 .padding(.top, 6)
             case .preparing:
                 Text("Getting it ready…")
             case let .failed(why):
                 Text(why).foregroundStyle(Color.jLive)
-            case .absent, .ready:
+            case .absent:
                 Text("Hears Chinese and English mixed together.")
+            case .ready:
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Hears Chinese and English mixed together.")
+                    Text("\(SpeechPack.sizeLabel) on this iPhone")
+                        .font(.scaled(13, .regular, relativeTo: .footnote))
+                        .foregroundStyle(Color.jText3)
+                }
             }
         } trailing: {
             switch pack.state {
@@ -575,25 +576,64 @@ private struct QwenRow: View {
             case .failed:
                 pill { Text("Try again") }
             case .downloading:
-                Button { pack.cancel() } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(Color.jText2)
-                        .frame(width: 30, height: 30)
-                        .background(Color.jFill, in: Circle())
+                circle(label: "Stop downloading", action: pack.cancel) {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .bold))
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Stop downloading")
-                .padding(.top, 2)
             case .preparing:
                 ProgressView().controlSize(.small).frame(width: 30, height: 30)
             case .ready:
-                EmptyView()
+                circle(label: "Remove \(SpeechPack.name)", action: remove) {
+                    GlyphView(glyph: .trash, color: .jText2).frame(width: 15, height: 15)
+                }
             }
         }
         .font(.scaled(14, .regular, relativeTo: .subheadline))
         .foregroundStyle(Color.jText2)
         .animation(.easeOut(duration: 0.2), value: pack.state)
+    }
+
+    /// How far, how long to go, and what to do meanwhile: keep jotto
+    /// open for the App Store, which loses a download sent to the
+    /// background; Hugging Face carries on with jotto closed.
+    private func progressLine(_ fraction: Double) -> String {
+        if pack.stalled {
+            return pack.fromApple
+                ? "Waiting for the network. Keep jotto open; it picks up as soon as it can."
+                : "Can't reach the download server from this network yet. It keeps trying, even with jotto closed; Apple's model carries on meanwhile."
+        }
+        var line = "\(Int(fraction * Double(SpeechPack.megabytes))) of \(SpeechPack.sizeLabel)"
+        if let left = pack.secondsLeft { line += ", \(Self.timeLeft(left))" }
+        line += ". "
+        if pack.fromApple {
+            if pack.startedOver { line += "Started over, as iOS stops it when jotto is closed. " }
+            line += "Keep jotto open; the screen stays on until it's done."
+        } else {
+            line += "Carries on with jotto closed; Apple's model works meanwhile."
+        }
+        return line
+    }
+
+    static func timeLeft(_ seconds: Double) -> String {
+        if seconds < 60 { return "under a minute left" }
+        let minutes = Int((seconds / 60).rounded())
+        if minutes < 90 { return "about \(minutes) min left" }
+        return "about \(Int((seconds / 3600).rounded())) h left"
+    }
+
+    private func circle(label: String, action: @escaping () -> Void, @ViewBuilder _ glyph: () -> some View) -> some View {
+        Button(action: action) {
+            glyph()
+                .foregroundStyle(Color.jText2)
+                .frame(width: 30, height: 30)
+                .background(Color.jFill, in: Circle())
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        // Laid out as the 30-pt circle, touched as 44 pt.
+        .padding(-7)
+        .padding(.top, 2)
     }
 
     private func pill(@ViewBuilder _ content: () -> some View) -> some View {

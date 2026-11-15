@@ -9,10 +9,14 @@ import UIKit
 /// unless asked for (Settings → Processing). In App Store and TestFlight
 /// builds the files come through the App Store, as an asset pack App
 /// Store Connect hosts (AssetPacks/qwen3-asr), which reaches every
-/// storefront, mainland China included. Other builds, or if the App
-/// Store can't give it, fetch the same files from Hugging Face at fixed
-/// revisions. Either way the download carries on when jotto isn't open,
-/// and nothing about your recordings is sent.
+/// storefront, mainland China included. Builds from source fetch the
+/// same files from Hugging Face at fixed revisions, and so does a store
+/// build the pack isn't served to. Nothing about your recordings is sent.
+///
+/// iOS loses an App Store download that was moved to the background
+/// partway (it fails at the end and starts again from nothing), so while
+/// one runs the screen stays on and the page asks for jotto to stay open;
+/// if it was closed anyway, the download starts over once jotto is back.
 @MainActor @Observable
 final class SpeechPack: NSObject {
     static let shared = SpeechPack()
@@ -27,16 +31,29 @@ final class SpeechPack: NSObject {
         case failed(String)
     }
 
-    private(set) var state: State = .absent
+    private(set) var state: State = .absent {
+        didSet { keepAwake() }
+    }
     var isReady: Bool { state == .ready }
     /// Downloading, but nothing has come for a while: the server can't be
     /// reached from here (a network that blocks it, or none at all).
     private(set) var stalled = false
+    /// Coming through the App Store, which needs jotto kept open, rather
+    /// than from Hugging Face, which carries on with jotto closed.
+    private(set) var fromApple = false {
+        didSet { keepAwake() }
+    }
+    /// Started again from nothing, after jotto was closed partway.
+    private(set) var startedOver = false
+    /// Seconds to go at the speed of the last half minute, once known.
+    private(set) var secondsLeft: Double?
     @ObservationIgnored private var lastProgress = Date.now
     @ObservationIgnored private var watchdog: Task<Void, Never>?
+    @ObservationIgnored private var samples: [(date: Date, fraction: Double)] = []
 
     static let name = "Qwen3-ASR"
     static let sizeLabel = "950 MB"
+    static let megabytes = 950
 
     private struct File: Sendable {
         let path: String
@@ -98,16 +115,31 @@ final class SpeechPack: NSObject {
         configuration.sessionSendsLaunchEvents = true
         configuration.isDiscretionary = false
         session = URLSession(configuration: configuration, delegate: PackDelegate(), delegateQueue: nil)
+        let center = NotificationCenter.default
+        center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.wentAway() }
+        }
+        center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.cameBack() }
+        }
         if missing().isEmpty {
             // Closed while it was loading for the first time: once more.
             if wanted { prepare() } else { state = .ready }
         } else if wanted {
             // A download that was going when jotto last closed: carry on.
-            state = .downloading(fraction())
-            watchProgress()
+            // Files still coming from Hugging Face keep coming; otherwise
+            // ask again, which picks up whatever the system still has.
+            begin(fraction())
             session.getAllTasks { tasks in
-                guard tasks.isEmpty else { return }
-                Task { @MainActor in self.download() }
+                Task { @MainActor in
+                    if !tasks.isEmpty {
+                        self.fromApple = false
+                    } else if Self.isStoreBuild {
+                        self.startFromStore()
+                    } else {
+                        self.downloadFromWeb(self.missing())
+                    }
+                }
             }
         }
     }
@@ -133,10 +165,18 @@ final class SpeechPack: NSObject {
         wanted = true
         guard !needed.isEmpty else { prepare(); return }
         written = [:]
-        state = .downloading(fraction())
+        restarts = 0
+        startedOver = false
+        begin(fraction())
+        if Self.isStoreBuild { startFromStore() } else { downloadFromWeb(needed) }
+    }
+
+    /// Downloading from `fraction`, with the speed and the watchdog fresh.
+    private func begin(_ fraction: Double) {
+        state = .downloading(fraction)
+        samples = []
+        secondsLeft = nil
         watchProgress()
-        fromStore?.cancel()
-        fromStore = Task { await downloadFromStore() }
     }
 
     // MARK: Through the App Store
@@ -146,47 +186,81 @@ final class SpeechPack: NSObject {
     nonisolated static let packID = "qwen3-asr-0-6b"
     nonisolated static let packFolder = "qwen3-asr-0.6b"
     @ObservationIgnored private var fromStore: Task<Void, Never>?
+    @ObservationIgnored private var updates: Task<Void, Never>?
+    /// The system's own progress for the pack: cancelling it stops the download.
+    @ObservationIgnored private var storeProgress: Progress?
+    /// Sent to the background while the App Store download ran.
+    @ObservationIgnored private var leftPartway = false
+    @ObservationIgnored private var restartWhenBack = false
+    @ObservationIgnored private var restarts = 0
 
-    /// The asset pack, when this build is served one: App Store and
-    /// TestFlight builds are, others aren't. Asked with a time limit, as
-    /// a build that isn't may not answer at all.
-    private static func storePack() async -> AssetPack? {
-        await withTaskGroup(of: AssetPack?.self) { group in
+    /// App Store and TestFlight builds, which Apple re-signs without a
+    /// provisioning profile inside; only they are served the asset pack.
+    nonisolated static var isStoreBuild: Bool {
+        #if targetEnvironment(simulator)
+        return false
+        #else
+        return Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision") == nil
+        #endif
+    }
+
+    private func startFromStore() {
+        fromApple = true
+        fromStore?.cancel()
+        fromStore = Task { await downloadFromStore() }
+    }
+
+    /// The asset pack, asked for with a time limit: with no network the
+    /// question can go unanswered for a long time.
+    private static func storePack() async throws -> AssetPack {
+        try await withThrowingTaskGroup(of: AssetPack.self) { group in
             group.addTask {
                 if #available(iOS 27, *) {
-                    return try? await AssetPackManager.shared.manifest.assetPack(withID: packID)
+                    guard let pack = try await AssetPackManager.shared.manifest.assetPack(withID: packID) else {
+                        throw ManagedBackgroundAssetsError.assetPackNotFound(withID: packID)
+                    }
+                    return pack
                 }
-                return try? await AssetPackManager.shared.assetPack(withID: packID)
+                return try await AssetPackManager.shared.assetPack(withID: packID)
             }
             group.addTask {
-                try? await Task.sleep(for: .seconds(10))
-                return nil
+                try await Task.sleep(for: .seconds(45))
+                throw URLError(.timedOut)
             }
-            let first = await group.next() ?? nil
-            group.cancelAll()
+            defer { group.cancelAll() }
+            guard let first = try await group.next() else { throw URLError(.timedOut) }
             return first
         }
     }
 
+    /// The App Store has no such pack for this build (not yet approved,
+    /// say), as opposed to not answering.
+    private static func notServed(_ error: Error) -> Bool {
+        if let managed = error as? ManagedBackgroundAssetsError, case .assetPackNotFound = managed { return true }
+        let ns = error as NSError
+        return ns.domain.contains("BAManagedError") && ns.code == 0
+    }
+
     private func downloadFromStore() async {
-        guard let pack = await Self.storePack() else {
-            if !Task.isCancelled, wanted { downloadFromWeb(missing()) }
+        let pack: AssetPack
+        do {
+            pack = try await Self.storePack()
+        } catch {
+            guard !Task.isCancelled, wanted else { return }
+            if Self.notServed(error) {
+                PhoneLog.shared.note("pack_store_missing", error.localizedDescription)
+                downloadFromWeb(missing())
+            } else {
+                storeFailed(error, reached: false)
+            }
             return
         }
         PhoneLog.shared.note("pack_store", "v\(pack.version) \(pack.downloadSize / 1_000_000) MB")
-        let updates = Task { @MainActor [weak self] in
-            for await update in AssetPackManager.shared.statusUpdates(forAssetPackWithID: Self.packID) {
-                guard let self else { return }
-                if case let .downloading(_, progress) = update, self.downloading {
-                    self.lastProgress = .now
-                    if self.stalled { self.stalled = false }
-                    self.state = .downloading(progress.fractionCompleted)
-                }
-            }
-        }
-        defer { updates.cancel() }
+        listen()
         do {
             try await AssetPackManager.shared.ensureLocalAvailability(of: pack)
+            updates?.cancel()
+            storeProgress = nil
             guard wanted else { return }
             // Into jotto's own folder, where the model loads from; on the
             // same disk a copy is a clone, so it takes no more room. Then
@@ -194,12 +268,84 @@ final class SpeechPack: NSObject {
             try await Task.detached { try Self.copyFromStore() }.value
             try? await AssetPackManager.shared.remove(assetPackWithID: Self.packID)
             PhoneLog.shared.note("pack_store_done")
-            if missing().isEmpty { prepare() } else { downloadFromWeb(missing()) }
+            leftPartway = false
+            if missing().isEmpty { prepare() } else { storeFailed(CocoaError(.fileReadCorruptFile)) }
         } catch {
+            updates?.cancel()
+            storeProgress = nil
             guard !Task.isCancelled, wanted else { return }
-            PhoneLog.shared.note("pack_store_failed", error.localizedDescription)
-            downloadFromWeb(missing())
+            storeFailed(error)
         }
+    }
+
+    /// Progress from the system, for the bar and the time left.
+    private func listen() {
+        updates?.cancel()
+        updates = Task { [weak self] in
+            for await update in AssetPackManager.shared.statusUpdates(forAssetPackWithID: Self.packID) {
+                guard let self, !Task.isCancelled else { return }
+                switch update {
+                case let .downloading(_, progress):
+                    self.storeProgress = progress
+                    if self.downloading { self.advance(progress.fractionCompleted) }
+                case .paused:
+                    PhoneLog.shared.note("pack_store_paused")
+                case let .failed(_, error):
+                    PhoneLog.shared.note("pack_store_update_failed", error.localizedDescription)
+                default:
+                    break
+                }
+            }
+        }
+    }
+
+    /// A download moved to the background is lost, so one that failed
+    /// after jotto was closed starts over, as soon as jotto is in front
+    /// (iOS won't start one for an app that isn't). Any other failure
+    /// waits for Try again.
+    private func storeFailed(_ error: Error, reached: Bool = true) {
+        let left = leftPartway
+        leftPartway = false
+        PhoneLog.shared.note("pack_store_failed", "\(left ? "left partway; " : "")\(error.localizedDescription)")
+        guard left, restarts < 3 else {
+            state = .failed(reached
+                ? "The download stopped before it finished. Keep jotto open while it downloads."
+                : "Couldn't reach the App Store. Check the connection, then try again.")
+            return
+        }
+        restarts += 1
+        startedOver = true
+        begin(0)
+        if UIApplication.shared.applicationState == .active {
+            startFromStore()
+        } else {
+            restartWhenBack = true
+        }
+    }
+
+    private func wentAway() {
+        guard fromApple, downloading else { return }
+        leftPartway = true
+        PhoneLog.shared.note("pack_store_left")
+    }
+
+    private func cameBack() {
+        if restartWhenBack {
+            restartWhenBack = false
+            if downloading { startFromStore() }
+        } else if fromApple, downloading, storeProgress != nil {
+            // The updates may have stopped while jotto was away.
+            listen()
+        }
+        keepAwake()
+    }
+
+    /// An App Store download only finishes with jotto in front, so the
+    /// screen doesn't lock partway.
+    private func keepAwake() {
+        var on = false
+        if fromApple, case .downloading = state { on = true }
+        if UIApplication.shared.isIdleTimerDisabled != on { UIApplication.shared.isIdleTimerDisabled = on }
     }
 
     nonisolated private static func copyFromStore() throws {
@@ -217,9 +363,9 @@ final class SpeechPack: NSObject {
 
     private func downloadFromWeb(_ needed: [File]) {
         guard !needed.isEmpty else { prepare(); return }
+        fromApple = false
         written = [:]
-        state = .downloading(fraction())
-        watchProgress()
+        begin(fraction())
         PhoneLog.shared.note("pack_download", "\(needed.count) files")
         session.getAllTasks { tasks in
             tasks.forEach { $0.cancel() }
@@ -234,24 +380,36 @@ final class SpeechPack: NSObject {
         }
     }
 
-    func cancel() {
+    /// Stops whatever is going, from either source.
+    private func stopAll() {
         wanted = false
+        storeProgress?.cancel()
+        storeProgress = nil
         fromStore?.cancel()
-        Task { try? await AssetPackManager.shared.remove(assetPackWithID: Self.packID) }
+        updates?.cancel()
+        leftPartway = false
+        restartWhenBack = false
+        startedOver = false
+        if Self.isStoreBuild {
+            Task { try? await AssetPackManager.shared.remove(assetPackWithID: Self.packID) }
+        }
         session.getAllTasks { tasks in tasks.forEach { $0.cancel() } }
         written = [:]
+    }
+
+    func cancel() {
+        stopAll()
         if state != .ready { state = .absent }
+        fromApple = false
     }
 
     /// Deletes the files. Recordings go back to Apple's model.
     func remove() {
-        wanted = false
-        fromStore?.cancel()
-        Task { try? await AssetPackManager.shared.remove(assetPackWithID: Self.packID) }
-        session.getAllTasks { tasks in tasks.forEach { $0.cancel() } }
+        stopAll()
         QwenEngine.shared.unload()
         try? FileManager.default.removeItem(at: Self.directory)
         state = .absent
+        fromApple = false
         if AppConfig.shared.speechModel == .qwen {
             AppConfig.shared.speechModel = .apple
             Pipeline.shared.languageChanged()
@@ -281,24 +439,37 @@ final class SpeechPack: NSObject {
                 let quiet = Date.now.timeIntervalSince(self.lastProgress) > 20
                 if quiet != self.stalled {
                     self.stalled = quiet
-                    if quiet { PhoneLog.shared.note("pack_stalled") }
+                    if quiet { PhoneLog.shared.note("pack_stalled", self.fromApple ? "store" : "web") }
                 }
             }
         }
     }
 
-    fileprivate func progressed(_ path: String, _ bytes: Int64) {
-        guard downloading else { return }
+    /// New progress, from either source: the bar, and the time left at
+    /// the speed of the last half minute.
+    private func advance(_ fraction: Double) {
         lastProgress = .now
         if stalled { stalled = false }
+        state = .downloading(fraction)
+        let now = Date.now
+        samples.append((now, fraction))
+        if samples.count > 2 { samples.removeAll { now.timeIntervalSince($0.date) > 30 } }
+        if let first = samples.first, fraction > first.fraction {
+            let seconds = now.timeIntervalSince(first.date)
+            if seconds >= 5 { secondsLeft = (1 - fraction) * seconds / (fraction - first.fraction) }
+        }
+    }
+
+    fileprivate func progressed(_ path: String, _ bytes: Int64) {
+        guard downloading else { return }
         written[path] = bytes
-        state = .downloading(fraction())
+        advance(fraction())
     }
 
     fileprivate func finished(_ path: String) {
         written[path] = nil
         guard downloading else { return }
-        if missing().isEmpty { prepare() } else { state = .downloading(fraction()) }
+        if missing().isEmpty { prepare() } else { advance(fraction()) }
     }
 
     fileprivate func failed(_ path: String, _ error: Error) {
@@ -318,6 +489,7 @@ final class SpeechPack: NSObject {
     /// time), then uses it.
     private func prepare() {
         state = .preparing
+        fromApple = false
         var url = Self.directory
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
