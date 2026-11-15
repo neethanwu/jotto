@@ -12,6 +12,8 @@ final class WatchTransfer: NSObject {
     /// Parts not yet on the phone, grouped by recording, oldest first.
     private(set) var pending: [PendingRecording] = []
     private(set) var isPhoneReachable = false
+    /// A nudge that couldn't go (the phone out of reach): sent when it's back.
+    @ObservationIgnored private var wakeWanted: String?
 
     struct PendingRecording: Identifiable {
         let id: String
@@ -94,6 +96,72 @@ final class WatchTransfer: NSObject {
         metadata.merge(extra) { _, new in new }
         session.transferFile(url, metadata: metadata)
         refreshPending()
+    }
+
+    /// Parts and messages sent this way don't wake jotto on the iPhone:
+    /// iOS hands them over only the next time it runs, which was when it
+    /// was opened. A live message does wake it, so every part that lands
+    /// there (and the start and the finish) is followed by one, and the
+    /// phone transcribes while the recording goes on. Out of reach, the
+    /// nudge waits until the phone is back.
+    func wakePhone(_ reason: String) {
+        let session = WCSession.default
+        guard session.activationState == .activated else { return }
+        guard session.isReachable else {
+            if wakeWanted == nil { SpikeLog.shared.log("wake_unreachable", reason) }
+            wakeWanted = reason
+            return
+        }
+        wakeWanted = nil
+        Self.sendWake(reason)
+    }
+
+    /// Outside the main actor, so no handler inherits its isolation on
+    /// WatchConnectivity's queue.
+    nonisolated private static func sendWake(_ reason: String) {
+        WCSession.default.sendMessage(["kind": "wake", "reason": reason], replyHandler: { @Sendable _ in
+            SpikeLog.shared.log("wake_ok", reason)
+        }, errorHandler: { @Sendable error in
+            SpikeLog.shared.log("wake_failed", "\(reason) \(error.localizedDescription)")
+            Task { @MainActor in
+                if WatchTransfer.shared.wakeWanted == nil { WatchTransfer.shared.wakeWanted = reason }
+            }
+        })
+    }
+
+    /// Whether the phone is in reach for live messages, and how much is
+    /// waiting to go, for the log.
+    var linkNote: String {
+        let session = WCSession.default
+        return "reach=\(session.isReachable ? 1 : 0) queued=\(session.outstandingFileTransfers.count)"
+    }
+
+    /// Once a recording stops, watchOS can put the app away before its
+    /// last part has reached the phone, and the nudge with it. Asks for a
+    /// little time until nothing is left to send (half a minute at most).
+    func holdUntilSent() {
+        let done = DispatchSemaphore(value: 0)
+        holding = done
+        ProcessInfo.processInfo.performExpiringActivity(withReason: "Sending the recording to iPhone") { expired in
+            if expired {
+                done.signal()
+                return
+            }
+            _ = done.wait(timeout: .now() + 30)
+        }
+    }
+
+    @ObservationIgnored private var holding: DispatchSemaphore?
+
+    /// Something finished sending: wake the phone for it, and let go of
+    /// the time asked for once nothing is left.
+    private func sent(_ what: String?, othersLeft: Bool) {
+        refreshPending()
+        if let what { wakePhone(what) }
+        if !othersLeft, let holding {
+            self.holding = nil
+            holding.signal()
+        }
     }
 
     func refreshPending() {
@@ -188,17 +256,38 @@ extension WatchTransfer: WCSessionDelegate {
     }
 
     nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
-        Task { @MainActor in self.refreshPending() }
+        let reachable = session.isReachable
+        Task { @MainActor in
+            self.refreshPending()
+            if reachable, let reason = self.wakeWanted { self.wakePhone("\(reason), back in reach") }
+        }
     }
 
     nonisolated func session(_ session: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error: Error?) {
         let url = fileTransfer.file.fileURL
+        let meta = fileTransfer.file.metadata ?? [:]
+        var wake: String?
         if let error {
             SpikeLog.shared.log("transfer_failed", "\(url.lastPathComponent) \(error.localizedDescription)")
         } else {
             // The phone owns the audio now; free watch storage.
             try? FileManager.default.removeItem(at: url)
+            if meta["kind"] as? String == "audio" { wake = "part \(meta["index"] as? Int ?? -1)" }
         }
-        Task { @MainActor in self.refreshPending() }
+        let othersLeft = session.outstandingFileTransfers.contains { $0 !== fileTransfer }
+            || !session.outstandingUserInfoTransfers.isEmpty
+        Task { @MainActor in self.sent(wake, othersLeft: othersLeft) }
+    }
+
+    /// The start and the finish wake the phone too: the start so the
+    /// timeline shows the recording going, the finish so the last of it
+    /// is put together without waiting to be opened.
+    nonisolated func session(_ session: WCSession, didFinish userInfoTransfer: WCSessionUserInfoTransfer, error: Error?) {
+        let kind = userInfoTransfer.userInfo["kind"] as? String
+        if let error { SpikeLog.shared.log("info_failed", "\(kind ?? "?") \(error.localizedDescription)") }
+        let wake = error == nil && (kind == "start" || kind == "finish") ? kind : nil
+        let othersLeft = !session.outstandingFileTransfers.isEmpty
+            || session.outstandingUserInfoTransfers.contains { $0 !== userInfoTransfer }
+        Task { @MainActor in self.sent(wake, othersLeft: othersLeft) }
     }
 }

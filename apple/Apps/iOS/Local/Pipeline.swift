@@ -6,9 +6,10 @@ import UIKit
 /// is transcribed as it arrives; when the recording ends and every part is
 /// in, the text is cleaned up and given a title.
 ///
-/// Runs whenever there is work: on arrival (the system wakes the app for
-/// watch transfers), on launch and on coming to the foreground. Each step
-/// asks for background time, so a locked phone keeps going for a while.
+/// Runs whenever there is work: on arrival (the watch nudges jotto awake
+/// after each part it sends, see `Inbox`), on launch and on coming to the
+/// foreground. Each step asks for background time, so a locked phone keeps
+/// going for a while.
 @MainActor @Observable
 final class Pipeline {
     static let shared = Pipeline()
@@ -29,6 +30,9 @@ final class Pipeline {
     @ObservationIgnored private var tidyingNow: String?
     /// Transcription can't run yet (model not downloaded); retried next run.
     @ObservationIgnored private var transcriberNotReady = false
+    /// Parts that failed out of sight this run ("id#index"); tried again
+    /// next run, and given up only if they fail in front.
+    @ObservationIgnored private var deferred: Set<String> = []
 
     /// Give up on segments that haven't arrived this long after the end.
     private static let missingTimeout: TimeInterval = 30 * 60
@@ -170,6 +174,7 @@ final class Pipeline {
                 describeFailed = []
                 tidyFailed = []
                 transcriberNotReady = false
+                deferred = []
                 await prepareIfNeeded()
                 await redoSlowedRecordings()
                 refreshLayouts()
@@ -375,7 +380,8 @@ final class Pipeline {
         let all = store.recordings.values.sorted { $0.startedAt < $1.startedAt }
         // Oldest untranscribed segment first.
         for r in all where !transcriberNotReady {
-            if let s = r.segments.values.filter({ $0.phrases == nil && $0.failed == nil }).min(by: { $0.index < $1.index }) {
+            if let s = r.segments.values.filter({ $0.phrases == nil && $0.failed == nil && !deferred.contains("\(r.id)#\($0.index)") })
+                .min(by: { $0.index < $1.index }) {
                 return .transcribe(id: r.id, index: s.index)
             }
         }
@@ -457,6 +463,7 @@ final class Pipeline {
                     waiting = nil
                     PhoneLog.shared.note("qwen_asr_done", "segment \(index) \(String(format: "%.1f", Date.now.timeIntervalSince(began)))s phrases=\(heard.phrases.count)")
                 } catch {
+                    if deferInBackground("qwen", id: id, index: index, error) { return }
                     store.update(id, startedAt: r.startedAt) { $0.segments[index]?.failed = error.localizedDescription }
                     PhoneLog.shared.note("qwen_asr_failed", "segment \(index) \(error.localizedDescription)")
                 }
@@ -492,6 +499,7 @@ final class Pipeline {
                 if waiting == nil { waiting = why }
                 PhoneLog.shared.note("asr_not_ready", why)
             } catch {
+                if deferInBackground("asr", id: id, index: index, error) { return }
                 store.update(id, startedAt: r.startedAt) { $0.segments[index]?.failed = error.localizedDescription }
                 PhoneLog.shared.note("asr_failed", "segment \(index) \(error.localizedDescription)")
             }
@@ -572,6 +580,17 @@ final class Pipeline {
             await tidy(id)
         }
         changed()
+    }
+
+    /// A part that fails to transcribe out of sight may have failed for
+    /// the phone's sake (locked, short of memory, the model not loading):
+    /// it waits to be tried again rather than being given up without text.
+    /// In front, a failure is the part's own and it's given up.
+    private func deferInBackground(_ engine: String, id: String, index: Int, _ error: Error) -> Bool {
+        guard UIApplication.shared.applicationState == .background else { return false }
+        deferred.insert("\(id)#\(index)")
+        PhoneLog.shared.note("\(engine)_asr_deferred", "segment \(index) \(error.localizedDescription)")
+        return true
     }
 
     /// Paragraph by paragraph, saving as it goes so the transcript fills

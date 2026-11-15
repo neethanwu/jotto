@@ -12,7 +12,7 @@ final class SpikeLog: @unchecked Sendable {
     private init() {
         let docs = URL.documentsDirectory
         url = docs.appending(path: "spike-log.csv")
-        if !FileManager.default.fileExists(atPath: url.path()) {
+        if !FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
             try? Data("time,event,battery,detail\n".utf8).write(to: url)
         }
     }

@@ -213,6 +213,7 @@ final class Recorder {
         if let snapshot = log.snapshot() {
             WatchTransfer.shared.send(snapshot, kind: "log")
         }
+        WatchTransfer.shared.holdUntilSent()
     }
 
     /// Held the dot on the phone's Live screen. Only for the recording
@@ -457,7 +458,7 @@ final class Recorder {
                 guard let self, !Task.isCancelled else { return }
                 let elapsed = Int(Date.now.timeIntervalSince(self.startedAt ?? .now))
                 let appState = WKApplication.shared().applicationState.rawValue
-                self.log.log("tick", battery: self.battery, "elapsed=\(elapsed)s segments=\(self.segmentsWritten) state=\(self.state.rawValue) app=\(appState)")
+                self.log.log("tick", battery: self.battery, "elapsed=\(elapsed)s segments=\(self.segmentsWritten) state=\(self.state.rawValue) app=\(appState) \(WatchTransfer.shared.linkNote)")
             }
         }
     }

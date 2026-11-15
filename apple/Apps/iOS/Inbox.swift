@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UIKit
 import WatchConnectivity
 
 /// Receives everything the watch sends. Recording segments go to
@@ -252,6 +253,21 @@ extension Inbox: WCSessionDelegate {
             }
         default:
             break
+        }
+    }
+
+    /// The watch's nudge after each part it sends. Its parts and messages
+    /// come by background transfer, which iOS holds until jotto next runs;
+    /// a live message is what wakes jotto, and the parts waiting arrive
+    /// with it. Then the pipeline works through them.
+    nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any], replyHandler: @escaping ([String: Any]) -> Void) {
+        replyHandler(["ok": true])
+        guard message["kind"] as? String == "wake" else { return }
+        let reason = message["reason"] as? String ?? "?"
+        Task { @MainActor in
+            let left = UIApplication.shared.backgroundTimeRemaining
+            PhoneLog.shared.note("wc_wake", "\(reason) left=\(left > 999 ? "-" : "\(Int(left))s")")
+            Pipeline.shared.run()
         }
     }
 
