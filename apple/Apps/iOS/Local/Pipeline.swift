@@ -354,8 +354,8 @@ final class Pipeline {
     }
 
     private func perform(_ step: Step) async {
-        let task = UIApplication.shared.beginBackgroundTask(withName: "jotto.pipeline")
-        defer { UIApplication.shared.endBackgroundTask(task) }
+        let time = BackgroundTime(step: "\(step)")
+        defer { time.end() }
 
         switch step {
         case let .transcribe(id, index):
@@ -599,3 +599,29 @@ extension Pipeline {
     }
 }
 #endif
+
+
+/// Background time for one step. When it runs out partway (a long part
+/// transcribed on a locked phone), the task is ended so iOS suspends
+/// jotto instead of quitting it, and the step carries on the next time
+/// jotto runs; the log says so.
+@MainActor
+private final class BackgroundTime {
+    private var id: UIBackgroundTaskIdentifier = .invalid
+
+    init(step: String) {
+        id = UIApplication.shared.beginBackgroundTask(withName: "jotto.pipeline") { [weak self] in
+            MainActor.assumeIsolated {
+                PhoneLog.shared.note("bg_expired", step)
+                self?.end()
+            }
+        }
+    }
+
+    func end() {
+        guard id != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(id)
+        id = .invalid
+    }
+}
+
