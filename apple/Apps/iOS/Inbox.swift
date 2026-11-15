@@ -20,7 +20,10 @@ final class Inbox: NSObject {
     private(set) var items: [Item] = []
     private(set) var watchStatus = "connecting…"
 
-    nonisolated static let directory = URL.documentsDirectory.appending(path: "Inbox")
+    /// Not Documents/Inbox: that one belongs to the system (files handed
+    /// to the app, WatchConnectivity's own store), and an app can't write
+    /// there on a device, so the log and the watch's files never landed.
+    nonisolated static let directory = URL.documentsDirectory.appending(path: "From watch")
 
     private override init() {
         super.init()
@@ -36,8 +39,9 @@ final class Inbox: NSObject {
 
     func reload() {
         let keys: [URLResourceKey] = [.fileSizeKey, .creationDateKey]
+        try? FileManager.default.createDirectory(at: Self.directory, withIntermediateDirectories: true)
         let urls = (try? FileManager.default.contentsOfDirectory(
-            at: Self.directory, includingPropertiesForKeys: keys
+            at: Self.directory, includingPropertiesForKeys: keys, options: .skipsHiddenFiles
         )) ?? []
         items = urls.compactMap { url in
             let values = try? url.resourceValues(forKeys: Set(keys))

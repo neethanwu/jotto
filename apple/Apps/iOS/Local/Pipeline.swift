@@ -1,3 +1,4 @@
+import BackgroundTasks
 import Foundation
 import UIKit
 
@@ -163,7 +164,7 @@ final class Pipeline {
             return
         }
         running = true
-        Task {
+        current = Task {
             repeat {
                 rerun = false
                 describeFailed = []
@@ -179,10 +180,69 @@ final class Pipeline {
                 }
             } while rerun
             running = false
+            // Woken by the watch and out of steps that can run unseen, or
+            // left with parts still to hear: ask iOS for a later turn.
+            if UIApplication.shared.applicationState == .background { scheduleCatchUp() }
         }
     }
 
     @ObservationIgnored private var rerun = false
+    @ObservationIgnored private var current: Task<Void, Never>?
+
+    /// Runs, and returns once there's nothing left to do for now.
+    func runUntilIdle() async {
+        run()
+        await current?.value
+    }
+
+    // MARK: - In the background
+
+    /// The catch-up turn iOS gives jotto in the background, for what a wake
+    /// from the watch didn't have time to finish (a long part through
+    /// Qwen3-ASR on a locked phone). When it comes is up to iOS: usually
+    /// soon while the phone sits locked, later when it's busy.
+    static let catchUpID = "com.neethanwu.jotto.pipeline"
+
+    /// Parts still to hear, or recordings still to put together: the work
+    /// that runs with jotto out of sight.
+    var hasBackgroundWork: Bool {
+        store.recordings.values.contains { r in
+            r.segments.values.contains { $0.phrases == nil && $0.failed == nil }
+                || (r.isEnded && r.polishedAt == nil)
+        }
+    }
+
+    func scheduleCatchUp() {
+        guard hasBackgroundWork else { return }
+        let request = BGProcessingTaskRequest(identifier: Self.catchUpID)
+        request.requiresNetworkConnectivity = Cloud.isOn
+        request.requiresExternalPower = false
+        do {
+            try BGTaskScheduler.shared.submit(request)
+            PhoneLog.shared.note("bg_scheduled")
+        } catch {
+            PhoneLog.shared.note("bg_schedule_failed", error.localizedDescription)
+        }
+    }
+
+    /// iOS's turn: work until done or until it wants the time back; a
+    /// step cut off carries on the next time jotto runs.
+    func catchUp(_ task: BGProcessingTask) {
+        PhoneLog.shared.note("bg_processing")
+        let turn = CatchUpTurn(task)
+        task.expirationHandler = {
+            Task { @MainActor in
+                PhoneLog.shared.note("bg_processing_expired")
+                Pipeline.shared.scheduleCatchUp()
+                turn.complete(success: false)
+            }
+        }
+        Task {
+            await runUntilIdle()
+            turn.complete(success: !hasBackgroundWork)
+            scheduleCatchUp()
+        }
+    }
 
     /// Recordings from the watch build that wrote slowed audio (see
     /// `AudioRepair`) came out with no text. Mend their audio and do them
@@ -612,7 +672,8 @@ private final class BackgroundTime {
     init(step: String) {
         id = UIApplication.shared.beginBackgroundTask(withName: "jotto.pipeline") { [weak self] in
             MainActor.assumeIsolated {
-                PhoneLog.shared.note("bg_expired", step)
+                PhoneLog.shared.note("bg_expired", "\(step) \(Int(UIApplication.shared.backgroundTimeRemaining))s")
+                Pipeline.shared.scheduleCatchUp()
                 self?.end()
             }
         }
@@ -622,6 +683,23 @@ private final class BackgroundTime {
         guard id != .invalid else { return }
         UIApplication.shared.endBackgroundTask(id)
         id = .invalid
+    }
+}
+
+/// One catch-up turn, finished once: by the work running out or by iOS
+/// taking the time back, whichever comes first.
+@MainActor
+private final class CatchUpTurn: @unchecked Sendable {
+    private let task: BGProcessingTask
+    private var done = false
+
+    init(_ task: BGProcessingTask) { self.task = task }
+
+    func complete(success: Bool) {
+        guard !done else { return }
+        done = true
+        task.setTaskCompleted(success: success)
+        PhoneLog.shared.note("bg_processing_done", success ? "all done" : "more to do")
     }
 }
 

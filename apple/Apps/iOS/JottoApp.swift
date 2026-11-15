@@ -1,3 +1,4 @@
+import BackgroundTasks
 import SwiftUI
 
 @main
@@ -28,6 +29,7 @@ struct JottoApp: App {
         .onChange(of: scenePhase) { _, phase in
             PhoneLog.shared.note("scene", "\(phase)")
             // Coming to the foreground is a good moment to skip any backoff.
+            if phase == .background { Pipeline.shared.scheduleCatchUp() }
             if phase == .active {
                 Pipeline.shared.run()
                 LiveActivities.shared.sync()
@@ -39,6 +41,17 @@ struct JottoApp: App {
 }
 
 final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        // Before launch ends, as iOS requires: the turn it gives jotto in
+        // the background to finish what a wake from the watch didn't.
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: Pipeline.catchUpID, using: .main) { task in
+            guard let task = task as? BGProcessingTask else { return task.setTaskCompleted(success: false) }
+            MainActor.assumeIsolated { Pipeline.shared.catchUp(task) }
+        }
+        return true
+    }
+
     /// The speech model's download finished while jotto wasn't running.
     func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
                      completionHandler: @escaping () -> Void) {
