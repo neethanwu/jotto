@@ -34,7 +34,7 @@ jotto is free, and this repository is its full source.
 
 ## What it does
 
-- **Records from your wrist.** Tap the dot in the watch app (a complication gets you there in one tap), or press the Action Button. The watch keeps recording with its screen off and hands the audio to your iPhone in two-minute parts. When the phone is out of reach, the parts wait on the watch and go over later. No watch on? Record on the iPhone itself.
+- **Records from your wrist.** Tap the dot in the watch app (a complication gets you there in one tap), or press the Action Button. The watch keeps recording with its screen off and hands the audio to your iPhone in parts of about a minute, cut at a pause. When the phone is out of reach, the parts wait on the watch and go over later. No watch on? Record on the iPhone itself.
 - **Marks what matters.** A star keeps the seconds around your tap (10 before and 10 after, adjustable). Brackets keep a whole section. Both become highlights in the transcript.
 - **Writes clean text.** Each part is transcribed on the iPhone as it arrives. Fillers, stutters and false starts come out; punctuation, sentences and paragraphs go in; the recording gets a title. *Original* keeps every word, with what was taken out struck through.
 - **Shows the recording as it happens.** A Live screen with the time, a level strip and the latest words, plus a Live Activity on the lock screen and in the Dynamic Island.
@@ -96,7 +96,7 @@ The full policy is in [PRIVACY.md](PRIVACY.md). For help, see [SUPPORT.md](SUPPO
 
 ## How it's built
 
-- **Watch:** records 16 kHz mono audio in two-minute AAC parts with `AVAudioEngine`, and sends each part to the iPhone with WatchConnectivity.
+- **Watch:** records 16 kHz mono audio with `AVAudioEngine` in AAC parts of about a minute, each cut at a pause, and sends them to the iPhone with WatchConnectivity. A file sent that way waits until the iPhone app next runs, so each one is followed by a live message that wakes jotto to transcribe it.
 - **iPhone:** a pipeline per recording transcribes each part, cleans it (rules first, then an on-device language model), breaks it into paragraphs and writes a title. Everything is stored in the app's own folders.
 - **Qwen3-ASR:** a Core ML port that runs on the Neural Engine, so it keeps working with the screen locked. The App Store version downloads the model from Apple's servers as a background asset pack; builds from source download it from Hugging Face.
 - SwiftUI and Swift 6 throughout, with no third-party packages.

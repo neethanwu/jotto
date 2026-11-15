@@ -582,12 +582,13 @@ struct TranscriptView: View {
     @ViewBuilder
     private func status(_ detail: SessionDetail) -> some View {
         let heard = detail.segments.filter { $0.status == "done" || $0.status == "failed" }.count
+        let failed = detail.segments.filter { $0.status == "failed" }.count
         let tidying = detail.status == "ready" ? detail.tidying : nil
         let working = detail.status == "processing" || tidying != nil
         let note: String? = if let tidying {
             "Formatting · \(tidying.done) of \(tidying.total)"
         } else { switch detail.status {
-        case "recording": "Still recording. Text arrives a couple of minutes behind"
+        case "recording": "Still recording. Text arrives about a minute behind"
         case "processing":
             if let waiting = Pipeline.shared.waiting, heard < (detail.segmentCount ?? 1) {
                 waiting
@@ -595,9 +596,11 @@ struct TranscriptView: View {
                 heard >= total ? "Cleaning up" : "Transcribing · \(heard) of \(total) parts"
             } else { "Transcribing" }
         default:
-            (detail.missingSegments ?? 0) > 0
-                ? "\(Format.plural(detail.missingSegments ?? 0, "part")) never reached your iPhone, so there are gaps"
-                : nil
+            if failed > 0 {
+                "\(Format.plural(failed, "part")) couldn't be transcribed"
+            } else if (detail.missingSegments ?? 0) > 0 {
+                "\(Format.plural(detail.missingSegments ?? 0, "part")) never reached your iPhone, so there are gaps"
+            } else { nil }
         } }
         if let note {
             HStack(spacing: 8) {
@@ -606,6 +609,13 @@ struct TranscriptView: View {
                     .font(.metaSmall)
                     .foregroundStyle(Color.jText3)
                     .contentTransition(.numericText())
+                if failed > 0, detail.status == "ready", tidying == nil {
+                    Button("Try again") { Pipeline.shared.retryFailed(detail.id) }
+                        .font(.metaSmall.weight(.semibold))
+                        .foregroundStyle(Color.jText)
+                        .buttonStyle(.plain)
+                        .contentShape(.rect.inset(by: -10))
+                }
             }
             .padding(.top, 12)
             .padding(.bottom, 4)

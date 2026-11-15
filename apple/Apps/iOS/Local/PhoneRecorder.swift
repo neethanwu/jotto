@@ -4,9 +4,9 @@ import UIKit
 import WatchConnectivity
 
 /// Recording on the iPhone itself, for when the watch isn't on the wrist
-/// or its app isn't running. The same two-minute parts as the watch, fed
-/// into the same pipeline, so the timeline, Live, the lock screen and the
-/// transcript don't know the difference.
+/// or its app isn't running. The same parts as the watch (about a minute,
+/// cut at a pause), fed into the same pipeline, so the timeline, Live, the
+/// lock screen and the transcript don't know the difference.
 ///
 /// A call takes the microphone: the recording pauses (the part so far is
 /// closed) and picks up again when the call ends, as one recording with a
@@ -20,8 +20,6 @@ final class PhoneRecorder {
     /// A call or another app has the microphone.
     private(set) var interrupted = false
     var isRecording: Bool { sessionID != nil }
-
-    static let segmentDuration: TimeInterval = 120
 
     @ObservationIgnored private let engine = AVAudioEngine()
     @ObservationIgnored private var writer: SegmentWriter?
@@ -70,7 +68,6 @@ final class PhoneRecorder {
         writer = SegmentWriter(
             directory: URL.temporaryDirectory.appending(path: "PhoneSegments"),
             sessionID: uuid,
-            maxDuration: Self.segmentDuration,
             onSegmentClosed: Self.closed(id: id, startedAt: startedAt),
             onError: { PhoneLog.shared.later("phone_writer_error", $0) }
         )

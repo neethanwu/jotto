@@ -52,7 +52,7 @@ struct RecordingLiveActivity: Widget {
                     VStack(alignment: .leading, spacing: 10) {
                         // The latest line once there is one. A Live Activity
                         // can't animate, so no level bars pretending to move.
-                        Text(context.state.lastLine.map { "…" + $0 } ?? "Listening. Text arrives a couple of minutes behind")
+                        Text(context.state.lastLine.map { "…" + $0 } ?? "Listening. Text arrives about a minute behind")
                             .font(.system(size: 14))
                             .foregroundStyle(ink500)
                             .lineLimit(1)

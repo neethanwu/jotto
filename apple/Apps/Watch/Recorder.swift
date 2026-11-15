@@ -44,9 +44,6 @@ final class Recorder {
     @ObservationIgnored private var phoneWantsLevelsUntil: Date?
     @ObservationIgnored private var levelsForPhone: [Float] = []
 
-    /// Short segments keep transfers small and give Spike 1 plenty of clips.
-    let segmentDuration: TimeInterval = 120
-
     private let engine = AVAudioEngine()
     private var writer: SegmentWriter?
     private var observers: [NSObjectProtocol] = []
@@ -138,7 +135,6 @@ final class Recorder {
         writer = SegmentWriter(
             directory: directory,
             sessionID: sessionID,
-            maxDuration: segmentDuration,
             onSegmentClosed: { [weak self] segment in
                 // Captures the session values: the recorder may already have
                 // stopped by the time the last segment closes.

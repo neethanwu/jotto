@@ -82,6 +82,8 @@ struct LocalSegment: Codable, Hashable {
     /// Nil until transcribed.
     var phrases: [Phrase]?
     var failed: String?
+    /// Already had its one more go after failing (`Pipeline.retryFailedOnce`).
+    var retried: Bool?
 }
 
 /// A stretch of speech, in seconds from the start of its segment.
@@ -90,6 +92,6 @@ struct Phrase: Codable, Hashable {
     let end: Double
     let text: String
     /// Who said it, when a service with your own key tells speakers apart.
-    /// Numbered per part: two-minute parts are heard separately.
+    /// Numbered per part: parts are heard separately.
     var speaker: String? = nil
 }

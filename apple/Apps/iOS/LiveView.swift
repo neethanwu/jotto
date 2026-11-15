@@ -2,8 +2,8 @@ import SwiftUI
 
 /// A recording in progress. Always dark: the timer, the breathing dot,
 /// Mark and Section (the same as the watch's star and [ ]), and the latest
-/// transcript as it arrives (a couple of minutes behind, since the watch
-/// sends audio in two-minute parts). Hold the dot for a second to stop,
+/// transcript as it arrives (about a minute behind, since the watch sends
+/// audio in parts of about a minute). Hold the dot for a second to stop,
 /// as on the watch: the phone asks the watch to stop, or stops itself when
 /// the recording is on the phone.
 struct LiveView: View {
@@ -179,7 +179,7 @@ struct LiveView: View {
             }
             TimelineView(.periodic(from: .now, by: 0.5)) { context in
                 let blink = reduceMotion || Int(context.date.timeIntervalSinceReferenceDate * 2) % 2 == 0
-                (Text(lines.last.map(tail) ?? "Listening. Text arrives a couple of minutes behind")
+                (Text(lines.last.map(tail) ?? "Listening. Text arrives about a minute behind")
                     .foregroundStyle(lines.isEmpty ? Color.ink500 : Color.ink50)
                     + Text("▍").foregroundStyle(Color.jLive.opacity(blink ? 1 : 0)))
                     .font(.caption22)

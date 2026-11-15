@@ -176,6 +176,7 @@ final class Pipeline {
                 transcriberNotReady = false
                 deferred = []
                 await prepareIfNeeded()
+                retryFailedOnce()
                 await redoSlowedRecordings()
                 refreshLayouts()
                 closeAbandoned()
@@ -247,6 +248,44 @@ final class Pipeline {
             turn.complete(success: !hasBackgroundWork)
             scheduleCatchUp()
         }
+    }
+
+    /// Parts given up on get one more go, at the first run after a launch:
+    /// a service that turned one down, or the model failing on it, may
+    /// manage it now. After that they wait for "Try again".
+    @ObservationIgnored private var retriedThisLaunch = false
+
+    private func retryFailedOnce() {
+        guard !retriedThisLaunch else { return }
+        retriedThisLaunch = true
+        for r in store.recordings.values where r.imported == nil {
+            let again = r.segments.values.filter { $0.failed != nil && $0.retried != true }.map(\.index)
+            guard !again.isEmpty else { continue }
+            store.update(r.id, startedAt: r.startedAt) { rec in
+                for i in again {
+                    rec.segments[i]?.failed = nil
+                    rec.segments[i]?.retried = true
+                }
+                rec.polishedAt = nil
+                rec.tidiedAt = nil
+            }
+            PhoneLog.shared.note("retry_failed", "\(r.id) parts=\(again.sorted())")
+        }
+    }
+
+    /// "Try again" under a transcript with parts that couldn't be heard.
+    func retryFailed(_ id: String) {
+        guard let r = store.recordings[id] else { return }
+        let again = r.segments.values.filter { $0.failed != nil }.map(\.index)
+        guard !again.isEmpty else { return }
+        store.update(id, startedAt: r.startedAt) { rec in
+            for i in again { rec.segments[i]?.failed = nil }
+            rec.polishedAt = nil
+            rec.tidiedAt = nil
+        }
+        PhoneLog.shared.note("retry_asked", "\(id) parts=\(again.sorted())")
+        changed()
+        run()
     }
 
     /// Recordings from the watch build that wrote slowed audio (see
