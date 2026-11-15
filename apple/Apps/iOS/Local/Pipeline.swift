@@ -461,6 +461,19 @@ final class Pipeline {
                 changed()
                 return
             }
+            // A few words: they are the title. The model has nothing to
+            // go on, and for a test like this it would rather refuse.
+            let said = paragraphs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            if Sentences.units(said) <= 10 {
+                let title = said.trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
+                store.update(id, startedAt: r.startedAt) {
+                    if !$0.titleByUser, !title.isEmpty { $0.title = title }
+                    $0.describedAt = .now
+                }
+                Notifier.shared.ready(id)
+                changed()
+                return
+            }
             describingNow = id
             changed()
             defer { describingNow = nil }

@@ -52,15 +52,11 @@ enum Editor {
     }
 
     /// An error about this passage rather than the model being busy: it
-    /// won't get better by asking again.
+    /// won't get better by asking again. iOS 27 reports these as a new
+    /// error type, which this used to miss, so a paragraph the model
+    /// wouldn't touch was tried again at every launch.
     static func isAboutThisText(_ error: Error) -> Bool {
-        guard let error = error as? LanguageModelSession.GenerationError else { return false }
-        switch error {
-        case .guardrailViolation, .refusal, .exceededContextWindowSize, .unsupportedLanguageOrLocale, .decodingFailure:
-            return true
-        default:
-            return false
-        }
+        Describer.isPassing(error) == false
     }
 
     /// Most of what was said is still there, in order, and little is new.
