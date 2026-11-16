@@ -146,7 +146,7 @@ final class Pipeline {
     /// rather than once that time has run out. A recording that will fit
     /// gets just its "ready" notice.
     private func askToOpenIfTooMuch(_ id: String) {
-        guard UIApplication.shared.applicationState == .background, finishing == nil, !catchingUp,
+        guard UIApplication.shared.applicationState == .background, !keptRunning,
               let r = store.recordings[id], let count = r.segmentCount else { return }
         let toHear = count - r.segments.values.filter { $0.phrases != nil || $0.failed != nil }.count
         let coldModel = AppConfig.shared.usesQwen && !Cloud.isOn && !QwenEngine.shared.isLoaded
@@ -230,7 +230,7 @@ final class Pipeline {
             // Out of sight and out of steps, with parts of a finished
             // recording still unheard (the model not ready, a part that
             // failed here): say so rather than wait in silence.
-            if UIApplication.shared.applicationState == .background { askToOpenIfStuck(onlyUnheard: true) }
+            if UIApplication.shared.applicationState == .background, !keptRunning { askToOpenIfStuck(onlyUnheard: true) }
             awake?.end()
             awake = nil
             PlaceTracker.shared.update("idle")
@@ -275,8 +275,16 @@ final class Pipeline {
     /// running for the work anyway (a continued task after jotto was
     /// opened, or a catch-up turn), which ends in its own time.
     func stepOutOfTime() {
-        guard finishing == nil, !catchingUp else { return }
+        guard !keptRunning else { return }
         outOfTime()
+    }
+
+    /// iOS keeps jotto running for the work anyway: a continued task after
+    /// jotto was opened, a catch-up turn, or following places while a
+    /// recording goes on. Then running out of a step's time isn't the end,
+    /// and there's no need to ask for jotto to be opened.
+    private var keptRunning: Bool {
+        finishing != nil || catchingUp || PlaceTracker.shared.isFollowing
     }
 
     /// Not for one only waiting on parts still on the watch: opening jotto
@@ -765,7 +773,7 @@ final class Pipeline {
             PhoneLog.shared.note("polished", id)
             // No title coming, or no time for one out of sight (the title
             // can follow in jotto; the notice can't wait): the notice goes now.
-            let short = UIApplication.shared.applicationState == .background && finishing == nil && !catchingUp
+            let short = UIApplication.shared.applicationState == .background && !keptRunning
                 && UIApplication.shared.backgroundTimeRemaining < 20
             if !(Describer.isAvailable || Cloud.isOn) || r.titleByUser || short {
                 Notifier.shared.ready(id)
