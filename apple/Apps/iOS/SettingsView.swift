@@ -8,6 +8,7 @@ struct SettingsView: View {
     private var config: AppConfig { .shared }
     private var inbox: Inbox { .shared }
     private var library: Library { .shared }
+    private var places: PlaceTracker { .shared }
     @State private var isBeta = false
 
     /// A build from Xcode or TestFlight, not the App Store.
@@ -66,7 +67,18 @@ struct SettingsView: View {
                         NavigationLink(value: Route.inbox) {
                             SettingsRow("Files from the watch", value: "\(inbox.items.count)")
                         }
+                        SettingsToggle("Places while recording", isOn: Bindable(places).isOn)
+                        if places.isOn, let settings = URL(string: UIApplication.openSettingsURLString) {
+                            Link(destination: settings) {
+                                SettingsRow("Location", value: places.permissionLabel, opensOutside: true)
+                            }
+                        }
                     }
+                    // A test of following location to keep jotto running (PlaceTracker).
+                    Text("While a recording goes on, this iPhone follows where you are, which keeps jotto running so each part is transcribed as it arrives. Set Location to Always.")
+                        .font(.scaled(13, .regular, relativeTo: .footnote))
+                        .foregroundStyle(Color.jText3)
+                        .padding(.top, 8)
                 }
 
                 VStack(spacing: 10) {

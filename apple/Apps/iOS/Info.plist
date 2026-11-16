@@ -49,6 +49,10 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>With Always, jotto notes places while your watch records and this iPhone stays in your pocket, and transcribes each part as it arrives. Places stay on this iPhone.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>jotto notes where each part of a recording was said. Places stay on this iPhone.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>jotto records through the microphone when you start a recording on your iPhone.</string>
 	<key>NSSupportsLiveActivities</key>
@@ -57,6 +61,7 @@
 	<array>
 		<string>audio</string>
 		<string>processing</string>
+		<string>location</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>

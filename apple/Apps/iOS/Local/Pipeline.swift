@@ -44,6 +44,7 @@ final class Pipeline {
         LiveActivities.shared.sync()
         changed()
         warmUp()
+        PlaceTracker.shared.update("start")
     }
 
     /// A recording has started: load Qwen3-ASR now, in the few seconds the
@@ -78,6 +79,8 @@ final class Pipeline {
             }
         }
         if finishing != nil { finishTotal += 1 }
+        PlaceTracker.shared.partArrived(index)
+        PlaceTracker.shared.update("part \(index)")
         changed()
         run()
         finishInBackgroundIfNeeded()
@@ -230,6 +233,7 @@ final class Pipeline {
             if UIApplication.shared.applicationState == .background { askToOpenIfStuck(onlyUnheard: true) }
             awake?.end()
             awake = nil
+            PlaceTracker.shared.update("idle")
             QwenEngine.shared.hold(store.recordings.values.contains { $0.endedAt == nil && $0.imported == nil } || partsToHear > 0)
             // Woken by the watch and out of steps that can run unseen, or
             // left with parts still to hear: ask iOS for a later turn.
@@ -250,6 +254,7 @@ final class Pipeline {
         let previous = awake
         awake = BackgroundTime(step: "wake: \(reason)")
         previous?.end()
+        PlaceTracker.shared.update("wake: \(reason)")
         run()
     }
 
@@ -395,8 +400,17 @@ final class Pipeline {
     /// Parts to hear when the task began, plus any that came in since.
     @ObservationIgnored private var finishTotal = 0
 
+    /// A recording still going on, from the watch or this iPhone.
+    var hasLiveRecording: Bool {
+        store.recordings.values.contains { $0.endedAt == nil && $0.imported == nil }
+    }
+
+    /// What following places keeps jotto running for (`PlaceTracker`): a
+    /// recording going on, or parts still to hear.
+    var hasLiveWork: Bool { hasLiveRecording || partsToHear > 0 }
+
     /// Parts that have come in and are still to be heard.
-    private var partsToHear: Int {
+    var partsToHear: Int {
         store.recordings.values.reduce(0) { n, r in
             n + r.segments.values.filter { $0.phrases == nil && $0.failed == nil }.count
         }

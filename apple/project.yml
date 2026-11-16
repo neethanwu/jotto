@@ -10,7 +10,7 @@ settings:
     SWIFT_VERSION: "6.0"
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: AV25N53237  # Hallidai Inc.
-    MARKETING_VERSION: "1.0.0"
+    MARKETING_VERSION: "1.1.0"
     CURRENT_PROJECT_VERSION: "1"
     # Brand assets live in each app's Assets.xcassets (source art: brand/logo/final/).
     ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -41,10 +41,13 @@ targets:
         UILaunchScreen: {}
         NSSupportsLiveActivities: true
         # Recording on the iPhone keeps going with the screen locked;
-        # processing finishes what a wake from the watch didn't have time for.
-        UIBackgroundModes: [audio, processing]
+        # processing finishes what a wake from the watch didn't have time for;
+        # location follows where a recording goes (spike: PlaceTracker).
+        UIBackgroundModes: [audio, processing, location]
         BGTaskSchedulerPermittedIdentifiers: [com.neethanwu.jotto.pipeline, com.neethanwu.jotto.finish.*]
         NSMicrophoneUsageDescription: jotto records through the microphone when you start a recording on your iPhone.
+        NSLocationWhenInUseUsageDescription: jotto notes where each part of a recording was said. Places stay on this iPhone.
+        NSLocationAlwaysAndWhenInUseUsageDescription: With Always, jotto notes places while your watch records and this iPhone stays in your pocket, and transcribes each part as it arrives. Places stay on this iPhone.
         # Opens a recording's Live screen from its lock-screen activity.
         CFBundleURLTypes:
           - CFBundleURLName: com.neethanwu.jotto
