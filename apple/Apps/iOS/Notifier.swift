@@ -52,6 +52,31 @@ final class Notifier: NSObject {
         content.subtitle = "\(Format.time(r.startedAt)) · \(Format.length(ended.timeIntervalSince(r.startedAt)))"
         content.body = Self.overview(r)
         content.sound = .default
+        post(content, id: id)
+        PhoneLog.shared.note("notified", "\(id) titled=\(r.title != nil)")
+    }
+
+    /// Time out of sight ran out with parts still to hear: says the
+    /// recording is safe and that opening jotto finishes it, once. The
+    /// "ready" notice takes its place when it comes, so there's never two.
+    func askToOpen(_ id: String) {
+        let store = LocalStore.shared
+        guard AppConfig.shared.notifiesWhenReady, let r = store.recordings[id], r.notifiedAt == nil,
+              r.askedToOpenAt == nil, r.imported == nil, let ended = r.endedAt,
+              Date.now.timeIntervalSince(ended) < Self.freshFor else { return }
+        store.update(id, startedAt: r.startedAt) { $0.askedToOpenAt = .now }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Recording saved"
+        content.subtitle = "\(Format.time(r.startedAt)) · \(Format.length(ended.timeIntervalSince(r.startedAt)))"
+        content.body = "Open jotto to transcribe it. It keeps going if you lock your iPhone."
+        content.sound = .default
+        post(content, id: id)
+        PhoneLog.shared.note("asked_to_open", id)
+    }
+
+    /// One notice per recording: a later one replaces an earlier one.
+    private func post(_ content: UNMutableNotificationContent, id: String) {
         content.threadIdentifier = "ready"
         content.userInfo = ["session": id]
         let request = UNNotificationRequest(identifier: "ready-\(id)", content: content, trigger: nil)

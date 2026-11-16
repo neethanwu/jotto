@@ -42,6 +42,9 @@ struct LocalRecording: Codable, Identifiable, Hashable {
     var heardAt: Date?
     /// When the "ready" notice went out (or was skipped), so it goes once.
     var notifiedAt: Date?
+    /// When the notice asking to open jotto went out (time ran out out of
+    /// sight with parts still to hear), so it goes once.
+    var askedToOpenAt: Date?
     /// Segments given up on after the recording ended (see `Pipeline`).
     var missing: Int = 0
     /// The transcript as the test server made it, for recordings imported

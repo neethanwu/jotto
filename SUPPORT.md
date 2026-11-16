@@ -11,7 +11,7 @@ Questions about privacy are answered in the [privacy policy](PRIVACY.md).
 ## Common questions
 
 **I stopped recording. Where is the text?**
-Open jotto on your iPhone. The watch sends a recording over in parts of about a minute, and the iPhone turns each part into text as it arrives, even while it's locked. If the iPhone was out of reach, the parts go over once it's back, and jotto catches up then or when you open it.
+The watch records in parts of about a minute. It can only hand them to your iPhone and wake jotto there while its screen is on, so with your wrist down the parts wait on the watch, and they go over together when you look at the recording or stop it. A short recording is often ready a few seconds after you stop, with a notification. A longer one gets a notification saying it's saved: open jotto and it's transcribed, and it keeps going if you then lock your iPhone. If the iPhone was out of reach, the parts go over once it's back.
 
 **The first recording is taking a long time.**
 The first time, your iPhone downloads Apple's speech model for your language. Keep jotto open on Wi-Fi until it finishes.

@@ -202,6 +202,10 @@ final class Pipeline {
                 }
             } while rerun
             running = false
+            // Out of sight and out of steps, with parts of a finished
+            // recording still unheard (the model not ready, a part that
+            // failed here): say so rather than wait in silence.
+            if UIApplication.shared.applicationState == .background { askToOpenIfStuck(onlyUnheard: true) }
             awake?.end()
             awake = nil
             QwenEngine.shared.hold(store.recordings.values.contains { $0.endedAt == nil && $0.imported == nil } || partsToHear > 0)
@@ -228,6 +232,34 @@ final class Pipeline {
     }
 
     @ObservationIgnored private var awake: BackgroundTime?
+
+    /// Time out of sight is about to run out. A recording that's done gets
+    /// its notice now, without waiting for its title; one that has ended
+    /// with parts still to hear gets a notice asking to open jotto, rather
+    /// than nothing until it's next opened.
+    func outOfTime() {
+        for r in store.recordings.values where r.isEnded && r.polishedAt != nil && r.notifiedAt == nil && r.imported == nil {
+            Notifier.shared.ready(r.id)
+        }
+        askToOpenIfStuck(onlyUnheard: false)
+    }
+
+    /// A step's background time ran out. Not the end while iOS keeps jotto
+    /// running for the work anyway (a continued task after jotto was
+    /// opened, or a catch-up turn), which ends in its own time.
+    func stepOutOfTime() {
+        guard finishing == nil, !catchingUp else { return }
+        outOfTime()
+    }
+
+    /// Not for one only waiting on parts still on the watch: opening jotto
+    /// wouldn't bring them.
+    private func askToOpenIfStuck(onlyUnheard: Bool) {
+        for r in store.recordings.values where r.isEnded && r.polishedAt == nil && r.notifiedAt == nil && r.imported == nil {
+            let unheard = r.segments.values.contains { $0.phrases == nil && $0.failed == nil }
+            if unheard || (!onlyUnheard && r.allTranscribed) { Notifier.shared.askToOpen(r.id) }
+        }
+    }
 
     /// Runs, and returns once there's nothing left to do for now.
     func runUntilIdle() async {
@@ -270,19 +302,25 @@ final class Pipeline {
     func catchUp(_ task: BGProcessingTask) {
         PhoneLog.shared.note("bg_processing")
         let turn = CatchUpTurn(task)
+        catchingUp = true
         task.expirationHandler = {
             Task { @MainActor in
                 PhoneLog.shared.note("bg_processing_expired")
+                Pipeline.shared.catchingUp = false
+                Pipeline.shared.outOfTime()
                 Pipeline.shared.scheduleCatchUp()
                 turn.complete(success: false)
             }
         }
         Task {
             await runUntilIdle()
+            catchingUp = false
             turn.complete(success: !hasBackgroundWork)
             scheduleCatchUp()
         }
     }
+
+    @ObservationIgnored private var catchingUp = false
 
     /// Parts given up on get one more go, at the first run after a launch:
     /// a service that turned one down, or the model failing on it, may
@@ -347,6 +385,11 @@ final class Pipeline {
         // a moment before the app is, and that's when this is asked.
         guard UIApplication.shared.applicationState != .background, finishing == nil, !finishAsked,
               partsToHear > 0 else { return }
+        // A part or two with the model loaded takes seconds, which leaving
+        // jotto gives anyway; asking would leave iOS's progress and tick
+        // showing for nothing.
+        let coldModel = AppConfig.shared.usesQwen && !Cloud.isOn && !QwenEngine.shared.isLoaded
+        guard partsToHear >= 3 || coldModel else { return }
         finishAsked = true
         let id = "\(Self.finishPrefix).\(UUID().uuidString)"
         let registered = BGTaskScheduler.shared.register(forTaskWithIdentifier: id, using: .main) { task in
@@ -402,7 +445,10 @@ final class Pipeline {
         finishAsked = false
         task.setTaskCompleted(success: success)
         PhoneLog.shared.note("finish_ended", "\(why) \(partsToHear) left")
-        if UIApplication.shared.applicationState == .background { scheduleCatchUp() }
+        if UIApplication.shared.applicationState == .background {
+            if !success { outOfTime() }
+            scheduleCatchUp()
+        }
     }
 
     /// "Night recording" / "Transcribing · 2 of 6 parts", or for several
@@ -681,8 +727,11 @@ final class Pipeline {
                 $0.polishedAt = .now
             }
             PhoneLog.shared.note("polished", id)
-            // No title coming: the notice goes now.
-            if !(Describer.isAvailable || Cloud.isOn) || r.titleByUser {
+            // No title coming, or no time for one out of sight (the title
+            // can follow in jotto; the notice can't wait): the notice goes now.
+            let short = UIApplication.shared.applicationState == .background && finishing == nil && !catchingUp
+                && UIApplication.shared.backgroundTimeRemaining < 20
+            if !(Describer.isAvailable || Cloud.isOn) || r.titleByUser || short {
                 Notifier.shared.ready(id)
             }
 
@@ -820,6 +869,19 @@ extension Pipeline {
             marked(id, startedAt: startedAt, offset: 120)
         }
         guard let dir = ProcessInfo.processInfo.environment["JOTTO_SIMULATE_RECORDING"] else { return }
+        // "5": the parts come five seconds after launch, so jotto can be
+        // put away first and they're worked on out of sight.
+        if let after = ProcessInfo.processInfo.environment["JOTTO_SIMULATE_AFTER"].flatMap(Double.init) {
+            Task {
+                try? await Task.sleep(for: .seconds(after))
+                simulateRecording(from: dir)
+            }
+            return
+        }
+        simulateRecording(from: dir)
+    }
+
+    private func simulateRecording(from dir: String) {
         let files = ((try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? [])
             .filter { $0.hasSuffix(".m4a") }.sorted()
         let id = UUID().uuidString.lowercased()
@@ -859,6 +921,7 @@ private final class BackgroundTime {
         id = UIApplication.shared.beginBackgroundTask(withName: "jotto.pipeline") { [weak self] in
             MainActor.assumeIsolated {
                 PhoneLog.shared.note("bg_expired", "\(step) \(Int(UIApplication.shared.backgroundTimeRemaining))s")
+                Pipeline.shared.stepOutOfTime()
                 Pipeline.shared.scheduleCatchUp()
                 self?.end()
             }

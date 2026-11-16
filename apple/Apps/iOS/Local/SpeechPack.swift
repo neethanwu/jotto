@@ -555,7 +555,15 @@ final class QwenEngine: @unchecked Sendable {
     /// model in the time a wake from the watch gives took over a minute of
     /// it, where in front it takes seconds.
     private let queue = DispatchQueue(label: "com.neethanwu.jotto.qwen", qos: .userInitiated)
-    private var model: QwenASR?
+    private var model: QwenASR? {
+        didSet { lock.withLock { loaded = model != nil } }
+    }
+    private let lock = NSLock()
+    private var loaded = false
+
+    /// Whether the model is in memory now, without waiting on its queue
+    /// (which may be busy loading it).
+    var isLoaded: Bool { lock.withLock { loaded } }
     private var uses = 0
     /// Kept loaded while a recording is going or parts are still to come,
     /// so each wake from the watch doesn't start by loading it again.

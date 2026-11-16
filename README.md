@@ -34,7 +34,7 @@ jotto is free, and this repository is its full source.
 
 ## What it does
 
-- **Records from your wrist.** Tap the dot in the watch app (a complication gets you there in one tap), or press the Action Button. The watch keeps recording with its screen off and hands the audio to your iPhone in parts of about a minute, cut at a pause. When the phone is out of reach, the parts wait on the watch and go over later. No watch on? Record on the iPhone itself.
+- **Records from your wrist.** Tap the dot in the watch app (a complication gets you there in one tap), or press the Action Button. The watch keeps recording with its screen off, in parts of about a minute cut at a pause, and hands them to your iPhone when it can wake jotto there: when you look at the recording and when you stop. When the phone is out of reach, the parts wait on the watch and go over later. No watch on? Record on the iPhone itself.
 - **Marks what matters.** A star keeps the seconds around your tap (10 before and 10 after, adjustable). Brackets keep a whole section. Both become highlights in the transcript.
 - **Writes clean text.** Each part is transcribed on the iPhone as it arrives. Fillers, stutters and false starts come out; punctuation, sentences and paragraphs go in; the recording gets a title. *Original* keeps every word, with what was taken out struck through.
 - **Shows the recording as it happens.** A Live screen with the time, a level strip and the latest words, plus a Live Activity on the lock screen and in the Dynamic Island.
@@ -79,7 +79,7 @@ Transcripts are laid out by one of your Send templates. Give one to an action th
 
 ### Send every recording somewhere by itself
 
-1. In jotto's settings, turn on **Notify when ready**. jotto then sends one notification per recording, when it's completely transcribed, formatted and titled.
+1. In jotto's settings, turn on **Notify when ready**. jotto then sends a notification when a recording is transcribed. (If it can't finish without you, it first sends one saying the recording is saved; that one finds nothing new to send, and the next one replaces it.)
 2. In Shortcuts, add a personal automation for when you get a notification from jotto, set to **Run Immediately**.
 3. Add **Get Finished Transcripts**. Set *Destination* to a name for where they're going, such as *Obsidian*, and choose a template.
 4. Add **Repeat with Each**, and inside it **Save File** into your vault (or **Send Email**, or **Ask ChatGPT**).
