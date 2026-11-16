@@ -1,6 +1,6 @@
 # jotto privacy policy
 
-Last updated 13 November 2026.
+Last updated 15 November 2026.
 
 jotto is a recorder for Apple Watch and iPhone, published by Hallidai Inc. This policy covers the jotto apps.
 
@@ -25,7 +25,7 @@ By default, everything happens on your iPhone:
 
 Nothing is sent anywhere for this.
 
-**The optional Qwen3-ASR model.** If you choose to download it, your iPhone fetches the model files from Hugging Face (huggingface.co). As with any download, Hugging Face sees your IP address. The model then runs on your iPhone; no audio or text is sent to anyone.
+**The optional Qwen3-ASR model.** If you choose to download it, your iPhone fetches the model files through the App Store, the way it fetches an app. If the App Store can't supply them, and in versions built from the source, they come from Hugging Face (huggingface.co) instead; as with any download, Hugging Face then sees your IP address. The model runs on your iPhone; no audio or text is sent to anyone.
 
 **Your own API key, if you turn it on.** You can choose to have a cloud service do the work instead: OpenRouter, or any OpenAI-compatible service whose address you enter. While this is on:
 
