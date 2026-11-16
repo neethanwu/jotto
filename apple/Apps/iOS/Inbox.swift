@@ -267,7 +267,7 @@ extension Inbox: WCSessionDelegate {
         Task { @MainActor in
             let left = UIApplication.shared.backgroundTimeRemaining
             PhoneLog.shared.note("wc_wake", "\(reason) left=\(left > 999 ? "-" : "\(Int(left))s")")
-            Pipeline.shared.run()
+            Pipeline.shared.woken(reason)
         }
     }
 

@@ -202,6 +202,8 @@ final class Pipeline {
                 }
             } while rerun
             running = false
+            awake?.end()
+            awake = nil
             QwenEngine.shared.hold(store.recordings.values.contains { $0.endedAt == nil && $0.imported == nil } || partsToHear > 0)
             // Woken by the watch and out of steps that can run unseen, or
             // left with parts still to hear: ask iOS for a later turn.
@@ -211,6 +213,21 @@ final class Pipeline {
 
     @ObservationIgnored private var rerun = false
     @ObservationIgnored private var current: Task<Void, Never>?
+
+    /// The watch has nudged jotto awake. Each nudge brings fresh background
+    /// time, but only to whoever asks for it: a step already under way
+    /// (the model still loading, a part half heard) had used up its own,
+    /// went on in the nudge's few seconds and stopped mid-part, where it
+    /// waited until jotto was next opened. So take new time here, for the
+    /// run as a whole, until it's idle.
+    func woken(_ reason: String) {
+        let previous = awake
+        awake = BackgroundTime(step: "wake: \(reason)")
+        previous?.end()
+        run()
+    }
+
+    @ObservationIgnored private var awake: BackgroundTime?
 
     /// Runs, and returns once there's nothing left to do for now.
     func runUntilIdle() async {
@@ -326,7 +343,9 @@ final class Pipeline {
     }
 
     func finishInBackgroundIfNeeded() {
-        guard UIApplication.shared.applicationState == .active, finishing == nil, !finishAsked,
+        // Not `== .active`: as jotto comes to the front, its scene is active
+        // a moment before the app is, and that's when this is asked.
+        guard UIApplication.shared.applicationState != .background, finishing == nil, !finishAsked,
               partsToHear > 0 else { return }
         finishAsked = true
         let id = "\(Self.finishPrefix).\(UUID().uuidString)"

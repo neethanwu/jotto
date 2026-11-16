@@ -37,17 +37,24 @@ final class QwenASR {
     /// Both decoder parts take exactly this many tokens a call.
     private let batch: Int
 
+    /// How long each model took to load, for the test log ("encoder 2.1s, …").
+    let loadTimes: String
+
     init(directory: URL, computeUnits: MLComputeUnits = .cpuAndNeuralEngine) throws {
         let config = MLModelConfiguration()
         config.computeUnits = computeUnits
+        var times: [String] = []
         func load(_ name: String) throws -> MLModel {
-            try MLModel(contentsOf: directory.appending(path: "\(name).mlmodelc", directoryHint: .isDirectory), configuration: config)
+            let began = Date.now
+            defer { times.append("\(name) \(String(format: "%.1f", Date.now.timeIntervalSince(began)))s") }
+            return try MLModel(contentsOf: directory.appending(path: "\(name).mlmodelc", directoryHint: .isDirectory), configuration: config)
         }
         encoder = try load("encoder")
         embedding = try load("embedding")
         part1 = try load("decoder_part1")
         part2 = try load("decoder_part2")
         vocab = try QwenVocab(directory: directory)
+        loadTimes = times.joined(separator: ", ")
 
         let json = (try? Data(contentsOf: directory.appending(path: "config.json")))
             .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]

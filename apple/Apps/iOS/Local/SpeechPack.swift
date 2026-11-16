@@ -551,7 +551,10 @@ private final class PackDelegate: NSObject, URLSessionDownloadDelegate {
 final class QwenEngine: @unchecked Sendable {
     static let shared = QwenEngine()
 
-    private let queue = DispatchQueue(label: "com.neethanwu.jotto.qwen", qos: .utility)
+    /// Asked for by the person, even out of sight: at utility, loading the
+    /// model in the time a wake from the watch gives took over a minute of
+    /// it, where in front it takes seconds.
+    private let queue = DispatchQueue(label: "com.neethanwu.jotto.qwen", qos: .userInitiated)
     private var model: QwenASR?
     private var uses = 0
     /// Kept loaded while a recording is going or parts are still to come,
@@ -595,8 +598,9 @@ final class QwenEngine: @unchecked Sendable {
                 do {
                     if self.model == nil {
                         let began = Date.now
-                        self.model = try QwenASR(directory: SpeechPack.directory)
-                        PhoneLog.shared.later("qwen_loaded", String(format: "%.1fs", Date.now.timeIntervalSince(began)))
+                        let model = try QwenASR(directory: SpeechPack.directory)
+                        self.model = model
+                        PhoneLog.shared.later("qwen_loaded", String(format: "%.1fs", Date.now.timeIntervalSince(began)) + " (\(model.loadTimes))")
                     }
                     let result = try work(self.model!)
                     self.uses += 1
