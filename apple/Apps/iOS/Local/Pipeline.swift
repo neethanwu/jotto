@@ -323,17 +323,28 @@ final class Pipeline {
     /// Parts still to hear, or recordings still to put together: the work
     /// that runs with jotto out of sight.
     var hasBackgroundWork: Bool {
+        hasPartsOrPolishing || hasFormatting
+    }
+
+    private var hasPartsOrPolishing: Bool {
         store.recordings.values.contains { r in
             r.segments.values.contains { $0.phrases == nil && $0.failed == nil }
                 || (r.isEnded && r.polishedAt == nil)
         }
     }
 
+    /// Text Apple's model is still to format, for iOS's turn on power.
+    private var hasFormatting: Bool {
+        !Cloud.isOn && Editor.isAvailable && store.recordings.values.contains { willTidy($0) }
+    }
+
     func scheduleCatchUp() {
         guard hasBackgroundWork else { return }
         let request = BGProcessingTaskRequest(identifier: Self.catchUpID)
         request.requiresNetworkConnectivity = Cloud.isOn
-        request.requiresExternalPower = false
+        // Only formatting left: when plugged in, where the model isn't
+        // rate-limited (often overnight).
+        request.requiresExternalPower = !hasPartsOrPolishing
         do {
             try BGTaskScheduler.shared.submit(request)
             PhoneLog.shared.note("bg_scheduled")
@@ -444,12 +455,19 @@ final class Pipeline {
     /// title is the one thing asked of it out of sight, and formatting
     /// waits for jotto to be opened.
     private func formatsBeforeNotice(_ r: LocalRecording) -> Bool {
-        guard Cloud.isOn, willTidy(r), r.notifiedAt == nil, let polished = r.polishedAt else { return false }
+        guard canFormatUnseen, willTidy(r), r.notifiedAt == nil, let polished = r.polishedAt else { return false }
         return Date.now.timeIntervalSince(polished) < Self.tidyWait
     }
 
+    /// Formatting can go on out of sight: with your own key; with Apple's
+    /// model when the iPhone is plugged in (it isn't rate-limited then),
+    /// or on battery with the Beta test switch on.
+    private var canFormatUnseen: Bool {
+        Cloud.isOn || (Editor.isAvailable && (PlaceTracker.shared.isOnPower || PlaceTracker.shared.formatsUnseen))
+    }
+
     /// Whether this recording's notice waits now: out of sight, kept
-    /// running by places, with your own key's formatting still to finish.
+    /// running by places, with its formatting still to finish.
     private func noticeWaits(_ r: LocalRecording) -> Bool {
         UIApplication.shared.applicationState == .background && PlaceTracker.shared.isFollowing
             && formatsBeforeNotice(r) && !tidyFailed.contains(r.id)
@@ -698,6 +716,8 @@ final class Pipeline {
         case polish(id: String)
         case describe(id: String)
         case tidy(id: String)
+        /// One settled paragraph of a recording still going on.
+        case tidyLive(id: String, text: String)
     }
 
     /// Whether the on-device model will tidy this recording's text.
@@ -753,8 +773,32 @@ final class Pipeline {
             for r in all.reversed() where willTidy(r) && !tidyFailed.contains(r.id) {
                 return .tidy(id: r.id)
             }
+        } else if canFormatUnseen {
+            // Plugged in, or the test switch: the recording awaiting its
+            // notice, then a recording's paragraphs as they settle, then,
+            // in iOS's turn on power, anything left from before.
+            if PlaceTracker.shared.isFollowing {
+                for r in all.reversed() where noticeWaits(r) {
+                    return .tidy(id: r.id)
+                }
+                for r in all.reversed() where r.endedAt == nil && r.imported == nil && !tidyFailed.contains(r.id) {
+                    if let text = settledUntidied(r) { return .tidyLive(id: r.id, text: text) }
+                }
+            }
+            if catchingUp {
+                for r in all.reversed() where willTidy(r) && !tidyFailed.contains(r.id) {
+                    return .tidy(id: r.id)
+                }
+            }
         }
         return nil
+    }
+
+    /// The first paragraph of a recording still going on that won't change
+    /// any more (all but the last) and isn't formatted yet.
+    private func settledUntidied(_ r: LocalRecording) -> String? {
+        let blocks = LocalStore.blocks(r)
+        return blocks.dropLast().first { !$0.backchannel && r.tidy?[$0.text] == nil }?.text
     }
 
     private func giveUpOnMissing(_ r: LocalRecording) -> Bool {
@@ -939,6 +983,13 @@ final class Pipeline {
 
         case let .tidy(id):
             await tidy(id)
+
+        case let .tidyLive(id, text):
+            let began = Date.now
+            if await tidyParagraph(id, text) != nil {
+                let power = PlaceTracker.shared.isOnPower ? "on power" : "on battery"
+                PhoneLog.shared.note("tidy_live", "\(id) \(String(format: "%.1f", Date.now.timeIntervalSince(began)))s \(power)")
+            }
         }
         changed()
     }
@@ -967,6 +1018,7 @@ final class Pipeline {
         for b in blocks where store.recordings[id]?.tidy?[b.text] == nil {
             guard let now = store.recordings[id], now.tidiedAt == nil, now.polishedAt != nil,
                   UIApplication.shared.applicationState != .background || Cloud.isOn || noticeWaits(now)
+                    || (catchingUp && canFormatUnseen)
             else { return }
             guard let outcome = await tidyParagraph(id, b.text) else { return }
             switch outcome {

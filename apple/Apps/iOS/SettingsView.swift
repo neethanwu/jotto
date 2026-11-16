@@ -72,10 +72,11 @@ struct SettingsView: View {
                             Link(destination: settings) {
                                 SettingsRow("Location", value: places.permissionLabel, opensOutside: true)
                             }
+                            SettingsToggle("Format on battery too", isOn: Bindable(places).formatsUnseen)
                         }
                     }
                     // A test of following location to keep jotto running (PlaceTracker).
-                    Text("While a recording goes on, this iPhone follows where you are, which keeps jotto running so each part is transcribed as it arrives. Set Location to Always.")
+                    Text("While a recording goes on, this iPhone follows where you are, which keeps jotto running so each part is transcribed as it arrives. Set Location to Always. Plugged in, the text is formatted as it comes too; Format on battery too tries that unplugged, to see how far Apple's model allows it.")
                         .font(.scaled(13, .regular, relativeTo: .footnote))
                         .foregroundStyle(Color.jText3)
                         .padding(.top, 8)

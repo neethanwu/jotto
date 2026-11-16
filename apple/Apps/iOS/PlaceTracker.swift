@@ -26,6 +26,23 @@ final class PlaceTracker: NSObject {
         }
     }
 
+    /// Test switch: Apple's model formats out of sight while following,
+    /// on battery too, to see how far its background allowance goes.
+    var formatsUnseen: Bool = UserDefaults.standard.bool(forKey: "formatsUnseen") {
+        didSet {
+            guard formatsUnseen != oldValue else { return }
+            UserDefaults.standard.set(formatsUnseen, forKey: "formatsUnseen")
+            PhoneLog.shared.note("format_switch", formatsUnseen ? "on" : "off")
+        }
+    }
+
+    /// Plugged in (charging or full). Apple's model isn't rate-limited then.
+    var isOnPower: Bool {
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        let state = UIDevice.current.batteryState
+        return state == .charging || state == .full
+    }
+
     private(set) var permission: CLAuthorizationStatus = .notDetermined
     private(set) var isFollowing = false
 
@@ -120,7 +137,6 @@ final class PlaceTracker: NSObject {
         let minutes = since.map { Int(Date.now.timeIntervalSince($0) / 60) } ?? 0
         let used = batteryAtStart.flatMap { start in battery.map { start - $0 } }
         PhoneLog.shared.note("place_stop", "\(why) \(minutes)min fixes=\(fixes) \(batteryText) used=\(used.map { "\($0)%" } ?? "?")")
-        UIDevice.current.isBatteryMonitoringEnabled = false
         since = nil
     }
 
