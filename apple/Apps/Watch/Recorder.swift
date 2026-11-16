@@ -455,6 +455,7 @@ final class Recorder {
                 let elapsed = Int(Date.now.timeIntervalSince(self.startedAt ?? .now))
                 let appState = WKApplication.shared().applicationState.rawValue
                 self.log.log("tick", battery: self.battery, "elapsed=\(elapsed)s segments=\(self.segmentsWritten) state=\(self.state.rawValue) app=\(appState) \(WatchTransfer.shared.linkNote)")
+                WatchTransfer.shared.wakeIfWanted()
             }
         }
     }

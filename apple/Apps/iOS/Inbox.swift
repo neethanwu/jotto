@@ -277,9 +277,17 @@ extension Inbox: WCSessionDelegate {
         replyHandler(["ok": true])
         guard message["kind"] as? String == "wake" else { return }
         let reason = message["reason"] as? String ?? "?"
+        // The start's own nudge carries the start, ahead of the queued copy.
+        let start = (message["session"] as? String).flatMap { id in
+            (message["sessionStartedAt"] as? Double).map { (id, Date(timeIntervalSince1970: $0)) }
+        }
         Task { @MainActor in
             let left = UIApplication.shared.backgroundTimeRemaining
             PhoneLog.shared.note("wc_wake", "\(reason) left=\(left > 999 ? "-" : "\(Int(left))s")")
+            if let (id, started) = start {
+                Library.shared.watchStarted(id, at: started)
+                Pipeline.shared.started(id, at: started)
+            }
             Pipeline.shared.woken(reason)
         }
     }

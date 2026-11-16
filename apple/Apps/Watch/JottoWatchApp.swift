@@ -17,6 +17,11 @@ struct JottoWatchApp: App {
                 .task {
                     let env = ProcessInfo.processInfo.environment
                     if env["JOTTO_AUTOSTART"] != nil {
+                        // Started a few seconds in (`JOTTO_AUTOSTART_AFTER=5`), as a
+                        // tap would be, once the link to the phone is up.
+                        if let after = env["JOTTO_AUTOSTART_AFTER"].flatMap(Double.init) {
+                            try? await Task.sleep(for: .seconds(after))
+                        }
                         recorder.start()
                         // A recording already some minutes in (`JOTTO_AUTOSTART_AGO=255`),
                         // and the star just pressed (`JOTTO_AUTOMARK=1`).

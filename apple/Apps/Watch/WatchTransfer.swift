@@ -41,13 +41,22 @@ final class WatchTransfer: NSObject {
     }
 
     /// Tells the phone a recording started, so it can show it live.
+    ///
+    /// The nudge goes at once too, carrying the start itself, while jotto
+    /// is still in front here: waiting for the queued start to land first
+    /// (as the parts' nudges do) took close to a minute once the wrist
+    /// went down, by when the phone was out of reach for live messages,
+    /// so jotto on the iPhone didn't hear of the recording until the
+    /// wrist came up again, half an hour later in a test.
     func sendStart(session: UUID, startedAt: Date) {
         guard WCSession.default.activationState == .activated else { return }
-        WCSession.default.transferUserInfo([
-            "kind": "start",
+        let start: [String: Any] = [
             "session": session.uuidString.lowercased(),
             "sessionStartedAt": startedAt.timeIntervalSince1970,
-        ])
+        ]
+        WCSession.default.transferUserInfo(start.merging(["kind": "start"]) { $1 })
+        guard WCSession.default.isReachable else { return }
+        Self.sendWake("start, at once", extra: start)
     }
 
     /// A highlight, as seconds from the start of the recording.
@@ -116,10 +125,19 @@ final class WatchTransfer: NSObject {
         Self.sendWake(reason)
     }
 
+    /// A nudge still owed, now the phone is in reach: for when reach came
+    /// back without word of it (just after the session started, it said
+    /// out of reach and never said otherwise; checked every minute).
+    func wakeIfWanted() {
+        guard let reason = wakeWanted, WCSession.default.isReachable else { return }
+        wakePhone("\(reason), found in reach")
+    }
+
     /// Outside the main actor, so no handler inherits its isolation on
     /// WatchConnectivity's queue.
-    nonisolated private static func sendWake(_ reason: String) {
-        WCSession.default.sendMessage(["kind": "wake", "reason": reason], replyHandler: { @Sendable _ in
+    nonisolated private static func sendWake(_ reason: String, extra: [String: Any] = [:]) {
+        let message = extra.merging(["kind": "wake", "reason": reason]) { $1 }
+        WCSession.default.sendMessage(message, replyHandler: { @Sendable _ in
             SpikeLog.shared.log("wake_ok", reason)
         }, errorHandler: { @Sendable error in
             SpikeLog.shared.log("wake_failed", "\(reason) \(error.localizedDescription)")

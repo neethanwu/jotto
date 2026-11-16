@@ -24,6 +24,14 @@ final class Pipeline {
     @ObservationIgnored private var describeFailed: Set<String> = []
     /// Same for tidying the text.
     @ObservationIgnored private var tidyFailed: Set<String> = []
+    /// The model said it was busy or rate-limited: titles and formatting
+    /// wait until then, a little longer each time, and carry on.
+    @ObservationIgnored private var modelNotBefore: Date?
+    @ObservationIgnored private var modelBackoff: TimeInterval = 0
+    /// Answers from the model (paragraphs, titles) since it last said no, for the log.
+    @ObservationIgnored private var tidyRun = 0
+    /// Recordings whose notice waits for their formatting.
+    @ObservationIgnored private var noticeHeld: Set<String> = []
     /// What the model is working on right now, for the timeline: a title
     /// being written, or paragraphs being formatted.
     @ObservationIgnored private(set) var describingNow: String?
@@ -224,7 +232,9 @@ final class Pipeline {
                     // with no progress iOS gave up on the task and said it
                     // failed while the parts were being heard.
                     reportFinishing()
+                    sendHeldNotices()
                 }
+                sendHeldNotices()
             } while rerun
             running = false
             // Out of sight and out of steps, with parts of a finished
@@ -414,8 +424,67 @@ final class Pipeline {
     }
 
     /// What following places keeps jotto running for (`PlaceTracker`): a
-    /// recording going on, or parts still to hear.
-    var hasLiveWork: Bool { hasLiveRecording || partsToHear > 0 }
+    /// recording going on, parts still to hear, or a finished one being
+    /// formatted before its notice.
+    var hasLiveWork: Bool {
+        hasLiveRecording || partsToHear > 0 || !noticeHeld.isEmpty
+            || store.recordings.values.contains { $0.isEnded && formatsBeforeNotice($0) }
+    }
+
+    /// How long a finished recording's notice waits for its formatting.
+    private static let tidyWait: TimeInterval = 120
+
+    /// Kept running by places, a finished recording is formatted before
+    /// its notice goes, so "ready" means the text is as it will stay, for
+    /// up to two minutes after it's written out; past that the notice
+    /// goes and formatting finishes in jotto.
+    private func formatsBeforeNotice(_ r: LocalRecording) -> Bool {
+        guard willTidy(r), r.notifiedAt == nil, let polished = r.polishedAt else { return false }
+        return Date.now.timeIntervalSince(polished) < Self.tidyWait
+    }
+
+    /// Whether this recording's notice waits now: out of sight, kept
+    /// running by places, with its formatting still to finish.
+    private func noticeWaits(_ r: LocalRecording) -> Bool {
+        UIApplication.shared.applicationState == .background && PlaceTracker.shared.isFollowing
+            && formatsBeforeNotice(r) && !tidyFailed.contains(r.id)
+    }
+
+    /// The notice for a recording whose text and title are done, unless it
+    /// waits for formatting; then it goes when that's done or time's up.
+    private func notifyUnlessFormatting(_ id: String) {
+        guard let r = store.recordings[id] else { return }
+        guard noticeWaits(r), let polished = r.polishedAt else {
+            Notifier.shared.ready(id)
+            return
+        }
+        if noticeHeld.insert(id).inserted {
+            PhoneLog.shared.note("notice_held", id)
+            runAgain(at: polished.addingTimeInterval(Self.tidyWait + 1))
+        }
+    }
+
+    /// Held notices whose formatting is done or whose time is up.
+    private func sendHeldNotices() {
+        for id in noticeHeld {
+            guard let r = store.recordings[id] else {
+                noticeHeld.remove(id)
+                continue
+            }
+            guard !noticeWaits(r) else { continue }
+            noticeHeld.remove(id)
+            Notifier.shared.ready(id)
+        }
+    }
+
+    /// A turn later on (formatting resuming, a held notice due). Out of
+    /// sight this only fires while jotto is kept running.
+    private func runAgain(at date: Date) {
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(max(1, date.timeIntervalSinceNow)))
+            self?.run()
+        }
+    }
 
     /// Parts that have come in and are still to be heard.
     var partsToHear: Int {
@@ -614,6 +683,8 @@ final class Pipeline {
         case polish(id: String)
         case describe(id: String)
         case tidy(id: String)
+        /// One settled paragraph of a recording still going on.
+        case tidyLive(id: String, text: String)
     }
 
     /// Whether the on-device model will tidy this recording's text.
@@ -648,21 +719,45 @@ final class Pipeline {
         }
         // Titles. The on-device model is rate-limited in the background:
         // one try there (so the notice can carry a title), the rest in front.
+        // In front, not while the model asked for a pause; out of sight,
+        // the one try for the notice goes regardless.
+        let modelReady = modelNotBefore.map { $0 <= .now } ?? true
         if Describer.isAvailable || Cloud.isOn {
             // The on-device model is rate-limited in the background; a service isn't.
             let inFront = UIApplication.shared.applicationState != .background || Cloud.isOn
             for r in all where r.polishedAt != nil && r.describedAt == nil && !r.titleByUser
-                && !describeFailed.contains(r.id) && (inFront || r.notifiedAt == nil) {
+                && !describeFailed.contains(r.id) && (inFront ? modelReady : r.notifiedAt == nil) {
                 return .describe(id: r.id)
             }
         }
-        // Tidying, newest first (the one likely open); on this iPhone only in front.
+        // Tidying, newest first (the one likely open). On this iPhone only
+        // in front, where the model isn't rate-limited, or while following
+        // places keeps jotto running: then the recording awaiting its
+        // notice, and as a recording goes on, its paragraphs as they settle,
+        // a few at a time between parts, so little is left at the stop.
+        guard modelReady else { return nil }
         if UIApplication.shared.applicationState != .background || Cloud.isOn {
             for r in all.reversed() where willTidy(r) && !tidyFailed.contains(r.id) {
                 return .tidy(id: r.id)
             }
+        } else if PlaceTracker.shared.isFollowing {
+            for r in all.reversed() where noticeWaits(r) {
+                return .tidy(id: r.id)
+            }
+            if Editor.isAvailable {
+                for r in all.reversed() where r.endedAt == nil && r.imported == nil && !tidyFailed.contains(r.id) {
+                    if let text = settledUntidied(r) { return .tidyLive(id: r.id, text: text) }
+                }
+            }
         }
         return nil
+    }
+
+    /// The first paragraph of a recording still going on that won't change
+    /// any more (all but the last) and isn't formatted yet.
+    private func settledUntidied(_ r: LocalRecording) -> String? {
+        let blocks = LocalStore.blocks(r)
+        return blocks.dropLast().first { !$0.backchannel && r.tidy?[$0.text] == nil }?.text
     }
 
     private func giveUpOnMissing(_ r: LocalRecording) -> Bool {
@@ -769,6 +864,8 @@ final class Pipeline {
             store.update(id, startedAt: r.startedAt) {
                 $0.clean = clean
                 $0.polishedAt = .now
+                // Paragraphs formatted while it went on that changed since.
+                $0.tidy = $0.tidy?.filter { clean[$0.key] != nil }
             }
             PhoneLog.shared.note("polished", id)
             // No title coming, or no time for one out of sight (the title
@@ -776,7 +873,7 @@ final class Pipeline {
             let short = UIApplication.shared.applicationState == .background && !keptRunning
                 && UIApplication.shared.backgroundTimeRemaining < 20
             if !(Describer.isAvailable || Cloud.isOn) || r.titleByUser || short {
-                Notifier.shared.ready(id)
+                notifyUnlessFormatting(id)
             }
 
         case let .describe(id):
@@ -784,7 +881,7 @@ final class Pipeline {
             let paragraphs = LocalStore.blocks(r).filter { !$0.backchannel }.map { r.tidy?[$0.text] ?? r.clean[$0.text] ?? $0.text }
             guard !paragraphs.joined().isEmpty else {
                 store.update(id, startedAt: r.startedAt) { $0.describedAt = .now }
-                Notifier.shared.ready(id)
+                notifyUnlessFormatting(id)
                 changed()
                 return
             }
@@ -797,7 +894,7 @@ final class Pipeline {
                     if !$0.titleByUser, !title.isEmpty { $0.title = title }
                     $0.describedAt = .now
                 }
-                Notifier.shared.ready(id)
+                notifyUnlessFormatting(id)
                 changed()
                 return
             }
@@ -812,7 +909,9 @@ final class Pipeline {
                     $0.summary = d.summary
                     $0.describedAt = .now
                 }
-                Notifier.shared.ready(id)
+                modelBackoff = 0
+                tidyRun += 1
+                notifyUnlessFormatting(id)
             } catch {
                 // Busy or offline: try again next time we're in front. A
                 // failure that would only come round again (the model won't
@@ -820,7 +919,8 @@ final class Pipeline {
                 // down): after a few, stop asking, so it doesn't flash
                 // "writing the title" at every launch, and it keeps its
                 // time-of-day name, which can be renamed. Either way the
-                // notice goes now, without a title.
+                // notice goes now, without a title (or, while formatting
+                // holds it, when that's done, by when a retry may have one).
                 let verdict = Cloud.isOn ? ((error as? Cloud.Failure)?.isPassing == true ? true : nil) : Describer.isPassing(error)
                 let passing = verdict == true
                 let tries = (r.describeTries ?? 0) + (passing ? 0 : 1)
@@ -830,13 +930,24 @@ final class Pipeline {
                     if giveUp { $0.describedAt = .now }
                 }
                 if !giveUp { describeFailed.insert(id) }
-                PhoneLog.shared.note(giveUp ? "describe_gave_up" : "describe_failed", "\(id) \(error.localizedDescription)")
-                Notifier.shared.ready(id)
+                if passing {
+                    // Rate-limited or busy: asked again after a pause.
+                    modelBusy("describe", id, error)
+                } else {
+                    PhoneLog.shared.note(giveUp ? "describe_gave_up" : "describe_failed", "\(id) \(error.localizedDescription)")
+                }
+                notifyUnlessFormatting(id)
                 return
             }
 
         case let .tidy(id):
             await tidy(id)
+
+        case let .tidyLive(id, text):
+            let began = Date.now
+            if await tidyParagraph(id, text) != nil {
+                PhoneLog.shared.note("tidy_live", "\(id) \(String(format: "%.1f", Date.now.timeIntervalSince(began)))s")
+            }
         }
         changed()
     }
@@ -853,40 +964,82 @@ final class Pipeline {
     }
 
     /// Paragraph by paragraph, saving as it goes so the transcript fills
-    /// in. Stops when jotto leaves the front; carries on next time.
+    /// in. Stops when jotto leaves the front (unless kept running by
+    /// places, for the recording awaiting its notice); carries on next time.
     private func tidy(_ id: String) async {
         guard let r = store.recordings[id] else { return }
         let blocks = LocalStore.blocks(r).filter { !$0.backchannel }
         let began = Date.now
-        var kept = 0, rejected = 0, refused = 0
+        var counts = (kept: 0, rejected: 0, refused: 0)
         tidyingNow = id
         defer { tidyingNow = nil }
         for b in blocks where store.recordings[id]?.tidy?[b.text] == nil {
-            guard UIApplication.shared.applicationState != .background || Cloud.isOn,
-                  store.recordings[id]?.tidiedAt == nil, store.recordings[id]?.polishedAt != nil else { return }
-            let rough = r.clean[b.text] ?? Cleanup.clean(b.text)
-            do {
-                let tidied = try await Editor.tidy(rough)
-                if tidied == nil { rejected += 1 } else { kept += 1 }
-                store.update(id, startedAt: r.startedAt) { $0.tidy = ($0.tidy ?? [:]).merging([b.text: tidied ?? rough]) { $1 } }
-                changed()
-            } catch where Editor.isAboutThisText(error) || (error as? Cloud.Failure).map({ !$0.isPassing }) == true {
-                // The model won't do this one paragraph (its guardrails,
-                // or too long): it keeps the rule-based text, and the rest
-                // carry on. Stopping here left the recording half done,
-                // tried again and failing at every launch.
-                refused += 1
-                store.update(id, startedAt: r.startedAt) { $0.tidy = ($0.tidy ?? [:]).merging([b.text: rough]) { $1 } }
-                changed()
-            } catch {
-                // Busy or rate-limited: try again next time.
-                tidyFailed.insert(id)
-                PhoneLog.shared.note("tidy_failed", "\(id) \(error.localizedDescription)")
-                return
+            guard let now = store.recordings[id], now.tidiedAt == nil, now.polishedAt != nil,
+                  UIApplication.shared.applicationState != .background || Cloud.isOn || noticeWaits(now)
+            else { return }
+            guard let outcome = await tidyParagraph(id, b.text) else { return }
+            switch outcome {
+            case .kept: counts.kept += 1
+            case .rejected: counts.rejected += 1
+            case .refused: counts.refused += 1
             }
         }
         store.update(id, startedAt: r.startedAt) { $0.tidiedAt = .now }
-        PhoneLog.shared.note("tidied", "\(id) kept=\(kept) rejected=\(rejected) refused=\(refused) \(String(format: "%.1f", Date.now.timeIntervalSince(began)))s")
+        PhoneLog.shared.note("tidied", "\(id) kept=\(counts.kept) rejected=\(counts.rejected) refused=\(counts.refused) \(String(format: "%.1f", Date.now.timeIntervalSince(began)))s")
+    }
+
+    private enum TidyOutcome { case kept, rejected, refused }
+
+    /// The model is rate-limited or busy: titles and formatting pause,
+    /// from a quarter of a minute up to two as it keeps saying so, then
+    /// carry on by themselves rather than at the next launch.
+    private func modelBusy(_ what: String, _ id: String, _ error: Error) {
+        modelBackoff = min(120, max(15, modelBackoff * 2))
+        let until = Date.now.addingTimeInterval(modelBackoff)
+        modelNotBefore = until
+        runAgain(at: until)
+        let place = UIApplication.shared.applicationState == .background ? "unseen" : "in front"
+        PhoneLog.shared.note("\(what)_limited", "\(id) after=\(tidyRun) wait=\(Int(modelBackoff))s \(place) \(error.localizedDescription)")
+        tidyRun = 0
+    }
+
+    /// Formats one paragraph and saves it. Nil when the model can't for
+    /// now: rate-limited or busy, it's asked again after a pause that
+    /// grows each time (from a quarter to two minutes) rather than at the
+    /// next launch; anything else waits for the next run.
+    @discardableResult
+    private func tidyParagraph(_ id: String, _ text: String) async -> TidyOutcome? {
+        guard let r = store.recordings[id] else { return nil }
+        let rough = r.clean[text] ?? Cleanup.clean(text)
+        do {
+            let tidied = try await Editor.tidy(rough)
+            store.update(id, startedAt: r.startedAt) { $0.tidy = ($0.tidy ?? [:]).merging([text: tidied ?? rough]) { $1 } }
+            // A short one never reaches the model.
+            if Sentences.units(rough) >= 4 {
+                modelBackoff = 0
+                tidyRun += 1
+            }
+            changed()
+            return tidied == nil ? .rejected : .kept
+        } catch where Editor.isAboutThisText(error) || (error as? Cloud.Failure).map({ !$0.isPassing }) == true {
+            // The model won't do this one paragraph (its guardrails,
+            // or too long): it keeps the rule-based text, and the rest
+            // carry on. Stopping here left the recording half done,
+            // tried again and failing at every launch.
+            store.update(id, startedAt: r.startedAt) { $0.tidy = ($0.tidy ?? [:]).merging([text: rough]) { $1 } }
+            changed()
+            return .refused
+        } catch {
+            let passing = (error as? Cloud.Failure)?.isPassing ?? Describer.isPassing(error)
+            if passing == true {
+                // Rate-limited or busy: a pause, then on from here.
+                modelBusy("tidy", id, error)
+            } else {
+                tidyFailed.insert(id)
+                PhoneLog.shared.note("tidy_failed", "\(id) \(error.localizedDescription)")
+            }
+            return nil
+        }
     }
 
     private func changed() {
