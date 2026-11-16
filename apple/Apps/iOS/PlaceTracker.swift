@@ -166,7 +166,8 @@ final class PlaceTracker: NSObject {
 
     private var batteryText: String {
         let charging = UIDevice.current.batteryState == .charging || UIDevice.current.batteryState == .full
-        return "battery=\(battery.map { "\($0)%" } ?? "?")\(charging ? " charging" : "")"
+        let saver = ProcessInfo.processInfo.isLowPowerModeEnabled ? " low-power" : ""
+        return "battery=\(battery.map { "\($0)%" } ?? "?")\(charging ? " charging" : "")\(saver)"
     }
 }
 

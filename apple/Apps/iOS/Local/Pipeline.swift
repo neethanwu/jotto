@@ -434,17 +434,22 @@ final class Pipeline {
     /// How long a finished recording's notice waits for its formatting.
     private static let tidyWait: TimeInterval = 120
 
-    /// Kept running by places, a finished recording is formatted before
-    /// its notice goes, so "ready" means the text is as it will stay, for
-    /// up to two minutes after it's written out; past that the notice
-    /// goes and formatting finishes in jotto.
+    /// Kept running by places with your own key, a finished recording is
+    /// formatted before its notice goes, so "ready" means the text is as
+    /// it will stay, for up to two minutes after it's written out; past
+    /// that the notice goes and formatting finishes in jotto. Not with
+    /// Apple's on-device model: out of sight it answered seven paragraphs
+    /// and then nothing for a quarter of an hour, which left the title
+    /// unwritten and the notice two minutes late without one. There the
+    /// title is the one thing asked of it out of sight, and formatting
+    /// waits for jotto to be opened.
     private func formatsBeforeNotice(_ r: LocalRecording) -> Bool {
-        guard willTidy(r), r.notifiedAt == nil, let polished = r.polishedAt else { return false }
+        guard Cloud.isOn, willTidy(r), r.notifiedAt == nil, let polished = r.polishedAt else { return false }
         return Date.now.timeIntervalSince(polished) < Self.tidyWait
     }
 
     /// Whether this recording's notice waits now: out of sight, kept
-    /// running by places, with its formatting still to finish.
+    /// running by places, with your own key's formatting still to finish.
     private func noticeWaits(_ r: LocalRecording) -> Bool {
         UIApplication.shared.applicationState == .background && PlaceTracker.shared.isFollowing
             && formatsBeforeNotice(r) && !tidyFailed.contains(r.id)
@@ -683,8 +688,6 @@ final class Pipeline {
         case polish(id: String)
         case describe(id: String)
         case tidy(id: String)
-        /// One settled paragraph of a recording still going on.
-        case tidyLive(id: String, text: String)
     }
 
     /// Whether the on-device model will tidy this recording's text.
@@ -730,34 +733,18 @@ final class Pipeline {
                 return .describe(id: r.id)
             }
         }
-        // Tidying, newest first (the one likely open). On this iPhone only
-        // in front, where the model isn't rate-limited, or while following
-        // places keeps jotto running: then the recording awaiting its
-        // notice, and as a recording goes on, its paragraphs as they settle,
-        // a few at a time between parts, so little is left at the stop.
+        // Tidying, newest first (the one likely open); on this iPhone only
+        // in front, where the model isn't rate-limited. Formatting a
+        // recording's paragraphs out of sight as they settled used up what
+        // the model allows there in seven answers, and the title at the
+        // stop was refused.
         guard modelReady else { return nil }
         if UIApplication.shared.applicationState != .background || Cloud.isOn {
             for r in all.reversed() where willTidy(r) && !tidyFailed.contains(r.id) {
                 return .tidy(id: r.id)
             }
-        } else if PlaceTracker.shared.isFollowing {
-            for r in all.reversed() where noticeWaits(r) {
-                return .tidy(id: r.id)
-            }
-            if Editor.isAvailable {
-                for r in all.reversed() where r.endedAt == nil && r.imported == nil && !tidyFailed.contains(r.id) {
-                    if let text = settledUntidied(r) { return .tidyLive(id: r.id, text: text) }
-                }
-            }
         }
         return nil
-    }
-
-    /// The first paragraph of a recording still going on that won't change
-    /// any more (all but the last) and isn't formatted yet.
-    private func settledUntidied(_ r: LocalRecording) -> String? {
-        let blocks = LocalStore.blocks(r)
-        return blocks.dropLast().first { !$0.backchannel && r.tidy?[$0.text] == nil }?.text
     }
 
     private func giveUpOnMissing(_ r: LocalRecording) -> Bool {
@@ -942,12 +929,6 @@ final class Pipeline {
 
         case let .tidy(id):
             await tidy(id)
-
-        case let .tidyLive(id, text):
-            let began = Date.now
-            if await tidyParagraph(id, text) != nil {
-                PhoneLog.shared.note("tidy_live", "\(id) \(String(format: "%.1f", Date.now.timeIntervalSince(began)))s")
-            }
         }
         changed()
     }
