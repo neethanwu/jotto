@@ -7,6 +7,10 @@ final class PhoneLog: @unchecked Sendable {
     static let shared = PhoneLog()
 
     private let url = Inbox.directory.appending(path: "phone-log.csv")
+    private static let header = "time,event,app,protected,detail\n"
+    /// Past this the older half goes, so the log never grows without end
+    /// (it's written in App Store builds too, where nothing reads it).
+    private static let limit = 512 * 1024
     private let lock = NSLock()
     private let formatter = ISO8601DateFormatter()
 
@@ -19,7 +23,7 @@ final class PhoneLog: @unchecked Sendable {
     private func createIfNeeded() {
         guard !FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else { return }
         try? FileManager.default.createDirectory(at: Inbox.directory, withIntermediateDirectories: true)
-        try? Data("time,event,app,protected,detail\n".utf8).write(to: url)
+        try? Data(Self.header.utf8).write(to: url)
     }
 
     /// Records the event with the app's state (0 active, 1 inactive, 2 background)
@@ -46,8 +50,18 @@ final class PhoneLog: @unchecked Sendable {
         defer { lock.unlock() }
         createIfNeeded()
         guard let handle = try? FileHandle(forWritingTo: url) else { return }
-        defer { try? handle.close() }
         _ = try? handle.seekToEnd()
         try? handle.write(contentsOf: Data(line.utf8))
+        let size = (try? handle.offset()) ?? 0
+        try? handle.close()
+        if size > Self.limit { trim() }
+    }
+
+    /// Keeps the newer half, from a line's start, under the header.
+    private func trim() {
+        guard let data = try? Data(contentsOf: url) else { return }
+        let newer = data.suffix(Self.limit / 2)
+        let start = newer.firstIndex(of: UInt8(ascii: "\n")).map { newer.index(after: $0) } ?? newer.startIndex
+        try? (Data(Self.header.utf8) + newer[start...]).write(to: url, options: .atomic)
     }
 }

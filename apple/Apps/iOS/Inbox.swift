@@ -214,11 +214,24 @@ extension Inbox: WCSessionDelegate {
             return
         }
 
-        let name = (meta["name"] as? String) ?? file.fileURL.lastPathComponent
+        // The watch's log comes whole after every recording: keep the
+        // latest only, where every copy used to pile up.
+        let isLog = meta["kind"] as? String == "log"
+        let name = isLog ? "watch-log.csv" : (meta["name"] as? String) ?? file.fileURL.lastPathComponent
         let destination = Self.directory.appending(path: name)
         try? FileManager.default.removeItem(at: destination)
         try? FileManager.default.moveItem(at: file.fileURL, to: destination)
+        if isLog { Self.removeOldWatchLogs() }
         Task { @MainActor in self.reload() }
+    }
+
+    /// Copies kept from before, named spike-log-<time>.csv; each was the
+    /// whole log at the time, so the latest has everything they had.
+    nonisolated private static func removeOldWatchLogs() {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path(percentEncoded: false))) ?? []
+        for name in names where name.hasPrefix("spike-log-") && name.hasSuffix(".csv") {
+            try? FileManager.default.removeItem(at: directory.appending(path: name))
+        }
     }
 
     nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {

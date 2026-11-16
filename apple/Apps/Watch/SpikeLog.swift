@@ -5,6 +5,11 @@ import Foundation
 final class SpikeLog: @unchecked Sendable {
     static let shared = SpikeLog()
 
+    private static let header = "time,event,battery,detail\n"
+    /// Past this the older half goes: the log is written, and sent to the
+    /// phone after each recording, in App Store builds too.
+    private static let limit = 256 * 1024
+
     let url: URL
     private let lock = NSLock()
     private let formatter = ISO8601DateFormatter()
@@ -13,7 +18,7 @@ final class SpikeLog: @unchecked Sendable {
         let docs = URL.documentsDirectory
         url = docs.appending(path: "spike-log.csv")
         if !FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
-            try? Data("time,event,battery,detail\n".utf8).write(to: url)
+            try? Data(Self.header.utf8).write(to: url)
         }
     }
 
@@ -25,9 +30,19 @@ final class SpikeLog: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         guard let handle = try? FileHandle(forWritingTo: url) else { return }
-        defer { try? handle.close() }
         _ = try? handle.seekToEnd()
         try? handle.write(contentsOf: Data(line.utf8))
+        let size = (try? handle.offset()) ?? 0
+        try? handle.close()
+        if size > Self.limit { trim() }
+    }
+
+    /// Keeps the newer half, from a line's start, under the header.
+    private func trim() {
+        guard let data = try? Data(contentsOf: url) else { return }
+        let newer = data.suffix(Self.limit / 2)
+        let start = newer.firstIndex(of: UInt8(ascii: "\n")).map { newer.index(after: $0) } ?? newer.startIndex
+        try? (Data(Self.header.utf8) + newer[start...]).write(to: url, options: .atomic)
     }
 
     /// Copies the log to a temp file so it can be transferred while we keep appending.
