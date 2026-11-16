@@ -132,7 +132,24 @@ final class Pipeline {
         LiveActivities.shared.end(id)
         Inbox.shared.syncHistory()
         changed()
+        askToOpenIfTooMuch(id)
         run()
+    }
+
+    /// The watch has stopped and jotto is out of sight. When the work
+    /// plainly won't fit in the half minute a nudge gives (the model still
+    /// to load, which takes about a minute out of sight, or several parts
+    /// to hear), the notice asking to open jotto goes now, at the stop,
+    /// rather than once that time has run out. A recording that will fit
+    /// gets just its "ready" notice.
+    private func askToOpenIfTooMuch(_ id: String) {
+        guard UIApplication.shared.applicationState == .background, finishing == nil, !catchingUp,
+              let r = store.recordings[id], let count = r.segmentCount else { return }
+        let toHear = count - r.segments.values.filter { $0.phrases != nil || $0.failed != nil }.count
+        let coldModel = AppConfig.shared.usesQwen && !Cloud.isOn && !QwenEngine.shared.isLoaded
+        guard toHear >= 3 || (coldModel && toHear > 0) else { return }
+        PhoneLog.shared.note("too_much", "\(id) parts=\(toHear) cold=\(coldModel)")
+        Notifier.shared.askToOpen(id)
     }
 
     func marked(_ id: String, startedAt: Date, offset: Double) {
@@ -199,6 +216,11 @@ final class Pipeline {
                 store.purgeAudio(keepingDays: AppConfig.shared.keepAudioDays)
                 while let step = nextStep() {
                     await perform(step)
+                    // After every step: a part heard returns before
+                    // `changed()`, so iOS's progress stayed at 0 of n, and
+                    // with no progress iOS gave up on the task and said it
+                    // failed while the parts were being heard.
+                    reportFinishing()
                 }
             } while rerun
             running = false

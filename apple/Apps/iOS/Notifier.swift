@@ -3,8 +3,9 @@ import UIKit
 import UserNotifications
 
 /// "Your recording is ready": its title and what it was about, once the
-/// phone has finished with it. A banner even with jotto open, since you
-/// may be on another tab; tapping one opens the transcript.
+/// phone has finished with it; tapping one opens the transcript. With
+/// jotto open it goes quietly into Notification Center: the timeline
+/// already shows the recording turning ready.
 @MainActor @Observable
 final class Notifier: NSObject {
     static let shared = Notifier()
@@ -106,6 +107,6 @@ extension Notifier: UNUserNotificationCenterDelegate {
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter, willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        [.banner, .list, .sound]
+        [.list]
     }
 }
