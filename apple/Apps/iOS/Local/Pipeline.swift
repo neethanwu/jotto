@@ -482,6 +482,16 @@ final class Pipeline {
         }
     }
 
+    /// jotto has been opened: titles and formatting are tried at once,
+    /// whatever pause the model asked for out of sight. Waiting it out
+    /// left a recording half formatted the whole minute it was open, with
+    /// nothing happening.
+    func cameToFront() {
+        modelNotBefore = nil
+        modelBackoff = 0
+        run()
+    }
+
     /// A turn later on (formatting resuming, a held notice due). Out of
     /// sight this only fires while jotto is kept running.
     private func runAgain(at date: Date) {

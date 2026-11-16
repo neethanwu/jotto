@@ -31,7 +31,7 @@ struct JottoApp: App {
             // Coming to the foreground is a good moment to skip any backoff.
             if phase == .background { Pipeline.shared.scheduleCatchUp() }
             if phase == .active {
-                Pipeline.shared.run()
+                Pipeline.shared.cameToFront()
                 // Parts still to hear carry on if jotto is put away.
                 Pipeline.shared.finishInBackgroundIfNeeded()
                 LiveActivities.shared.sync()
