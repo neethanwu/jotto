@@ -29,7 +29,10 @@ struct JottoApp: App {
         .onChange(of: scenePhase) { _, phase in
             PhoneLog.shared.note("scene", "\(phase)")
             // Coming to the foreground is a good moment to skip any backoff.
-            if phase == .background { Pipeline.shared.scheduleCatchUp() }
+            if phase == .background {
+                Pipeline.shared.scheduleCatchUp()
+                Pipeline.shared.letGoOfModelIfIdle()
+            }
             if phase == .active {
                 Pipeline.shared.cameToFront()
                 // Parts still to hear carry on if jotto is put away.

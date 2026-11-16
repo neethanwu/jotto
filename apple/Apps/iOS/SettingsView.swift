@@ -76,7 +76,7 @@ struct SettingsView: View {
                         }
                     }
                     // A test of following location to keep jotto running (PlaceTracker).
-                    Text("While a recording goes on, this iPhone follows where you are, which keeps jotto running so each part is transcribed as it arrives. Set Location to Always. Plugged in, the text is formatted as it comes too; Format on battery too tries that unplugged, to see how far Apple's model allows it.")
+                    Text("While a recording goes on, this iPhone follows where you are, which keeps jotto running so each part is transcribed as it arrives. Set Location to Always. Plugged in, the text is formatted as it comes too; Format on battery too tries it unplugged, a few paragraphs a request, to see whether Apple's model allows a whole recording.")
                         .font(.scaled(13, .regular, relativeTo: .footnote))
                         .foregroundStyle(Color.jText3)
                         .padding(.top, 8)

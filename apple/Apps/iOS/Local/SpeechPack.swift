@@ -587,6 +587,18 @@ final class QwenEngine: @unchecked Sendable {
         queue.async { self.model = nil }
     }
 
+    /// Out of sight with nothing to do: let go now rather than in three
+    /// minutes. iOS doesn't run that timer while jotto is suspended, and a
+    /// suspended app holding the model (about a gigabyte) is among the
+    /// first it closes, so jotto was starting afresh when next opened.
+    func letGoIfIdle() {
+        queue.async {
+            guard !self.held, self.model != nil else { return }
+            self.model = nil
+            PhoneLog.shared.later("qwen_unloaded", "idle out of sight")
+        }
+    }
+
     func hold(_ on: Bool) {
         queue.async {
             guard self.held != on else { return }

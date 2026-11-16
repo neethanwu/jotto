@@ -245,6 +245,7 @@ final class Pipeline {
             awake = nil
             PlaceTracker.shared.update("idle")
             QwenEngine.shared.hold(store.recordings.values.contains { $0.endedAt == nil && $0.imported == nil } || partsToHear > 0)
+            letGoOfModelIfIdle()
             // Woken by the watch and out of steps that can run unseen, or
             // left with parts still to hear: ask iOS for a later turn.
             if UIApplication.shared.applicationState == .background { scheduleCatchUp() }
@@ -500,6 +501,14 @@ final class Pipeline {
         }
     }
 
+    /// Out of sight with no recording going on and nothing to hear: the
+    /// speech model is let go, so iOS has less reason to close jotto.
+    func letGoOfModelIfIdle() {
+        guard UIApplication.shared.applicationState == .background, !running,
+              !hasLiveRecording, partsToHear == 0 else { return }
+        QwenEngine.shared.letGoIfIdle()
+    }
+
     /// jotto has been opened: titles and formatting are tried at once,
     /// whatever pause the model asked for out of sight. Waiting it out
     /// left a recording half formatted the whole minute it was open, with
@@ -717,7 +726,7 @@ final class Pipeline {
         case describe(id: String)
         case tidy(id: String)
         /// One settled paragraph of a recording still going on.
-        case tidyLive(id: String, text: String)
+        case tidyLive(id: String, texts: [String])
     }
 
     /// Whether the on-device model will tidy this recording's text.
@@ -781,8 +790,11 @@ final class Pipeline {
                 for r in all.reversed() where noticeWaits(r) {
                     return .tidy(id: r.id)
                 }
-                for r in all.reversed() where r.endedAt == nil && r.imported == nil && !tidyFailed.contains(r.id) {
-                    if let text = settledUntidied(r) { return .tidyLive(id: r.id, text: text) }
+                // As it goes on only when plugged in; on battery (the test
+                // switch) the model's few answers are kept for the end.
+                for r in all.reversed() where PlaceTracker.shared.isOnPower && r.endedAt == nil && r.imported == nil && !tidyFailed.contains(r.id) {
+                    let texts = settledUntidied(r)
+                    if !texts.isEmpty { return .tidyLive(id: r.id, texts: texts) }
                 }
             }
             if catchingUp {
@@ -796,9 +808,8 @@ final class Pipeline {
 
     /// The first paragraph of a recording still going on that won't change
     /// any more (all but the last) and isn't formatted yet.
-    private func settledUntidied(_ r: LocalRecording) -> String? {
-        let blocks = LocalStore.blocks(r)
-        return blocks.dropLast().first { !$0.backchannel && r.tidy?[$0.text] == nil }?.text
+    private func settledUntidied(_ r: LocalRecording) -> [String] {
+        LocalStore.blocks(r).dropLast().first { !$0.backchannel && r.tidy?[$0.text] == nil }.map { [$0.text] } ?? []
     }
 
     private func giveUpOnMissing(_ r: LocalRecording) -> Bool {
@@ -984,11 +995,11 @@ final class Pipeline {
         case let .tidy(id):
             await tidy(id)
 
-        case let .tidyLive(id, text):
+        case let .tidyLive(id, texts):
             let began = Date.now
-            if await tidyParagraph(id, text) != nil {
+            if await tidyParagraphs(id, texts) != nil {
                 let power = PlaceTracker.shared.isOnPower ? "on power" : "on battery"
-                PhoneLog.shared.note("tidy_live", "\(id) \(String(format: "%.1f", Date.now.timeIntervalSince(began)))s \(power)")
+                PhoneLog.shared.note("tidy_live", "\(id) n=\(texts.count) \(String(format: "%.1f", Date.now.timeIntervalSince(began)))s \(power)")
             }
         }
         changed()
@@ -1015,16 +1026,25 @@ final class Pipeline {
         var counts = (kept: 0, rejected: 0, refused: 0)
         tidyingNow = id
         defer { tidyingNow = nil }
-        for b in blocks where store.recordings[id]?.tidy?[b.text] == nil {
+        var pending = blocks.map(\.text).filter { store.recordings[id]?.tidy?[$0] == nil }
+        while !pending.isEmpty {
             guard let now = store.recordings[id], now.tidiedAt == nil, now.polishedAt != nil,
                   UIApplication.shared.applicationState != .background || Cloud.isOn || noticeWaits(now)
                     || (catchingUp && canFormatUnseen)
             else { return }
-            guard let outcome = await tidyParagraph(id, b.text) else { return }
-            switch outcome {
-            case .kept: counts.kept += 1
-            case .rejected: counts.rejected += 1
-            case .refused: counts.refused += 1
+            // Out of sight on battery Apple's model takes a few paragraphs
+            // a request, to fit its allowance; elsewhere one, which reads better.
+            let batches = UIApplication.shared.applicationState == .background && !Cloud.isOn && !PlaceTracker.shared.isOnPower
+            let count = batches ? Editor.batch(pending.map { now.clean[$0] ?? Cleanup.clean($0) }) : 1
+            let texts = Array(pending.prefix(count))
+            pending.removeFirst(count)
+            guard let outcomes = await tidyParagraphs(id, texts) else { return }
+            for outcome in outcomes {
+                switch outcome {
+                case .kept: counts.kept += 1
+                case .rejected: counts.rejected += 1
+                case .refused: counts.refused += 1
+                }
             }
         }
         store.update(id, startedAt: r.startedAt) { $0.tidiedAt = .now }
@@ -1032,6 +1052,48 @@ final class Pipeline {
     }
 
     private enum TidyOutcome { case kept, rejected, refused }
+
+    /// Formats several paragraphs in one request to Apple's model and saves
+    /// them. One that the model won't answer as numbered passages, or
+    /// won't answer at all for one passage's sake, goes again a paragraph
+    /// at a time. Nil when the model can't for now (see `tidyParagraph`).
+    private func tidyParagraphs(_ id: String, _ texts: [String]) async -> [TidyOutcome]? {
+        guard texts.count > 1 else { return await tidyParagraph(id, texts[0]).map { [$0] } }
+        guard let r = store.recordings[id] else { return nil }
+        let roughs = texts.map { r.clean[$0] ?? Cleanup.clean($0) }
+        let began = Date.now
+        do {
+            let tidied = try await Editor.tidyBatch(roughs)
+            store.update(id, startedAt: r.startedAt) { rec in
+                var tidy = rec.tidy ?? [:]
+                for (i, text) in texts.enumerated() { tidy[text] = tidied[i] ?? roughs[i] }
+                rec.tidy = tidy
+            }
+            modelBackoff = 0
+            tidyRun += 1
+            changed()
+            let place = UIApplication.shared.applicationState == .background ? (PlaceTracker.shared.isOnPower ? "on power" : "on battery") : "in front"
+            PhoneLog.shared.note("tidy_batch", "\(id) n=\(texts.count) kept=\(tidied.compactMap { $0 }.count) \(String(format: "%.1f", Date.now.timeIntervalSince(began)))s \(place)")
+            return tidied.map { $0 == nil ? .rejected : .kept }
+        } catch where error is Editor.BatchMismatch || Editor.isAboutThisText(error) {
+            tidyRun += 1
+            PhoneLog.shared.note("tidy_batch_split", "\(id) n=\(texts.count) \(error is Editor.BatchMismatch ? "mismatch" : error.localizedDescription)")
+            var outcomes: [TidyOutcome] = []
+            for text in texts {
+                guard let outcome = await tidyParagraph(id, text) else { return nil }
+                outcomes.append(outcome)
+            }
+            return outcomes
+        } catch {
+            if Describer.isPassing(error) == true {
+                modelBusy("tidy", id, error)
+            } else {
+                tidyFailed.insert(id)
+                PhoneLog.shared.note("tidy_failed", "\(id) \(error.localizedDescription)")
+            }
+            return nil
+        }
+    }
 
     /// The model is rate-limited or busy: titles and formatting pause,
     /// from a quarter of a minute up to two as it keeps saying so, then
