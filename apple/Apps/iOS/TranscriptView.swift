@@ -290,6 +290,7 @@ struct TranscriptView: View {
                 .font(.meta)
                 .foregroundStyle(Color.jText3)
                 .padding(.top, 12)
+            placeLine(detail)
 
             titleField
 
@@ -641,12 +642,14 @@ struct TranscriptView: View {
             // Each highlight is named on the first paragraph it covers.
             let starts = Dictionary(grouping: highlights) { h in rows.first { h.covers($0.block) }?.id ?? -1 }
             let marked = Set(rows.filter { r in highlights.contains { $0.covers(r.block) } }.map(\.id))
+            let moves = Places.changes(rows.map(\.block), marks: detail.places ?? [])
             let items = rows.map { row in
                 TranscriptParagraph(
                     id: row.id, start: row.block.start,
                     speaker: row.showSpeaker ? Format.speaker(row.block.speaker) : nil,
                     newSection: row.newSection, chips: starts[row.id] ?? [],
-                    text: Self.text(row.block, marked: marked.contains(row.id), original: original)
+                    text: Self.text(row.block, marked: marked.contains(row.id), original: original),
+                    place: moves[row.id]
                 )
             }
             next[t] = PageModel(rows: rows, items: items)
@@ -952,6 +955,28 @@ struct TranscriptView: View {
 
     private func title(_ detail: SessionDetail) -> String {
         detail.title ?? Format.provisionalTitle(detail.startedAt)
+    }
+
+    /// Where it was said, under the date; opens the start in Maps.
+    @ViewBuilder
+    private func placeLine(_ detail: SessionDetail) -> some View {
+        if let marks = detail.places, let start = marks.first(where: { $0.name != nil }),
+           let label = Places.route(marks)?.end == nil ? Places.fullName(start) : Places.label(marks) {
+            Button { Places.openInMaps(start) } label: {
+                HStack(spacing: 5) {
+                    GlyphView(glyph: .pin, color: .jText3).frame(width: 13, height: 13)
+                    Text(label)
+                        .font(.metaSmall)
+                        .foregroundStyle(Color.jText3)
+                        .lineLimit(1)
+                }
+                .contentShape(.rect.inset(by: -6))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 5)
+            .accessibilityLabel("Recorded at \(label)")
+            .accessibilityHint("Opens in Maps")
+        }
     }
 
     private func meta(_ detail: SessionDetail) -> String {

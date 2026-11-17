@@ -2,29 +2,74 @@ import CoreLocation
 import Observation
 import UIKit
 
-/// Spike, in test builds only (Settings → Beta → Places while recording):
-/// while a recording goes on, this iPhone follows where you are at low
-/// accuracy, so each part can carry the place it was said. Following
-/// location also keeps jotto running with the phone locked, so each part
-/// from the watch is heard as it arrives instead of when jotto is next
-/// opened. What it tests: that this holds through a long recording with the
-/// phone left alone, and what it costs in battery. The log notes fixes,
-/// their accuracy and the battery, never where they were.
+/// Settings → Places → Note where you record. While a recording goes on,
+/// this iPhone follows where you are at low accuracy, so each recording
+/// keeps the place it was said (`Places`), and following location keeps
+/// jotto running with the phone locked, so each part from the watch turns
+/// into text as it arrives instead of when jotto is next opened.
+///
+/// With Always, following starts when a recording does (the watch's nudge
+/// wakes jotto) and stops once its parts are heard. With While Using, iOS
+/// lets jotto start following only while it's in front, so it follows from
+/// the last time jotto was opened, all day, coarsely between recordings,
+/// and iOS shows the location arrow. The log notes fixes, their accuracy
+/// and the battery, never where they were.
 @MainActor @Observable
 final class PlaceTracker: NSObject {
     static let shared = PlaceTracker()
 
     private static let key = "followsPlaces"
+    private static let cardKey = "placesCardDismissed"
+    private static let waitedKey = "placesCardRecording"
 
-    var isOn: Bool = UserDefaults.standard.bool(forKey: PlaceTracker.key) {
+    /// What was chosen in Settings, kept apart from what iOS allows, so
+    /// allowing location again in iOS Settings turns places back on.
+    private(set) var wantsPlaces: Bool = UserDefaults.standard.bool(forKey: PlaceTracker.key) {
         didSet {
-            guard isOn != oldValue else { return }
-            UserDefaults.standard.set(isOn, forKey: Self.key)
-            PhoneLog.shared.note("place_switch", isOn ? "on \(permissionLabel)" : "off")
-            if isOn { ask() }
-            update(isOn ? "switch on" : "switch off")
+            guard wantsPlaces != oldValue else { return }
+            UserDefaults.standard.set(wantsPlaces, forKey: Self.key)
+            PhoneLog.shared.note("place_switch", wantsPlaces ? "on \(permissionLabel)" : "off")
+            update(wantsPlaces ? "switch on" : "switch off")
         }
     }
+
+    /// What the switch shows: on only when places are actually kept.
+    var isOn: Bool { wantsPlaces && isAllowed }
+    var isAllowed: Bool { permission == .authorizedAlways || permission == .authorizedWhenInUse }
+    var isDenied: Bool { permission == .denied || permission == .restricted }
+    /// iOS hasn't asked yet: the sheet explaining why comes first.
+    var needsAsking: Bool { permission == .notDetermined }
+
+    /// Turns places on: asks iOS (While Using, then Always) when it hasn't
+    /// been asked, opens iOS Settings when location was turned off there.
+    func turnOn() {
+        wantsPlaces = true
+        cardDismissed = true
+        if isDenied {
+            if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+        } else {
+            ask()
+        }
+    }
+
+    func turnOff() { wantsPlaces = false }
+
+    /// The card on Days offering places, after a watch recording waited
+    /// for jotto to be opened. Once: gone for good when closed.
+    var cardDismissed: Bool = UserDefaults.standard.bool(forKey: PlaceTracker.cardKey) {
+        didSet { UserDefaults.standard.set(cardDismissed, forKey: Self.cardKey) }
+    }
+    private(set) var waitedRecording: String? = UserDefaults.standard.string(forKey: PlaceTracker.waitedKey)
+
+    /// A watch recording's parts were heard only once jotto was opened.
+    func recordingWaited(_ id: String) {
+        guard !isOn, !cardDismissed, waitedRecording == nil else { return }
+        waitedRecording = id
+        UserDefaults.standard.set(id, forKey: Self.waitedKey)
+        PhoneLog.shared.note("place_card", id)
+    }
+
+    var showsCard: Bool { !cardDismissed && !isOn && waitedRecording != nil }
 
     /// Test switch: Apple's model formats out of sight while following,
     /// on battery too, to see how far its background allowance goes.
@@ -44,7 +89,12 @@ final class PlaceTracker: NSObject {
     }
 
     private(set) var permission: CLAuthorizationStatus = .notDetermined
+    /// Precise Location is on for jotto; off, places are only roughly right.
+    private(set) var isPrecise = true
     private(set) var isFollowing = false
+    /// Following closely, for a recording; otherwise coarsely, between
+    /// recordings with While Using.
+    @ObservationIgnored private var isClose = false
 
     @ObservationIgnored private let manager = CLLocationManager()
     /// Asked for While Using on the way to Always.
@@ -61,12 +111,13 @@ final class PlaceTracker: NSObject {
         super.init()
         manager.delegate = self
         permission = manager.authorizationStatus
+        isPrecise = manager.accuracyAuthorization == .fullAccuracy
     }
 
     var permissionLabel: String {
         switch permission {
         case .authorizedAlways: "Always"
-        case .authorizedWhenInUse: "While using"
+        case .authorizedWhenInUse: "While Using"
         case .denied, .restricted: "Not allowed"
         default: "Not asked"
         }
@@ -87,27 +138,43 @@ final class PlaceTracker: NSObject {
     }
 
     /// Follows while a recording goes on or parts are still to hear, and
-    /// stops when there's neither. Called whenever the pipeline's work
-    /// changes: a recording starting, a part arriving, a nudge, a run ending.
+    /// stops when there's neither; with While Using, from the last time
+    /// jotto was opened, all day. Called whenever the pipeline's work
+    /// changes: a recording starting, a part arriving, a nudge, a run
+    /// ending, jotto coming to the front.
     func update(_ why: String) {
-        let allowed = permission == .authorizedAlways || permission == .authorizedWhenInUse
-        let wanted = isOn && allowed && Pipeline.shared.hasLiveWork
+        let live = Pipeline.shared.hasLiveWork
+        let wanted = isOn && (live || permission == .authorizedWhenInUse)
         if wanted, !isFollowing {
+            // While Using: iOS gives no location to an app that starts
+            // following out of sight.
+            if permission == .authorizedWhenInUse, UIApplication.shared.applicationState == .background {
+                if live { PhoneLog.shared.note("place_not_started", "\(why) while using, out of sight") }
+                return
+            }
             start(why)
         } else if !wanted, isFollowing {
             stop(why)
         }
+        if isFollowing { tune(live: live) }
+    }
+
+    /// A recording has started: a fresh fix from just before stands for its start.
+    func recordingStarted() {
+        if let lastFix { take(lastFix) }
     }
 
     private func start(_ why: String) {
-        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
-        manager.distanceFilter = 50
         manager.activityType = .other
         manager.allowsBackgroundLocationUpdates = true
         // Paused, iOS would suspend jotto while you sit still (a meeting),
         // and the point is that it doesn't.
         manager.pausesLocationUpdatesAutomatically = false
-        manager.showsBackgroundLocationIndicator = false
+        // With While Using iOS shows it anyway; with Always, jotto follows
+        // only while you record, which the Live Activity already shows.
+        manager.showsBackgroundLocationIndicator = permission == .authorizedWhenInUse
+        isClose = false
+        tune(live: Pipeline.shared.hasLiveWork, quietly: true)
         manager.startUpdatingLocation()
         isFollowing = true
         since = .now
@@ -117,7 +184,7 @@ final class PlaceTracker: NSObject {
         partsLastBeat = 0
         UIDevice.current.isBatteryMonitoringEnabled = true
         batteryAtStart = battery
-        PhoneLog.shared.note("place_start", "\(why) \(permissionLabel) \(batteryText)")
+        PhoneLog.shared.note("place_start", "\(why) \(permissionLabel)\(isPrecise ? "" : " approximate") \(isClose ? "close" : "coarse") \(batteryText)")
         heartbeat?.cancel()
         heartbeat = Task { [weak self] in
             while !Task.isCancelled {
@@ -126,6 +193,17 @@ final class PlaceTracker: NSObject {
                 self?.beat()
             }
         }
+    }
+
+    /// A hundred metres while there's a recording; between recordings
+    /// (While Using), three kilometres, which iOS gets from cell towers and
+    /// Wi-Fi without GPS, and is enough to keep jotto running.
+    private func tune(live: Bool, quietly: Bool = false) {
+        guard live != isClose || quietly else { return }
+        isClose = live
+        manager.desiredAccuracy = live ? kCLLocationAccuracyHundredMeters : kCLLocationAccuracyThreeKilometers
+        manager.distanceFilter = live ? 50 : 1000
+        if !quietly { PhoneLog.shared.note("place_tune", "\(live ? "close" : "coarse") \(batteryText)") }
     }
 
     private func stop(_ why: String) {
@@ -148,7 +226,7 @@ final class PlaceTracker: NSObject {
         let left = UIApplication.shared.backgroundTimeRemaining
         PhoneLog.shared.note("place_alive", "fixes=\(fixes) last=\(fixAge) acc=\(accuracy) left=\(left > 999 ? "-" : "\(Int(left))s") \(batteryText)")
         let parts = Pipeline.shared.partsToHear
-        if !Pipeline.shared.hasLiveRecording, parts > 0, parts == partsLastBeat {
+        if permission == .authorizedAlways, !Pipeline.shared.hasLiveRecording, parts > 0, parts == partsLastBeat {
             stuckBeats += 1
         } else {
             stuckBeats = 0
@@ -159,6 +237,24 @@ final class PlaceTracker: NSObject {
             return
         }
         Pipeline.shared.run()
+    }
+
+    /// A fix while following: each recording going on takes it in, if it
+    /// has moved far enough to be somewhere new.
+    private func take(_ fix: CLLocation) {
+        guard isOn else { return }
+        let store = LocalStore.shared
+        var added = false
+        for r in store.recordings.values where r.endedAt == nil && r.imported == nil {
+            guard let marks = Places.adding(fix, to: r.places ?? [], startedAt: r.startedAt, approximate: !isPrecise) else { continue }
+            let count = r.places?.count ?? 0
+            store.update(r.id, startedAt: r.startedAt) { $0.places = marks }
+            if marks.count > count {
+                added = true
+                PhoneLog.shared.note("place_mark", "\(r.id) \(marks.count) acc=\(Int(fix.horizontalAccuracy))m")
+            }
+        }
+        if added { PlaceNames.shared.lookUp() }
     }
 
     /// A part has come in: how fresh a place it would get.
@@ -180,7 +276,7 @@ final class PlaceTracker: NSObject {
         return level < 0 ? nil : Int((level * 100).rounded())
     }
 
-    private var batteryText: String {
+    var batteryText: String {
         let charging = UIDevice.current.batteryState == .charging || UIDevice.current.batteryState == .full
         let saver = ProcessInfo.processInfo.isLowPowerModeEnabled ? " low-power" : ""
         return "battery=\(battery.map { "\($0)%" } ?? "?")\(charging ? " charging" : "")\(saver)"
@@ -196,6 +292,7 @@ extension PlaceTracker: CLLocationManagerDelegate {
             }
             fixes += locations.count
             lastFix = last
+            if isClose { take(last) }
         }
     }
 
@@ -208,9 +305,13 @@ extension PlaceTracker: CLLocationManagerDelegate {
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         MainActor.assumeIsolated {
+            let before = permission
             permission = self.manager.authorizationStatus
-            let precise = self.manager.accuracyAuthorization == .fullAccuracy
-            PhoneLog.shared.note("place_auth", "\(permissionLabel)\(precise ? "" : " approximate")")
+            isPrecise = self.manager.accuracyAuthorization == .fullAccuracy
+            PhoneLog.shared.note("place_auth", "\(permissionLabel)\(isPrecise ? "" : " approximate")")
+            // Changed between While Using and Always: start over, so the
+            // arrow and the all-day following match.
+            if isFollowing, permission != before { stop("permission \(permissionLabel)") }
             if permission == .authorizedWhenInUse, wantsAlways {
                 wantsAlways = false
                 self.manager.requestAlwaysAuthorization()

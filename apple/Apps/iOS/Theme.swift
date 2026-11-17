@@ -143,6 +143,8 @@ enum Glyph {
     case pen
     /// The plane filled in: Send when it's where you are or the main action.
     case sendFilled
+    /// A map pin: where a recording was said.
+    case pin
 }
 
 extension Glyph {
@@ -236,6 +238,18 @@ struct GlyphView: View {
                 fold.move(to: CGPoint(x: 9.8, y: 14.2)); fold.addLine(to: CGPoint(x: 14.4, y: 9.6))
                 context.blendMode = .destinationOut
                 context.stroke(fold, with: .color(.black), style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
+                return
+            case .pin:
+                // A round head narrowing to a point, a ring inside it. Drawn
+                // a little heavier: it's shown at 12 to 13 points.
+                p.move(to: CGPoint(x: 20, y: 10))
+                p.addCurve(to: CGPoint(x: 12, y: 21.6), control1: CGPoint(x: 20, y: 14.8), control2: CGPoint(x: 14.6, y: 19.4))
+                p.addCurve(to: CGPoint(x: 4, y: 10), control1: CGPoint(x: 9.4, y: 19.4), control2: CGPoint(x: 4, y: 14.8))
+                p.addCurve(to: CGPoint(x: 12, y: 2), control1: CGPoint(x: 4, y: 5.58), control2: CGPoint(x: 7.58, y: 2))
+                p.addCurve(to: CGPoint(x: 20, y: 10), control1: CGPoint(x: 16.42, y: 2), control2: CGPoint(x: 20, y: 5.58))
+                p.closeSubpath()
+                p.addEllipse(in: CGRect(x: 9, y: 7, width: 6, height: 6))
+                context.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
                 return
             case .plus:
                 p.move(to: CGPoint(x: 12, y: 5)); p.addLine(to: CGPoint(x: 12, y: 19))

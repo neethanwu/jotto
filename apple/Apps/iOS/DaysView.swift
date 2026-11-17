@@ -27,7 +27,9 @@ struct DaysView: View {
     @State private var searchDay: Date?
     @FocusState private var searchFocused: Bool
     @State private var actionError: String?
+    @State private var askingPlaces = false
     private var library: Library { .shared }
+    private var places: PlaceTracker { .shared }
     private var config: AppConfig { .shared }
 
     var body: some View {
@@ -85,7 +87,7 @@ struct DaysView: View {
                         // Another day: the list cross-fades in place, quickly,
                         // instead of its rows springing along with the strip.
                         ZStack(alignment: .topLeading) {
-                            content
+                            VStack(alignment: .leading, spacing: 0) { content }
                                 .id(day)
                                 .transition(.opacity)
                         }
@@ -116,6 +118,9 @@ struct DaysView: View {
         .drawer(isPresented: $picking) {
             DayPicker(selection: $day, marked: library.daysWithRecordings, earliest: library.earliest)
         }
+        .drawer(isPresented: $askingPlaces) {
+            PlacesSheet { places.cardDismissed = true }
+        }
         .task(id: query) { await search() }
         .alert("Delete this recording?", isPresented: Binding(
             get: { deleting != nil }, set: { if !$0 { deleting = nil } }
@@ -139,6 +144,14 @@ struct DaysView: View {
     }
 
     private var entries: [TimelineEntry] { library.entries(on: day) }
+
+    /// On today, and on the day of the recording that waited.
+    private var showsPlacesCard: Bool {
+        guard places.showsCard else { return false }
+        if Calendar.current.isDateInToday(day) { return true }
+        guard let id = places.waitedRecording, let entry = library.entries.first(where: { $0.id == id }) else { return false }
+        return Calendar.current.isDate(entry.startedAt, inSameDayAs: day)
+    }
 
     // MARK: - Search
 
@@ -498,6 +511,14 @@ struct DaysView: View {
 
     @ViewBuilder
     private var content: some View {
+        if showsPlacesCard {
+            PlacesCard(waitedTitle: places.waitedRecording.flatMap { id in library.entries.first { $0.id == id }?.title }) {
+                if places.needsAsking { askingPlaces = true } else { places.turnOn() }
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 26)
+            .transition(.opacity)
+        }
         if entries.isEmpty {
             if Calendar.current.isDateInToday(day) {
                 EmptyDay(title: "Tap the dot when it matters", detail: "Recordings from your watch land here, cleaned up, a minute after each part.")
@@ -953,6 +974,7 @@ struct TimelineRow: View {
                 .foregroundStyle(Color.jText3)
         case let .formatting(done, total):
             VStack(alignment: .leading, spacing: 6) {
+                placeLine
                 if let summary = entry.summary {
                     Text(summary)
                         .font(.summary)
@@ -966,11 +988,15 @@ struct TimelineRow: View {
                     .contentTransition(.numericText())
             }
         case .naming:
-            Text("Writing a title and summary")
-                .font(.metaSmall)
-                .foregroundStyle(Color.jText3)
+            VStack(alignment: .leading, spacing: 6) {
+                placeLine
+                Text("Writing a title and summary")
+                    .font(.metaSmall)
+                    .foregroundStyle(Color.jText3)
+            }
         case .done:
             VStack(alignment: .leading, spacing: 6) {
+                placeLine
                 if let summary = entry.summary {
                     Text(summary)
                         .font(.summary)
@@ -984,6 +1010,24 @@ struct TimelineRow: View {
                         .foregroundStyle(Color.jText3)
                 }
             }
+        }
+    }
+
+    /// Where it was said, under the title: "Lumen Café", or
+    /// "Lumen Café → Willow Park" when it ended somewhere else.
+    @ViewBuilder
+    private var placeLine: some View {
+        if let place = entry.place {
+            HStack(spacing: 4) {
+                GlyphView(glyph: .pin, color: .jText3)
+                    .frame(width: 12, height: 12)
+                Text(place)
+                    .font(.meta)
+                    .foregroundStyle(Color.jText3)
+                    .lineLimit(1)
+            }
+            // Tucked up to the title, as one heading with it.
+            .padding(.top, -2)
         }
     }
 
@@ -1010,6 +1054,7 @@ struct TimelineRow: View {
     private var accessibilityText: String {
         var parts = [entry.title, Format.time(entry.startedAt)]
         if let length = entry.length { parts.append(Format.length(length)) }
+        if let place = entry.place, entry.state != .live { parts.append(place) }
         switch entry.state {
         case .live: parts.append("Recording")
         case .processing: parts.append("Processing")

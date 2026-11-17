@@ -42,12 +42,13 @@ targets:
         NSSupportsLiveActivities: true
         # Recording on the iPhone keeps going with the screen locked;
         # processing finishes what a wake from the watch didn't have time for;
-        # location follows where a recording goes (spike: PlaceTracker).
+        # location follows where a recording goes, which keeps jotto
+        # running for the watch's parts (Settings → Places, PlaceTracker).
         UIBackgroundModes: [audio, processing, location]
         BGTaskSchedulerPermittedIdentifiers: [com.neethanwu.jotto.pipeline, com.neethanwu.jotto.finish.*]
         NSMicrophoneUsageDescription: jotto records through the microphone when you start a recording on your iPhone.
-        NSLocationWhenInUseUsageDescription: jotto notes where each part of a recording was said. Places stay on this iPhone.
-        NSLocationAlwaysAndWhenInUseUsageDescription: With Always, jotto notes places while your watch records and this iPhone stays in your pocket, and transcribes each part as it arrives. Places stay on this iPhone.
+        NSLocationWhenInUseUsageDescription: "jotto notes where each recording was made, and stays running so your watch's recordings turn into text as you go. Places stay on this iPhone."
+        NSLocationAlwaysAndWhenInUseUsageDescription: "jotto uses your location only while a recording goes on and until it's transcribed, so a recording your watch starts with this iPhone locked gets its place and turns into text as you go. Places stay on this iPhone."
         # Opens a recording's Live screen from its lock-screen activity.
         CFBundleURLTypes:
           - CFBundleURLName: com.neethanwu.jotto

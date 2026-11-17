@@ -1,6 +1,6 @@
 # jotto privacy policy
 
-Last updated 15 November 2026.
+Last updated 17 November 2026.
 
 jotto is a recorder for Apple Watch and iPhone, published by Hallidai Inc. This policy covers the jotto apps.
 
@@ -12,6 +12,7 @@ jotto has no account, no server of ours, no analytics and no ads. We don't colle
 
 - **Recordings.** Audio is recorded on your Apple Watch or iPhone. The watch passes it to your iPhone over Apple's own link between the two and deletes its copy once the iPhone has it. On the iPhone, audio is removed 30 days after a recording is transcribed; you can change that to 7 days, 1 year or forever in Settings.
 - **Transcripts, titles, highlights and send templates.** These stay on your iPhone until you delete them.
+- **Places,** if you turn them on (see below). Each is kept with its recording on your iPhone and deleted with it.
 - **Settings.** Kept on your iPhone.
 
 All of it sits in jotto's own storage on the device. If you back up your iPhone, to iCloud or to a computer, jotto's data is part of that backup, under your Apple account and Apple's terms. Deleting a recording in jotto removes its audio and text from the iPhone. Deleting the app removes everything.
@@ -35,14 +36,26 @@ Nothing is sent anywhere for this.
 
 We are not in the middle of this, and we never see your key, your audio or your text. Turn it off in Settings → Processing and everything is done on your iPhone again.
 
+## Places
+
+Places is off unless you turn it on, in Settings → Places → Note where you record. When it's on:
+
+- jotto uses your iPhone's location at low accuracy. With location set to Always, it does so only while a recording goes on and until the recording is transcribed. With While Using, iOS lets jotto start only while it's open, so it keeps location on from the last time you opened jotto, and iOS shows the location arrow the whole time.
+- jotto keeps the place where a recording began and each place it moved a few hundred metres to, as coordinates and a name, with the recording on your iPhone.
+- To put a name to a place, jotto sends its coordinates to Apple's maps service, which answers with a name such as a park or a street. Apple handles them under its own privacy policy. Nothing else about your location leaves your iPhone.
+- Turning Places off stops all of this. Places already kept stay with their recordings until you delete them.
+
 ## Sending things out
 
 jotto sends a transcript or audio out of the app only when you ask it to: with Send, with Copy, or through a shortcut or automation you set up in Apple's Shortcuts app. Where it goes after that is up to the app or service you picked.
+
+A recording's place goes with it only when Add the place is on as you send it. It's on unless you turn it off, and jotto remembers your choice for each template. The place is then a line in the text (and a line where it moved) and, with the audio attached, the location in the audio file.
 
 ## Permissions
 
 - **Microphone**, to record. jotto records only after you start a recording, and the system shows its recording indicator the whole time.
 - **Notifications**, to tell you when a transcript is ready. These are made on your iPhone; nothing is pushed from a server.
+- **Location**, only if you turn on Places, as described above.
 
 ## What we receive
 

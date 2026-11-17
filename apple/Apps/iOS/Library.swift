@@ -35,6 +35,8 @@ struct TimelineEntry: Identifiable, Hashable {
     let lastLine: String?
     let missing: Int
     var highlights = 0
+    /// Where it was said, once it's done (`Places.label`).
+    var place: String? = nil
 
     var length: TimeInterval? { endedAt.map { $0.timeIntervalSince(startedAt) } }
 }
@@ -131,8 +133,8 @@ final class Library {
         stored[i] = SessionSummary(
             id: s.id, startedAt: s.startedAt, endedAt: s.endedAt, status: s.status, title: title,
             summary: s.summary, segmentCount: s.segmentCount, missingSegments: s.missingSegments,
-            segmentsDone: s.segmentsDone, segmentsReceived: s.segmentsReceived, lastLine: s.lastLine
-        , highlights: s.highlights)
+            segmentsDone: s.segmentsDone, segmentsReceived: s.segmentsReceived, lastLine: s.lastLine,
+            highlights: s.highlights, place: s.place)
     }
 
     func remove(_ id: String) {
@@ -200,7 +202,8 @@ final class Library {
             summary: s.summary,
             lastLine: s.lastLine,
             missing: s.missingSegments ?? 0,
-            highlights: s.highlights ?? 0
+            highlights: s.highlights ?? 0,
+            place: s.place
         )
     }
 

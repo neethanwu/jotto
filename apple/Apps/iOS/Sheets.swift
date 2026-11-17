@@ -32,6 +32,8 @@ struct SendPanel: View {
     @State private var withAudio = false
     @State private var marksHighlights = true
     @State private var audioFile: URL?
+    /// The place the file carries, so turning Add the place on or off makes it again.
+    @State private var audioPlace: PlaceMark?
     @State private var exporting = false
     @State private var copied = false
     @State private var presenting = false
@@ -114,6 +116,18 @@ struct SendPanel: View {
                 .padding(.vertical, 12)
             }
 
+            if let placeDetail {
+                Rectangle().fill(Color.jSheetHairline).frame(height: 1)
+                Toggle(isOn: placeBinding) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Add the place").font(.rowTitle).foregroundStyle(Color.jText)
+                        Text(placeDetail).font(.metaSmall).foregroundStyle(Color.jText3).lineLimit(1)
+                    }
+                }
+                .toggleStyle(JottoToggleStyle())
+                .padding(.vertical, 12)
+            }
+
             HStack(spacing: 10) {
                 Button {
                     UIPasteboard.general.string = markdown
@@ -150,7 +164,7 @@ struct SendPanel: View {
         .padding(.horizontal, 20)
         .padding(.bottom, 12)
         .sensoryFeedback(.selection, trigger: selectedID)
-        .task(id: withAudio) { if withAudio { await exportAudio() } }
+        .task(id: [withAudio, template.placeOn]) { if withAudio { await exportAudio() } }
         .task(id: copied) {
             guard copied else { return }
             try? await Task.sleep(for: .seconds(1.5))
@@ -223,6 +237,24 @@ struct SendPanel: View {
         .accessibilityAddTraits(on ? .isSelected : [])
     }
 
+    /// Kept with the template picked, so a template for notes can always
+    /// say where and one for an agent never does.
+    private var placeBinding: Binding<Bool> {
+        Binding(get: { template.placeOn }, set: { on in
+            var changed = template
+            changed.addsPlace = on
+            templates.save(changed)
+        })
+    }
+
+    /// Nil when none of it has a place, and the switch isn't shown.
+    private var placeDetail: String? {
+        let named = items.compactMap { Places.route($0.detail.places) }
+        guard let first = named.first else { return nil }
+        if day != nil { return "Where each one was said, over its text" }
+        return withAudio ? "\(first.start), in the text and the audio" : "\(first.start), at the top of the text"
+    }
+
     private var audioDetail: String {
         if exporting { return "Preparing the file" }
         let length = detail.endedAt.map { Format.length($0.timeIntervalSince(detail.startedAt)) }
@@ -242,9 +274,12 @@ struct SendPanel: View {
         return Composer.compose(detail, title: title, with: template, marksHighlights: marksHighlights)
     }
 
-    /// One m4a of the whole recording, built from its segments.
+    /// One m4a of the whole recording, built from its segments, carrying
+    /// where it began when the place is added.
     private func exportAudio() async {
-        guard audioFile == nil else { return }
+        let place = template.placeOn ? detail.places?.first : nil
+        guard audioFile == nil || audioPlace != place else { return }
+        audioFile = nil
         exporting = true
         defer { exporting = false }
         let composition = AVMutableComposition()
@@ -259,12 +294,19 @@ struct SendPanel: View {
         }
         guard composition.duration.seconds > 0,
               let session = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetAppleM4A) else { return }
+        if let place {
+            let item = AVMutableMetadataItem()
+            item.identifier = .quickTimeMetadataLocationISO6709
+            item.value = Places.iso6709(place) as NSString
+            session.metadata = [item]
+        }
         let safe = title.replacingOccurrences(of: "/", with: "-")
         let out = URL.temporaryDirectory.appending(path: "\(safe).m4a")
         try? FileManager.default.removeItem(at: out)
         do {
             try await session.export(to: out, as: .m4a)
             audioFile = out
+            audioPlace = place
         } catch {
             withAudio = false
         }

@@ -11,10 +11,13 @@ struct TranscriptParagraph: Equatable {
     /// Highlights that start here: chips over the text.
     let chips: [Highlight]
     let text: NSAttributedString
+    /// Said somewhere new (Settings → Places): a chip with the place
+    /// above the paragraph, which opens it in Maps.
+    var place: PlaceMark? = nil
 
     static func == (a: Self, b: Self) -> Bool {
         a.id == b.id && a.start == b.start && a.speaker == b.speaker && a.newSection == b.newSection
-            && a.chips == b.chips && a.text.isEqual(to: b.text)
+            && a.chips == b.chips && a.text.isEqual(to: b.text) && a.place == b.place
     }
 }
 
@@ -66,6 +69,9 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
     private static let rowGap: CGFloat = 6
     private static let paragraphGap: CGFloat = 22
     private static let sectionGap: CGFloat = 45
+    /// The place a paragraph moved to, between it and the one before.
+    private static let placeRow: CGFloat = 24
+    private static let placeGap: CGFloat = 10
 
     var handlers: (play: (Int) -> Void, moveHere: (Int) -> Void, highlight: (Int, Int) -> Void,
                    anchors: ([Int: Span]) -> Void)?
@@ -81,6 +87,9 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
     private var tops: [CGFloat] = []
     /// Top of each paragraph's first line of text, and bottom of its last.
     private var textTops: [CGFloat] = []
+    /// Where each place row sits, for its tap, and its top, for the thread.
+    private var placeHits: [(frame: CGRect, place: PlaceMark)] = []
+    private var placeTops: [CGFloat?] = []
     private var bottoms: [CGFloat] = []
     /// Any version: playing (or tapped) shows only once the body says so.
     private var version = -1
@@ -180,6 +189,7 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
         var height: CGFloat = 0
         if p.speaker != nil { height += Self.chipRow + Self.rowGap }
         if !p.chips.isEmpty { height += Self.chipRow + Self.rowGap }
+        if p.place != nil { height += Self.placeRow + Self.placeGap }
         return height
     }
 
@@ -207,6 +217,8 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
         tops = []
         textTops = []
         bottoms = []
+        placeHits = []
+        placeTops = []
         guard let layout = textView.textLayoutManager else { return }
         layout.ensureLayout(for: layout.documentRange)
         let lineHeight = Self.font.lineHeight
@@ -258,6 +270,23 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
                 label.textColor = UIColor(Color.jText)
                 add(label)
             }
+            // The place, over the rest, its pin in the gutter on the thread.
+            if let place = p.place, let name = place.name {
+                let placeTop = top - Self.placeRow - Self.placeGap
+                let pin = UIHostingController(rootView: GlyphView(glyph: .pin, color: .jText4)).view!
+                pin.backgroundColor = .clear
+                pin.frame = CGRect(x: 6, y: placeTop + (Self.placeRow - 13) / 2, width: 13, height: 13)
+                add(pin)
+                let chip = UIHostingController(rootView: PlaceChip(name: name)).view!
+                chip.backgroundColor = .clear
+                let size = chip.sizeThatFits(CGSize(width: bounds.width - Self.gutter, height: Self.placeRow))
+                chip.frame = CGRect(x: Self.gutter, y: placeTop, width: min(size.width, bounds.width - Self.gutter), height: Self.placeRow)
+                add(chip)
+                placeHits.append((pin.frame.union(chip.frame).insetBy(dx: -6, dy: -6), place))
+                placeTops.append(placeTop)
+            } else {
+                placeTops.append(nil)
+            }
             tops.append(top)
             textTops.append(textTop)
             let firstRow = top == textTop ? lineHeight : Self.chipRow
@@ -277,9 +306,17 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
         // The dashed thread from each time down to the next.
         for i in 0..<max(0, paragraphs.count - 1) {
             let from = timeLabels[i].frame.maxY + 6
-            let to = timeLabels[i + 1].frame.minY - 6 - (paragraphs[i + 1].newSection ? Self.sectionGap / 2 : 0)
-            guard to > from else { continue }
-            add(DashedThread(frame: CGRect(x: 12, y: from, width: 1, height: to - from)))
+            let next = timeLabels[i + 1].frame.minY - 6 - (paragraphs[i + 1].newSection ? Self.sectionGap / 2 : 0)
+            // Broken around a place's pin, which sits on it.
+            if let placeTop = placeTops[i + 1] {
+                let pinTop = placeTop + (Self.placeRow - 13) / 2
+                if pinTop - 5 > from { add(DashedThread(frame: CGRect(x: 12, y: from, width: 1, height: pinTop - 5 - from))) }
+                let after = pinTop + 13 + 5
+                if next > after { add(DashedThread(frame: CGRect(x: 12, y: after, width: 1, height: next - after))) }
+                continue
+            }
+            guard next > from else { continue }
+            add(DashedThread(frame: CGRect(x: 12, y: from, width: 1, height: next - from)))
         }
         styleTimes()
         placeBand(animated: false)
@@ -347,6 +384,10 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
 
     @objc private func tapped(_ tap: UITapGestureRecognizer) {
         let point = tap.location(in: self)
+        if let hit = placeHits.first(where: { $0.frame.contains(point) }) {
+            Places.openInMaps(hit.place)
+            return
+        }
         if point.x < Self.gutter {
             if let i = paragraph(atY: point.y) { handlers?.play(paragraphs[i].id) }
             return
@@ -424,6 +465,27 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
         var children = suggestedActions
         children.insert(contentsOf: [copyWithTimes, highlight], at: min(1, children.count))
         return UIMenu(children: children)
+    }
+}
+
+/// "Willow Park ↗": where the paragraph under it moved to. Opens Maps.
+struct PlaceChip: View {
+    let name: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(name)
+                .font(.scaled(12, .medium, relativeTo: .caption1))
+                .foregroundStyle(Color.jText2)
+                .lineLimit(1)
+            Image(systemName: "arrow.up.right")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Color.jText4)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 24)
+        .background(Color.jFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .fixedSize()
     }
 }
 

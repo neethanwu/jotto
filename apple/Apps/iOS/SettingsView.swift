@@ -10,6 +10,7 @@ struct SettingsView: View {
     private var library: Library { .shared }
     private var places: PlaceTracker { .shared }
     @State private var isBeta = false
+    @State private var askingPlaces = false
 
     /// A build from Xcode or TestFlight, not the App Store.
     static func isBetaBuild() async -> Bool {
@@ -37,6 +38,8 @@ struct SettingsView: View {
                     }
                     SettingsToggle("Notify when ready", isOn: Bindable(config).notifiesWhenReady)
                 }
+
+                PlacesSettings { askingPlaces = true }
 
                 SettingsSection("Highlights") {
                     StarReach(config: config)
@@ -67,19 +70,17 @@ struct SettingsView: View {
                         NavigationLink(value: Route.inbox) {
                             SettingsRow("Files from the watch", value: "\(inbox.items.count)")
                         }
-                        SettingsToggle("Places while recording", isOn: Bindable(places).isOn)
-                        if places.isOn, let settings = URL(string: UIApplication.openSettingsURLString) {
-                            Link(destination: settings) {
-                                SettingsRow("Location", value: places.permissionLabel, opensOutside: true)
-                            }
+                        if places.isOn {
                             SettingsToggle("Format on battery too", isOn: Bindable(places).formatsUnseen)
                         }
                     }
-                    // A test of following location to keep jotto running (PlaceTracker).
-                    Text("While a recording goes on, this iPhone follows where you are, which keeps jotto running so each part is transcribed as it arrives. Set Location to Always. Plugged in, the text is formatted as it comes too; Format on battery too tries it unplugged, a few paragraphs a request, to see whether Apple's model allows a whole recording.")
-                        .font(.scaled(13, .regular, relativeTo: .footnote))
-                        .foregroundStyle(Color.jText3)
-                        .padding(.top, 8)
+                    if places.isOn {
+                        // Apple's model out of sight on battery (Pipeline.canFormatUnseen).
+                        Text("Plugged in, the text is formatted as it comes. Format on battery too tries it unplugged, a few paragraphs a request, to see whether Apple's model allows a whole recording.")
+                            .font(.scaled(13, .regular, relativeTo: .footnote))
+                            .foregroundStyle(Color.jText3)
+                            .padding(.top, 8)
+                    }
                 }
 
                 VStack(spacing: 10) {
@@ -100,6 +101,7 @@ struct SettingsView: View {
         }
         .task { await library.refresh() }
         .task { isBeta = await Self.isBetaBuild() }
+        .drawer(isPresented: $askingPlaces) { PlacesSheet() }
         .onChange(of: config.notifiesWhenReady) { _, on in
             if on { Task { await Notifier.shared.askIfNeeded(fromSwitch: true) } }
         }
@@ -189,12 +191,15 @@ struct SettingsRow: View {
     var chevron = true
     /// Leaves jotto for the browser: an arrow out instead of the chevron.
     var opensOutside = false
+    /// The value is something to fix (location not allowed).
+    var warns = false
 
-    init(_ label: String, value: String = "", chevron: Bool = true, opensOutside: Bool = false) {
+    init(_ label: String, value: String = "", chevron: Bool = true, opensOutside: Bool = false, warns: Bool = false) {
         self.label = label
         self.value = value
         self.chevron = chevron
         self.opensOutside = opensOutside
+        self.warns = warns
     }
 
     var body: some View {
@@ -203,7 +208,7 @@ struct SettingsRow: View {
             Spacer(minLength: 12)
             Text(value)
                 .font(.scaled(15, .medium, relativeTo: .subheadline))
-                .foregroundStyle(Color.jText2)
+                .foregroundStyle(warns ? Color.jLive : Color.jText2)
                 .lineLimit(1)
             if chevron {
                 Image(systemName: opensOutside ? "arrow.up.right" : "chevron.right")

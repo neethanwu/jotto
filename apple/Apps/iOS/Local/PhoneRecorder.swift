@@ -81,6 +81,7 @@ final class PhoneRecorder {
         interrupted = false
         Library.shared.watchStarted(id, at: startedAt)
         Pipeline.shared.started(id, at: startedAt)
+        LocalStore.shared.update(id, startedAt: startedAt) { $0.onPhone = true }
         PhoneLog.shared.note("phone_start", id)
         return id
     }

@@ -31,7 +31,11 @@ struct SendTemplate: Codable, Identifiable, Hashable {
     var instruction: String
     var content: Content
     var format: Format
+    /// Where it was said goes with it (the Send panel's Add the place,
+    /// kept per template). Nil, as in templates saved before places, is on.
+    var addsPlace: Bool?
 
+    var placeOn: Bool { addsPlace ?? true }
     var summary: String { "\(content.label) · \(format.short)" }
 }
 
@@ -165,6 +169,10 @@ enum Composer {
         if !meta.isEmpty {
             out += md ? "_\(meta.joined(separator: " · "))_\n\n" : "\(meta.joined(separator: " · "))\n\n"
         }
+        let marks = template.placeOn ? detail.places ?? [] : []
+        if let place = placeLine(marks) {
+            out += md ? "_\(place)_\n\n" : "\(place)\n\n"
+        }
 
         if template.content != .original, let summary = detail.summary {
             out += md ? "> \(summary)\n\n" : "\(summary)\n\n"
@@ -173,7 +181,7 @@ enum Composer {
         switch template.content {
         case .clean, .original:
             out += paragraphs(detail.blocks, original: template.content == .original, markdown: md,
-                              highlights: marksHighlights ? detail.highlights ?? [] : [])
+                              highlights: marksHighlights ? detail.highlights ?? [] : [], marks: marks)
         case .highlights:
             let highlights = detail.highlights ?? []
             if highlights.isEmpty {
@@ -191,11 +199,19 @@ enum Composer {
         return out
     }
 
+    /// "At Lumen Café, San Francisco", or "From Lumen Café to Willow Park".
+    static func placeLine(_ marks: [PlaceMark]) -> String? {
+        guard let route = Places.route(marks), let start = marks.first(where: { $0.name != nil }) else { return nil }
+        if let end = route.end { return "From \(route.start) to \(end)" }
+        return "At \(Places.fullName(start) ?? route.start)"
+    }
+
     private static func paragraphs(_ blocks: [TranscriptBlock], original: Bool, markdown md: Bool, times: Bool = true,
-                                   highlights: [Highlight] = []) -> String {
+                                   highlights: [Highlight] = [], marks: [PlaceMark] = []) -> String {
         var out = ""
         var previous: TranscriptBlock?
         let shown = blocks.filter { original || $0.backchannel != true }
+        let moves = Places.changes(shown, marks: marks)
         // Each highlight is labelled at the first paragraph it covers.
         let starts = Dictionary(grouping: highlights) { h in shown.first { h.covers($0) }?.id ?? -1 }
         for block in shown {
@@ -208,6 +224,9 @@ enum Composer {
                     return md ? "> **\(label)**\n" : "> \(label)\n"
                 }
                 text = labels.joined() + "> " + text
+            }
+            if let name = moves[block.id]?.name {
+                out += md ? "_At \(name)_\n\n" : "At \(name)\n\n"
             }
             let newSpeaker = previous == nil || block.speaker != previous?.speaker
             if newSpeaker {

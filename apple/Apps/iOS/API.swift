@@ -22,6 +22,8 @@ struct SessionSummary: Decodable, Identifiable, Hashable {
     var formatting: SessionDetail.Tidying? = nil
     /// The on-device model is writing its title and summary right now.
     var naming = false
+    /// Where it was said: "Lumen Café", or "Lumen Café → Willow Park".
+    var place: String? = nil
 }
 
 struct SessionDetail: Decodable, Identifiable {
@@ -50,6 +52,8 @@ struct SessionDetail: Decodable, Identifiable {
     var language: String? = nil
     /// Paragraphs tidied so far and in all, while the on-device model works through them.
     var tidying: Tidying? = nil
+    /// Where it was said, as it moved (`Places`).
+    var places: [PlaceMark]? = nil
 
     struct Tidying: Decodable, Hashable {
         let done: Int

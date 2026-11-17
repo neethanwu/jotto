@@ -50,6 +50,12 @@ struct LocalRecording: Codable, Identifiable, Hashable {
     /// The transcript as the test server made it, for recordings imported
     /// from it (speakers and its polish included). Nil for the phone's own.
     var imported: [TranscriptBlock]?
+    /// Where it was said, as this iPhone followed it (Settings → Places):
+    /// the first place, then one more each time it moved a few hundred
+    /// metres. Nil when places were off. Kept on this iPhone.
+    var places: [PlaceMark]?
+    /// Recorded on this iPhone rather than the watch.
+    var onPhone: Bool?
 
     struct MarkedSection: Codable, Hashable {
         let start: Double
@@ -87,6 +93,23 @@ struct LocalSegment: Codable, Hashable {
     var failed: String?
     /// Already had its one more go after failing (`Pipeline.retryFailedOnce`).
     var retried: Bool?
+}
+
+/// Where part of a recording was said: a fix from this iPhone and, once
+/// looked up with Apple, its name ("Lumen Café", "Fumin Road") and city.
+struct PlaceMark: Codable, Hashable {
+    /// Seconds from the start of the recording.
+    let at: Double
+    var latitude: Double
+    var longitude: Double
+    /// Metres either way.
+    var accuracy: Double
+    var name: String?
+    var city: String?
+    /// Looked up and Apple had no name for it (open sea), so it isn't asked again.
+    var nameless: Bool?
+
+    var isLookedUp: Bool { name != nil || nameless == true }
 }
 
 /// A stretch of speech, in seconds from the start of its segment.

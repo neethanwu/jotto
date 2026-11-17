@@ -50,9 +50,9 @@
 		<true/>
 	</dict>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>With Always, jotto notes places while your watch records and this iPhone stays in your pocket, and transcribes each part as it arrives. Places stay on this iPhone.</string>
+	<string>jotto uses your location only while a recording goes on and until it's transcribed, so a recording your watch starts with this iPhone locked gets its place and turns into text as you go. Places stay on this iPhone.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>jotto notes where each part of a recording was said. Places stay on this iPhone.</string>
+	<string>jotto notes where each recording was made, and stays running so your watch's recordings turn into text as you go. Places stay on this iPhone.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>jotto records through the microphone when you start a recording on your iPhone.</string>
 	<key>NSSupportsLiveActivities</key>

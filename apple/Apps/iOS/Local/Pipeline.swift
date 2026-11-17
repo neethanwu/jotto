@@ -53,6 +53,7 @@ final class Pipeline {
         changed()
         warmUp()
         PlaceTracker.shared.update("start")
+        PlaceTracker.shared.recordingStarted()
     }
 
     /// A recording has started: load Qwen3-ASR now, in the few seconds the
@@ -87,6 +88,7 @@ final class Pipeline {
             }
         }
         if finishing != nil { finishTotal += 1 }
+        noteIfWaited(id)
         PlaceTracker.shared.partArrived(index)
         PlaceTracker.shared.update("part \(index)")
         changed()
@@ -139,7 +141,12 @@ final class Pipeline {
         store.update(id, startedAt: startedAt) { r in
             r.endedAt = endedAt
             r.segmentCount = segmentCount
+            // Places marked after the stop came in late (the stop reached
+            // this iPhone after a while) and aren't where it was said.
+            let length = endedAt.timeIntervalSince(startedAt)
+            r.places = r.places?.filter { $0.at <= length + 30 }
         }
+        PlaceNames.shared.lookUp()
         LiveActivities.shared.end(id)
         Inbox.shared.syncHistory()
         changed()
@@ -516,7 +523,25 @@ final class Pipeline {
     func cameToFront() {
         modelNotBefore = nil
         modelBackoff = 0
+        let latest = store.recordings.values
+            .filter { $0.segments.values.contains { $0.phrases == nil && $0.failed == nil } }
+            .max { $0.startedAt < $1.startedAt }
+        if let latest { noteIfWaited(latest.id) }
+        PlaceTracker.shared.update("front")
+        PlaceNames.shared.lookUp()
         run()
+    }
+
+    /// A watch recording that ended a while ago is only being heard now,
+    /// with jotto open: it waited for jotto, which places would have kept
+    /// running. Days offers places once (`PlaceTracker.recordingWaited`).
+    private func noteIfWaited(_ id: String) {
+        // Not when the speech model couldn't have heard it anyway (still
+        // downloading), nor for one from days ago.
+        guard UIApplication.shared.applicationState != .background, waiting == nil, !transcriberNotReady,
+              let r = store.recordings[id], r.onPhone != true, let ended = r.endedAt,
+              Date.now.timeIntervalSince(ended) > 120, Date.now.timeIntervalSince(ended) < 86_400 else { return }
+        PlaceTracker.shared.recordingWaited(id)
     }
 
     /// A turn later on (formatting resuming, a held notice due). Out of

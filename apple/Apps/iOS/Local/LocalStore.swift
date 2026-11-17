@@ -52,7 +52,8 @@ final class LocalStore {
                 lastLine: Self.transcript(r).last { $0.backchannel != true }?.text,
                 highlights: r.marks.count + (r.sections?.count ?? 0),
                 formatting: Pipeline.shared.tidyProgress(r),
-                naming: Pipeline.shared.describingNow == r.id
+                naming: Pipeline.shared.describingNow == r.id,
+                place: Places.label(r.places)
             )
         }
     }
@@ -73,7 +74,7 @@ final class LocalStore {
             title: r.title, titleByUser: r.titleByUser, titleSuggestions: r.titleSuggestions,
             summary: r.summary, segmentCount: r.segmentCount, missingSegments: r.missing,
             segments: segments, blocks: blocks, highlights: r.highlights, language: r.locale,
-            tidying: Pipeline.shared.tidyProgress(r)
+            tidying: Pipeline.shared.tidyProgress(r), places: r.places
         )
     }
 
