@@ -62,14 +62,17 @@ final class PlaceTracker: NSObject {
     private(set) var waitedRecording: String? = UserDefaults.standard.string(forKey: PlaceTracker.waitedKey)
 
     /// A watch recording's parts were heard only once jotto was opened.
+    /// Not noted while location is off for jotto (or for the whole iPhone):
+    /// that was a choice, and the card can't turn places on with one tap
+    /// then. Settings → Places still explains and leads to iOS Settings.
     func recordingWaited(_ id: String) {
-        guard !isOn, !cardDismissed, waitedRecording == nil else { return }
+        guard !isOn, !isDenied, !cardDismissed, waitedRecording == nil else { return }
         waitedRecording = id
         UserDefaults.standard.set(id, forKey: Self.waitedKey)
         PhoneLog.shared.note("place_card", id)
     }
 
-    var showsCard: Bool { !cardDismissed && !isOn && waitedRecording != nil }
+    var showsCard: Bool { !cardDismissed && !isOn && !isDenied && waitedRecording != nil }
 
     /// Test switch: Apple's model formats out of sight while following,
     /// on battery too, to see how far its background allowance goes.
