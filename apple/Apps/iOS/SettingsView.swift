@@ -8,7 +8,6 @@ struct SettingsView: View {
     private var config: AppConfig { .shared }
     private var inbox: Inbox { .shared }
     private var library: Library { .shared }
-    private var places: PlaceTracker { .shared }
     @State private var isBeta = false
     @State private var askingPlaces = false
 
@@ -70,16 +69,6 @@ struct SettingsView: View {
                         NavigationLink(value: Route.inbox) {
                             SettingsRow("Files from the watch", value: "\(inbox.items.count)")
                         }
-                        if places.isOn {
-                            SettingsToggle("Format on battery too", isOn: Bindable(places).formatsUnseen)
-                        }
-                    }
-                    if places.isOn {
-                        // Apple's model out of sight on battery (Pipeline.canFormatUnseen).
-                        Text("Plugged in, the text is formatted as it comes. Format on battery too tries it unplugged, a few paragraphs a request, to see whether Apple's model allows a whole recording.")
-                            .font(.scaled(13, .regular, relativeTo: .footnote))
-                            .foregroundStyle(Color.jText3)
-                            .padding(.top, 8)
                     }
                 }
 

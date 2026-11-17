@@ -472,25 +472,25 @@ final class Pipeline {
     /// How long a finished recording's notice waits for its formatting.
     private static let tidyWait: TimeInterval = 120
 
-    /// Kept running by places with your own key, a finished recording is
-    /// formatted before its notice goes, so "ready" means the text is as
-    /// it will stay, for up to two minutes after it's written out; past
-    /// that the notice goes and formatting finishes in jotto. Not with
-    /// Apple's on-device model: out of sight it answered seven paragraphs
-    /// and then nothing for a quarter of an hour, which left the title
-    /// unwritten and the notice two minutes late without one. There the
-    /// title is the one thing asked of it out of sight, and formatting
-    /// waits for jotto to be opened.
+    /// Kept running by places, with your own key or plugged in, a finished
+    /// recording is formatted before its notice goes, so "ready" means the
+    /// text is as it will stay, for up to two minutes after it's written
+    /// out; past that the notice goes and formatting finishes in jotto.
     private func formatsBeforeNotice(_ r: LocalRecording) -> Bool {
         guard canFormatUnseen, willTidy(r), r.notifiedAt == nil, let polished = r.polishedAt else { return false }
         return Date.now.timeIntervalSince(polished) < Self.tidyWait
     }
 
-    /// Formatting can go on out of sight: with your own key; with Apple's
-    /// model when the iPhone is plugged in (it isn't rate-limited then),
-    /// or on battery with the Beta test switch on.
+    /// Formatting can go on out of sight: with your own key, or with
+    /// Apple's model when the iPhone is plugged in (it isn't rate-limited
+    /// then). On battery its allowance out of sight is a few paragraphs
+    /// and then nothing for a quarter of an hour or more, sometimes in
+    /// front too; that allowance is kept for titles, so the notice has
+    /// one, and formatting waits for jotto to be opened. Formatting a
+    /// batch of paragraphs a request didn't stretch it: in the test, one
+    /// batch of six and it was spent.
     private var canFormatUnseen: Bool {
-        Cloud.isOn || (Editor.isAvailable && (PlaceTracker.shared.isOnPower || PlaceTracker.shared.formatsUnseen))
+        Cloud.isOn || (Editor.isAvailable && PlaceTracker.shared.isOnPower)
     }
 
     /// Whether this recording's notice waits now: out of sight, kept
@@ -770,7 +770,7 @@ final class Pipeline {
         case describe(id: String)
         case tidy(id: String)
         /// One settled paragraph of a recording still going on.
-        case tidyLive(id: String, texts: [String])
+        case tidyLive(id: String, text: String)
     }
 
     /// Whether the on-device model will tidy this recording's text.
@@ -827,18 +827,15 @@ final class Pipeline {
                 return .tidy(id: r.id)
             }
         } else if canFormatUnseen {
-            // Plugged in, or the test switch: the recording awaiting its
-            // notice, then a recording's paragraphs as they settle, then,
-            // in iOS's turn on power, anything left from before.
+            // Plugged in: the recording awaiting its notice, then a
+            // recording's paragraphs as they settle, then, in iOS's turn
+            // on power, anything left from before.
             if PlaceTracker.shared.isFollowing {
                 for r in all.reversed() where noticeWaits(r) {
                     return .tidy(id: r.id)
                 }
-                // As it goes on only when plugged in; on battery (the test
-                // switch) the model's few answers are kept for the end.
-                for r in all.reversed() where PlaceTracker.shared.isOnPower && r.endedAt == nil && r.imported == nil && !tidyFailed.contains(r.id) {
-                    let texts = settledUntidied(r)
-                    if !texts.isEmpty { return .tidyLive(id: r.id, texts: texts) }
+                for r in all.reversed() where r.endedAt == nil && r.imported == nil && !tidyFailed.contains(r.id) {
+                    if let text = settledUntidied(r) { return .tidyLive(id: r.id, text: text) }
                 }
             }
             if catchingUp {
@@ -852,8 +849,8 @@ final class Pipeline {
 
     /// The first paragraph of a recording still going on that won't change
     /// any more (all but the last) and isn't formatted yet.
-    private func settledUntidied(_ r: LocalRecording) -> [String] {
-        LocalStore.blocks(r).dropLast().first { !$0.backchannel && r.tidy?[$0.text] == nil }.map { [$0.text] } ?? []
+    private func settledUntidied(_ r: LocalRecording) -> String? {
+        LocalStore.blocks(r).dropLast().first { !$0.backchannel && r.tidy?[$0.text] == nil }?.text
     }
 
     private func giveUpOnMissing(_ r: LocalRecording) -> Bool {
@@ -1039,11 +1036,10 @@ final class Pipeline {
         case let .tidy(id):
             await tidy(id)
 
-        case let .tidyLive(id, texts):
+        case let .tidyLive(id, text):
             let began = Date.now
-            if await tidyParagraphs(id, texts) != nil {
-                let power = PlaceTracker.shared.isOnPower ? "on power" : "on battery"
-                PhoneLog.shared.note("tidy_live", "\(id) n=\(texts.count) \(String(format: "%.1f", Date.now.timeIntervalSince(began)))s \(power)")
+            if await tidyParagraph(id, text) != nil {
+                PhoneLog.shared.note("tidy_live", "\(id) \(String(format: "%.1f", Date.now.timeIntervalSince(began)))s")
             }
         }
         changed()
@@ -1076,19 +1072,11 @@ final class Pipeline {
                   UIApplication.shared.applicationState != .background || Cloud.isOn || noticeWaits(now)
                     || (catchingUp && canFormatUnseen)
             else { return }
-            // Out of sight on battery Apple's model takes a few paragraphs
-            // a request, to fit its allowance; elsewhere one, which reads better.
-            let batches = UIApplication.shared.applicationState == .background && !Cloud.isOn && !PlaceTracker.shared.isOnPower
-            let count = batches ? Editor.batch(pending.map { now.clean[$0] ?? Cleanup.clean($0) }) : 1
-            let texts = Array(pending.prefix(count))
-            pending.removeFirst(count)
-            guard let outcomes = await tidyParagraphs(id, texts) else { return }
-            for outcome in outcomes {
-                switch outcome {
-                case .kept: counts.kept += 1
-                case .rejected: counts.rejected += 1
-                case .refused: counts.refused += 1
-                }
+            guard let outcome = await tidyParagraph(id, pending.removeFirst()) else { return }
+            switch outcome {
+            case .kept: counts.kept += 1
+            case .rejected: counts.rejected += 1
+            case .refused: counts.refused += 1
             }
         }
         store.update(id, startedAt: r.startedAt) { $0.tidiedAt = .now }
@@ -1096,48 +1084,6 @@ final class Pipeline {
     }
 
     private enum TidyOutcome { case kept, rejected, refused }
-
-    /// Formats several paragraphs in one request to Apple's model and saves
-    /// them. One that the model won't answer as numbered passages, or
-    /// won't answer at all for one passage's sake, goes again a paragraph
-    /// at a time. Nil when the model can't for now (see `tidyParagraph`).
-    private func tidyParagraphs(_ id: String, _ texts: [String]) async -> [TidyOutcome]? {
-        guard texts.count > 1 else { return await tidyParagraph(id, texts[0]).map { [$0] } }
-        guard let r = store.recordings[id] else { return nil }
-        let roughs = texts.map { r.clean[$0] ?? Cleanup.clean($0) }
-        let began = Date.now
-        do {
-            let tidied = try await Editor.tidyBatch(roughs)
-            store.update(id, startedAt: r.startedAt) { rec in
-                var tidy = rec.tidy ?? [:]
-                for (i, text) in texts.enumerated() { tidy[text] = tidied[i] ?? roughs[i] }
-                rec.tidy = tidy
-            }
-            modelBackoff = 0
-            tidyRun += 1
-            changed()
-            let place = UIApplication.shared.applicationState == .background ? (PlaceTracker.shared.isOnPower ? "on power" : "on battery") : "in front"
-            PhoneLog.shared.note("tidy_batch", "\(id) n=\(texts.count) kept=\(tidied.compactMap { $0 }.count) \(String(format: "%.1f", Date.now.timeIntervalSince(began)))s \(place)")
-            return tidied.map { $0 == nil ? .rejected : .kept }
-        } catch where error is Editor.BatchMismatch || Editor.isAboutThisText(error) {
-            tidyRun += 1
-            PhoneLog.shared.note("tidy_batch_split", "\(id) n=\(texts.count) \(error is Editor.BatchMismatch ? "mismatch" : error.localizedDescription)")
-            var outcomes: [TidyOutcome] = []
-            for text in texts {
-                guard let outcome = await tidyParagraph(id, text) else { return nil }
-                outcomes.append(outcome)
-            }
-            return outcomes
-        } catch {
-            if Describer.isPassing(error) == true {
-                modelBusy("tidy", id, error)
-            } else {
-                tidyFailed.insert(id)
-                PhoneLog.shared.note("tidy_failed", "\(id) \(error.localizedDescription)")
-            }
-            return nil
-        }
-    }
 
     /// The model is rate-limited or busy: titles and formatting pause,
     /// from a quarter of a minute up to two as it keeps saying so, then

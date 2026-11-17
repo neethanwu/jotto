@@ -74,16 +74,6 @@ final class PlaceTracker: NSObject {
 
     var showsCard: Bool { !cardDismissed && !isOn && !isDenied && waitedRecording != nil }
 
-    /// Test switch: Apple's model formats out of sight while following,
-    /// on battery too, to see how far its background allowance goes.
-    var formatsUnseen: Bool = UserDefaults.standard.bool(forKey: "formatsUnseen") {
-        didSet {
-            guard formatsUnseen != oldValue else { return }
-            UserDefaults.standard.set(formatsUnseen, forKey: "formatsUnseen")
-            PhoneLog.shared.note("format_switch", formatsUnseen ? "on" : "off")
-        }
-    }
-
     /// Plugged in (charging or full). Apple's model isn't rate-limited then.
     var isOnPower: Bool {
         UIDevice.current.isBatteryMonitoringEnabled = true

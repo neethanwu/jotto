@@ -1,13 +1,13 @@
 import Foundation
 import FoundationModels
-import NaturalLanguage
 
 /// Tidies each paragraph with Apple's on-device model, the way a
 /// dictation app does: fillers and false starts out, a self-correction
 /// kept as corrected, proper sentences and punctuation. Same words,
 /// same order, nothing added. Runs after the rule-based clean-up
-/// (`Cleanup`), paragraph by paragraph, while jotto is open: the model
-/// is rate-limited in the background.
+/// (`Cleanup`), paragraph by paragraph, while jotto is open, or out of
+/// sight while the iPhone is plugged in: on battery the model is
+/// rate-limited in the background.
 ///
 /// Every answer is checked against what was said (`accept`); one that
 /// drops or invents too much is thrown away and the rule-based text stays.
@@ -50,88 +50,6 @@ enum Editor {
         }
         out = out.trimmingCharacters(in: CharacterSet(charactersIn: "\"“”「」"))
         return accept(out, rough: rough) ? out : nil
-    }
-
-    /// Several passages in one request. Out of sight on battery, Apple's
-    /// model answers about eight requests and then nothing for a quarter
-    /// of an hour or more; a recording formatted a paragraph at a time
-    /// needs one per paragraph, in batches a few for the whole of it. Only
-    /// used there: tried on a Mac, a batch came back plainer than the same
-    /// passages one at a time, and without each passage's language named
-    /// it turned English passages into Chinese. Each passage comes back
-    /// under its own number and is checked on its own, as `tidy` does.
-    static let batchInstructions = instructions.replacingOccurrences(of: "Reply with the clean passage only.", with: """
-    You get several passages at once. Each starts with a line giving its number and the language it was mostly said in, like "[2] English". Clean each passage on its own, as above, in that language: an English passage stays English, a Chinese one stays Chinese. Reply with every passage in the same order, each after a line with just its number:
-
-    Example
-    [1] Chinese
-    呃我们下周一啊不是下周二再开个会吧
-    [2] English
-    so um we we need to like ship it on friday
-    Reply:
-    [1]
-    我们下周二再开个会吧。
-    [2]
-    We need to ship it on Friday.
-
-    Never merge, split, drop, reorder or translate passages. Reply with the numbered passages only.
-    """)
-
-    /// The language a passage is mostly in, named in English for the batch.
-    static func languageName(_ text: String) -> String {
-        let code = NLLanguageRecognizer.dominantLanguage(for: text)?.rawValue ?? "en"
-        let name = Locale(identifier: "en").localizedString(forLanguageCode: code) ?? "English"
-        return name.hasPrefix("Chinese") ? "Chinese" : name
-    }
-
-    struct BatchMismatch: Error {}
-
-    /// The tidied passages in order, nil for one that doesn't hold up
-    /// against its rough text. Throws `BatchMismatch` when the answer
-    /// doesn't come back as the same numbered passages.
-    static func tidyBatch(_ roughs: [String]) async throws -> [String?] {
-        let languages = roughs.map(languageName)
-        let numbered = roughs.enumerated().map { "[\($0.offset + 1)] \(languages[$0.offset])\n\($0.element)" }.joined(separator: "\n\n")
-        let session = LanguageModelSession(instructions: batchInstructions)
-        let reply = try await session.respond(to: numbered, options: GenerationOptions(temperature: 0.2)).content
-        var parts: [Int: [String]] = [:]
-        var current: Int?
-        for line in reply.components(separatedBy: "\n") {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("["), let close = trimmed.firstIndex(of: "]"),
-               let n = Int(trimmed[trimmed.index(after: trimmed.startIndex)..<close]) {
-                current = n
-                let rest = trimmed[trimmed.index(after: close)...].trimmingCharacters(in: .whitespaces)
-                // "[2] English" echoed back is the header, not the text.
-                let echo = (1...roughs.count).contains(n) && rest == languages[n - 1]
-                parts[n] = rest.isEmpty || echo ? [] : [rest]
-            } else if let n = current, !trimmed.isEmpty {
-                parts[n, default: []].append(trimmed)
-            }
-        }
-        guard parts.count == roughs.count, (1...roughs.count).allSatisfy({ parts[$0] != nil }) else { throw BatchMismatch() }
-        return roughs.enumerated().map { i, rough in
-            guard Sentences.units(rough) >= 4 else { return nil }
-            let out = (parts[i + 1] ?? []).joined(separator: rough.unicodeScalars.contains { $0.value >= 0x2E80 } ? "" : " ")
-                .trimmingCharacters(in: CharacterSet(charactersIn: "\"“”「」").union(.whitespaces))
-            return accept(out, rough: rough) ? out : nil
-        }
-    }
-
-    /// The next passages to send together: up to six, and about 900 tokens
-    /// of text (Chinese about a token a character, other text about a
-    /// quarter of one), so the passages, their answer and the instructions
-    /// fit the model's 4,096. Always at least one.
-    static func batch(_ roughs: [String]) -> Int {
-        var count = 0, tokens = 0.0
-        for rough in roughs.prefix(6) {
-            let wide = rough.unicodeScalars.filter { $0.value >= 0x2E80 }.count
-            let cost = Double(wide) + Double(rough.unicodeScalars.count - wide) / 3.5
-            if count > 0, tokens + cost > 900 { break }
-            count += 1
-            tokens += cost
-        }
-        return max(1, count)
     }
 
     /// An error about this passage rather than the model being busy: it
