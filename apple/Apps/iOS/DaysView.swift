@@ -802,6 +802,10 @@ struct SwipeRow<Content: View>: View {
                     // They come in from the edge with the row, not appear in place.
                     .offset(x: max(0, Self.reveal + offset))
                     .opacity(min(1, Double(-offset / Self.reveal) * 1.6))
+                    // Closing, they go off the edge with the row: taken away
+                    // where they stood, they vanished on the spot.
+                    .transition(.asymmetric(insertion: .identity,
+                                            removal: .offset(x: Self.reveal).combined(with: .opacity)))
                 }
             }
 

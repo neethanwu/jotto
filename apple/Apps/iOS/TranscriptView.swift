@@ -375,7 +375,8 @@ struct TranscriptView: View {
                     .transition(.opacity)
                 }
             }
-            .padding(.top, 8)
+            // Clear of the date and place above, which read as one block.
+            .padding(.top, 14)
             .accessibilityHint(renaming ? "" : "Rename")
     }
 
@@ -973,7 +974,7 @@ struct TranscriptView: View {
                 .contentShape(.rect.inset(by: -6))
             }
             .buttonStyle(.plain)
-            .padding(.top, 5)
+            .padding(.top, 4)
             .accessibilityLabel("Recorded at \(label)")
             .accessibilityHint("Opens in Maps")
         }

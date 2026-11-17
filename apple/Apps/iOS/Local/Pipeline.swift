@@ -141,6 +141,7 @@ final class Pipeline {
         store.update(id, startedAt: startedAt) { r in
             r.endedAt = endedAt
             r.segmentCount = segmentCount
+            r.heardAt = .now
             // Places marked after the stop came in late (the stop reached
             // this iPhone after a while) and aren't where it was said.
             let length = endedAt.timeIntervalSince(startedAt)
@@ -251,8 +252,10 @@ final class Pipeline {
             awake?.end()
             awake = nil
             PlaceTracker.shared.update("idle")
-            QwenEngine.shared.hold(store.recordings.values.contains { $0.endedAt == nil && $0.imported == nil } || partsToHear > 0)
+            QwenEngine.shared.hold(store.recordings.values.contains { $0.endedAt == nil && $0.imported == nil } || partsToHear > 0 || partsComing)
             letGoOfModelIfIdle()
+            // Waiting on a last part: look again once it's no longer expected.
+            if partsComing { runAgain(at: Date.now.addingTimeInterval(Self.partsGrace + 1)) }
             // Woken by the watch and out of steps that can run unseen, or
             // left with parts still to hear: ask iOS for a later turn.
             if UIApplication.shared.applicationState == .background { scheduleCatchUp() }
@@ -446,9 +449,25 @@ final class Pipeline {
     /// recording going on, parts still to hear, or a finished one being
     /// formatted before its notice.
     var hasLiveWork: Bool {
-        hasLiveRecording || partsToHear > 0 || !noticeHeld.isEmpty
+        hasLiveRecording || partsToHear > 0 || partsComing || !noticeHeld.isEmpty
             || store.recordings.values.contains { $0.isEnded && formatsBeforeNotice($0) }
     }
+
+    /// Just stopped, with its last parts still on the way. The stop often
+    /// reaches this iPhone a second before the last part, and treating it
+    /// as done stopped places and let go of the speech model, only for
+    /// that part to start both again.
+    var partsComing: Bool {
+        store.recordings.values.contains { r in
+            guard r.imported == nil, r.polishedAt == nil, let count = r.segmentCount, r.segments.count + r.missing < count,
+                  let heard = r.heardAt else { return false }
+            return Date.now.timeIntervalSince(heard) < Self.partsGrace
+        }
+    }
+
+    /// How long after the watch last said anything its last parts count as
+    /// on the way; past that, the watch delivering them wakes jotto anyway.
+    private static let partsGrace: TimeInterval = 60
 
     /// How long a finished recording's notice waits for its formatting.
     private static let tidyWait: TimeInterval = 120
@@ -512,7 +531,7 @@ final class Pipeline {
     /// speech model is let go, so iOS has less reason to close jotto.
     func letGoOfModelIfIdle() {
         guard UIApplication.shared.applicationState == .background, !running,
-              !hasLiveRecording, partsToHear == 0 else { return }
+              !hasLiveRecording, partsToHear == 0, !partsComing else { return }
         QwenEngine.shared.letGoIfIdle()
     }
 

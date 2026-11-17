@@ -16,6 +16,9 @@ enum Places {
     static let coarsest: CLLocationAccuracy = 300
     /// With Precise Location off, fixes are a few kilometres either way.
     static let coarsestApproximate: CLLocationAccuracy = 10_000
+    /// Raised when how places are named changes, so places named before
+    /// are looked up again (their old name shows meanwhile).
+    static let naming = 2
 
     /// `marks` with `fix` taken in, or nil when it changes nothing.
     static func adding(_ fix: CLLocation, to marks: [PlaceMark], startedAt: Date, approximate: Bool) -> [PlaceMark]? {
@@ -152,9 +155,13 @@ final class PlaceNames {
             guard let r = LocalStore.shared.recordings[id] else { continue }
             LocalStore.shared.update(id, startedAt: r.startedAt) { r in
                 guard var marks = r.places, index < marks.count, marks[index] == mark else { return }
-                marks[index].name = found.name
-                marks[index].city = found.city
-                marks[index].nameless = found.name == nil ? true : nil
+                // Named before and nothing from Apple this time: the old name stays.
+                if found.name != nil || mark.name == nil {
+                    marks[index].name = found.name
+                    marks[index].city = found.city
+                    marks[index].nameless = found.name == nil ? true : nil
+                }
+                marks[index].naming = Places.naming
                 r.places = marks
             }
         }
@@ -187,8 +194,20 @@ final class PlaceNames {
         // MapKit's newer address types don't carry areas or neighbourhoods yet.
         let placemark = item.placemark
         let street = item.name.flatMap { $0 == placemark.thoroughfare ? $0 : nil }
-        let name = placemark.areasOfInterest?.first ?? street ?? placemark.subLocality ?? city ?? item.name
+        let name = Self.area(item) ?? street ?? placemark.subLocality ?? city ?? item.name
         return (name, city)
+    }
+
+    /// Areas come smallest first, and the last is often the island or
+    /// borough it's on: on a street in Wan Chai, the only one is "Hong
+    /// Kong Island", which says less than the district does. One that's
+    /// also a region of the address is left out, unless it's the place
+    /// itself.
+    private static func area(_ item: MKMapItem) -> String? {
+        let placemark = item.placemark
+        let regions = Set([placemark.administrativeArea, placemark.subAdministrativeArea, placemark.locality,
+                           placemark.subLocality, item.addressRepresentations?.cityName].compactMap { $0 })
+        return placemark.areasOfInterest?.first { $0 == item.name || !regions.contains($0) }
     }
 
     private func key(_ mark: PlaceMark) -> String {

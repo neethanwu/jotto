@@ -108,8 +108,10 @@ struct PlaceMark: Codable, Hashable {
     var city: String?
     /// Looked up and Apple had no name for it (open sea), so it isn't asked again.
     var nameless: Bool?
+    /// Which way of naming it was named by (`Places.naming`); nil for the first.
+    var naming: Int?
 
-    var isLookedUp: Bool { name != nil || nameless == true }
+    var isLookedUp: Bool { (name != nil || nameless == true) && (naming ?? 1) >= Places.naming }
 }
 
 /// A stretch of speech, in seconds from the start of its segment.
