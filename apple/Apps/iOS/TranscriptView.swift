@@ -673,12 +673,28 @@ struct TranscriptView: View {
         let here = order.firstIndex(of: shown) ?? 0
         return SlidingPages(slide: $slide, here: here, width: pageWidth) {
             ForEach(order, id: \.self) { t in
-                page(detail, t)
+                pageIfNeeded(detail, t, order: order)
                     .padding(.horizontal, 20)
                     .offset(y: t == shown ? 0 : shifts[t] ?? 0)
                     .allowsHitTesting(t == shown)
                     .accessibilityHidden(t != shown)
             }
+        }
+    }
+
+    /// Highlights only while it's the page, or the one coming or going.
+    /// Off to the side it was still drawn again on every frame of a slide,
+    /// a scroll or the title opening for a rename, wherever its text moved
+    /// on the screen: a couple of dozen paragraphs each time, which made
+    /// long recordings with highlights drag. The text pages draw once and
+    /// stay drawn, so they stay.
+    @ViewBuilder
+    private func pageIfNeeded(_ detail: SessionDetail, _ t: Tab, order: [Tab]) -> some View {
+        let distance = abs((order.firstIndex(of: t) ?? 0) - (order.firstIndex(of: shown) ?? 0))
+        if t != .highlights || t == shown || t == tab || (swiping && distance == 1) {
+            page(detail, t)
+        } else {
+            Color.clear.frame(height: 0)
         }
     }
 
