@@ -780,6 +780,9 @@ final class Pipeline {
     }
 
     /// Paragraphs tidied so far, for the transcript's status line.
+    /// What `tidyProgress` goes by besides the recording itself.
+    func tidyState(_ id: String) -> [Bool] { [tidyingNow == id, tidyFailed.contains(id)] }
+
     func tidyProgress(_ r: LocalRecording) -> SessionDetail.Tidying? {
         // Not while it's stuck (the model refused or is busy): say nothing.
         // One picked up again where it left off shows only once the model

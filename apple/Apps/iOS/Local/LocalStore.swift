@@ -78,6 +78,18 @@ final class LocalStore {
         )
     }
 
+    /// Changes whenever `session(id)` would come out different, for a
+    /// screen that polls it: building a long recording's page again
+    /// every two seconds, while it waited for Apple's model, made it
+    /// stutter under the finger.
+    func sessionStamp(_ id: String) -> Int? {
+        guard let r = recordings[id] else { return nil }
+        var hasher = Hasher()
+        hasher.combine(r)
+        hasher.combine(Pipeline.shared.tidyState(id))
+        return hasher.finalize()
+    }
+
     func rename(_ id: String, to title: String) {
         guard let r = recordings[id] else { return }
         update(id, startedAt: r.startedAt) { $0.title = title; $0.titleByUser = true }

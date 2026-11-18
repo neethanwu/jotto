@@ -223,28 +223,10 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
         layout.ensureLayout(for: layout.documentRange)
         let lineHeight = Self.font.lineHeight
 
-        // Where each paragraph's first line of text sits: the glyphs' own
-        // box, so the space asked for above the paragraph doesn't count.
-        var lineTops: [CGFloat] = []
-        for range in ranges {
-            guard let start = textView.position(from: textView.beginningOfDocument, offset: range.location),
-                  let end = textView.position(from: start, offset: min(1, range.length)),
-                  let textRange = textView.textRange(from: start, to: end) else {
-                lineTops.append(lineTops.last ?? 0)
-                continue
-            }
-            let rect = textView.firstRect(for: textRange)
-            lineTops.append(rect.isNull ? (lineTops.last ?? 0) : rect.maxY - lineHeight)
-            // The last line: the box of the paragraph's final character.
-            if let last = textView.position(from: textView.beginningOfDocument, offset: max(range.location, range.location + range.length - 1)),
-               let after = textView.position(from: last, offset: 1),
-               let lastRange = textView.textRange(from: last, to: after) {
-                let r = textView.firstRect(for: lastRange)
-                bottoms.append(r.isNull ? (lineTops.last ?? 0) + lineHeight : r.maxY)
-            } else {
-                bottoms.append((lineTops.last ?? 0) + lineHeight)
-            }
-        }
+        // Where each paragraph's first line of text sits (the space asked
+        // for above the paragraph doesn't count) and its last line ends.
+        let lineTops: [CGFloat]
+        (lineTops, bottoms) = lineExtents(layout)
 
         for (i, p) in paragraphs.enumerated() {
             let textTop = lineTops[i]
@@ -329,6 +311,36 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
             let report = handlers?.anchors
             DispatchQueue.main.async { report?(anchors) }
         }
+    }
+
+    /// Where each paragraph's first line of text starts and its last line
+    /// ends, read off the laid-out text in one pass. Asking the text view
+    /// for the box of each paragraph's first and last character instead
+    /// took most of the time a long recording's page took to update.
+    private func lineExtents(_ layout: NSTextLayoutManager) -> (tops: [CGFloat], bottoms: [CGFloat]) {
+        var tops = [CGFloat?](repeating: nil, count: ranges.count)
+        var bottoms = [CGFloat?](repeating: nil, count: ranges.count)
+        let start = layout.documentRange.location
+        let inset = textView.textContainerInset.top
+        var i = 0
+        layout.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { fragment in
+            let offset = layout.offset(from: start, to: fragment.rangeInElement.location)
+            while i + 1 < ranges.count, ranges[i + 1].location <= offset { i += 1 }
+            let y = inset + fragment.layoutFragmentFrame.minY
+            let lines = fragment.textLineFragments
+            if let first = lines.first(where: { $0.characterRange.length > 0 }) ?? lines.first, tops[i] == nil {
+                tops[i] = y + first.typographicBounds.minY
+            }
+            if let last = lines.last(where: { $0.characterRange.length > 0 }) ?? lines.last {
+                bottoms[i] = y + last.typographicBounds.maxY
+            }
+            return true
+        }
+        var lastTop: CGFloat = inset
+        let outTops = tops.map { t -> CGFloat in lastTop = t ?? lastTop; return lastTop }
+        let lineHeight = Self.font.lineHeight
+        let outBottoms = bottoms.enumerated().map { $1 ?? outTops[$0] + lineHeight }
+        return (outTops, outBottoms)
     }
 
     private func add(_ view: UIView) {

@@ -129,6 +129,7 @@ struct TranscriptView: View {
             .sensoryFeedback(.selection, trigger: tab)
             .onChange(of: detail?.blocks.count) { _, _ in scrollToStart() }
             .onScrollPhaseChange { _, phase in
+                where_.moving = phase != .idle
                 // Scrolling by hand: playback leaves the page alone for a bit.
                 if phase == .interacting { where_.followPausedUntil = .now.addingTimeInterval(4) }
             }
@@ -660,7 +661,7 @@ struct TranscriptView: View {
         models = next
         modelVersion += 1
         fillersGone = detail.blocks.reduce(0) { n, b in
-            n + ((b.trimmed ?? b.clean).map { Fillers.diff(raw: b.text, clean: $0).removedRuns } ?? 0)
+            n + ((b.trimmed ?? b.clean).map { Self.fillers(raw: b.text, clean: $0).removedRuns } ?? 0)
         }
     }
 
@@ -750,6 +751,20 @@ struct TranscriptView: View {
         return nil
     }
 
+    /// What the rules took out of each paragraph, worked out once: the
+    /// page is built again whenever one paragraph is formatted, and a
+    /// long recording has a couple of hundred to compare word by word.
+    private static var fillerCache: [String: Fillers.Result] = [:]
+
+    static func fillers(raw: String, clean: String) -> Fillers.Result {
+        let key = raw + "\u{0}" + clean
+        if let known = fillerCache[key] { return known }
+        if fillerCache.count > 2000 { fillerCache = [:] }
+        let result = Fillers.diff(raw: raw, clean: clean)
+        fillerCache[key] = result
+        return result
+    }
+
     /// A paragraph's text as the body draws it: clean, or the original with
     /// what the rules took struck through, shaded where it's marked.
     static func text(_ block: TranscriptBlock, marked: Bool, original: Bool) -> NSAttributedString {
@@ -764,7 +779,7 @@ struct TranscriptView: View {
             add(block.text, .jText4)
         } else if let clean = block.clean {
             if original {
-                for piece in Fillers.diff(raw: block.text, clean: block.trimmed ?? clean).pieces {
+                for piece in Self.fillers(raw: block.text, clean: block.trimmed ?? clean).pieces {
                     add(piece.text, piece.removed ? .jText4 : .jText, struck: piece.removed)
                 }
             } else {
@@ -913,6 +928,8 @@ struct TranscriptView: View {
         var minOffset: CGFloat = 0
         var maxOffset: CGFloat = 0
         var swipeAxis: Axis?
+        /// The page is being scrolled, or is still gliding.
+        var moving = false
         weak var scrollView: UIScrollView?
         /// Playback doesn't scroll the page for a moment after a scroll by hand.
         var followPausedUntil = Date.distantPast
@@ -990,15 +1007,29 @@ struct TranscriptView: View {
     }
 
     private func poll() async {
+        var seen: Int?
         while !Task.isCancelled {
-            do {
-                let fresh = try await API.session(id)
-                detail = fresh
-                rebuildModels(fresh)
-                error = nil
-                await player.load(fresh)
-            } catch {
-                self.error = error.localizedDescription
+            // Only when something changed: rebuilding a long recording's
+            // page every two seconds made scrolling and typing stutter.
+            let stamp = API.sessionStamp(id)
+            // A paragraph formatted while the page is moving under the
+            // finger, or while the title is being typed, waits for it to
+            // stop: laying a long transcript out again takes a moment.
+            if detail != nil, stamp != seen, where_.moving || swiping || renaming {
+                try? await Task.sleep(for: .milliseconds(300))
+                continue
+            }
+            if stamp == nil || stamp != seen || detail == nil {
+                seen = stamp
+                do {
+                    let fresh = try await API.session(id)
+                    detail = fresh
+                    rebuildModels(fresh)
+                    error = nil
+                    await player.load(fresh)
+                } catch {
+                    self.error = error.localizedDescription
+                }
             }
             // Done, unless the text is still being tidied.
             if detail?.status == "ready", detail?.tidying == nil { return }

@@ -154,6 +154,9 @@ enum API {
 
     static func session(_ id: String) async throws -> SessionDetail { try LocalStore.shared.session(id) }
 
+    /// Changes whenever `session(id)` would come out different.
+    static func sessionStamp(_ id: String) -> Int? { LocalStore.shared.sessionStamp(id) }
+
     static func rename(_ id: String, to title: String) async throws { LocalStore.shared.rename(id, to: title) }
 
     static func delete(_ id: String) async throws { LocalStore.shared.delete(id) }
