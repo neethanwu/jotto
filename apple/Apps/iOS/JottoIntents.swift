@@ -155,12 +155,17 @@ struct TranscriptEntity: TransientAppEntity {
         self.title = title
         self.text = text
         self.date = date
-        // Characters file systems and sync services trip on, out.
+        self.fileName = Self.fileName(title: title, date: date, markdown: markdown)
+    }
+
+    /// "2026-11-13 0830 Coffee with Priya.md", without the characters
+    /// file systems and sync services trip on.
+    static func fileName(title: String, date: Date, markdown: Bool) -> String {
         let safe = title.components(separatedBy: CharacterSet(charactersIn: "/\\:*?\"<>|\n")).joined(separator: " ")
             .trimmingCharacters(in: .whitespaces)
         let stamp = date.formatted(.iso8601.year().month().day()) + " " + date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
             .replacingOccurrences(of: ":", with: "")
-        self.fileName = "\(stamp) \(safe.prefix(80)).\(markdown ? "md" : "txt")"
+        return "\(stamp) \(safe.prefix(80)).\(markdown ? "md" : "txt")"
     }
 
     @MainActor

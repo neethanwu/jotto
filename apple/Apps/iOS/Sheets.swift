@@ -262,7 +262,10 @@ struct SendPanel: View {
     }
 
     private var shareItems: [Any] {
-        var items: [Any] = [markdown]
+        let name = TranscriptEntity.fileName(
+            title: day.map { $0.formatted(.dateTime.weekday(.wide).day().month(.wide)) } ?? title,
+            date: day ?? detail.startedAt, markdown: template.format == .markdown)
+        var items: [Any] = [SharedText(text: markdown, fileName: name, subject: day == nil ? title : nil)]
         if withAudio, let audioFile { items.append(audioFile) }
         return items
     }
@@ -310,6 +313,46 @@ struct SendPanel: View {
         } catch {
             withAudio = false
         }
+    }
+}
+
+/// The text in the share sheet: words for Messages, Mail, Notes and the
+/// like, but a named file (.md or .txt, as the template says) where a
+/// file is what arrives: AirDrop, Save to Files. Shared as words, AirDrop
+/// to a Mac made a .txt whatever the template.
+final class SharedText: NSObject, UIActivityItemSource {
+    let text: String
+    let fileName: String
+    let subject: String?
+
+    init(text: String, fileName: String, subject: String?) {
+        self.text = text
+        self.fileName = fileName
+        self.subject = subject
+    }
+
+    func activityViewControllerPlaceholderItem(_ controller: UIActivityViewController) -> Any { text }
+
+    func activityViewController(_ controller: UIActivityViewController, itemForActivityType type: UIActivity.ActivityType?) -> Any? {
+        guard let type, Self.wantsFile(type), let url = try? file() else { return text }
+        return url
+    }
+
+    func activityViewController(_ controller: UIActivityViewController, subjectForActivityType type: UIActivity.ActivityType?) -> String {
+        subject ?? ""
+    }
+
+    private static func wantsFile(_ type: UIActivity.ActivityType) -> Bool {
+        type == .airDrop || type.rawValue.localizedCaseInsensitiveContains("SaveToFiles")
+            || type.rawValue.localizedCaseInsensitiveContains("DocumentManager")
+    }
+
+    private func file() throws -> URL {
+        let folder = URL.temporaryDirectory.appending(path: "Shared/\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let url = folder.appending(path: fileName)
+        try Data(text.utf8).write(to: url)
+        return url
     }
 }
 
