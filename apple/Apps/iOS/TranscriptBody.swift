@@ -119,6 +119,13 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
         textView.textContainer.lineFragmentPadding = 0
         textView.dataDetectorTypes = []
         textView.delegate = self
+        // Its own tint, so the page's can't reach it: SwiftUI sets the
+        // tint on this view as the page updates (a scroll that pins the
+        // view switch, a rename), and a change of tint has the text view
+        // draw every paragraph again, a second or more on a phone for a
+        // long recording, which is what made those pages drag.
+        textView.tintColor = UIColor(named: "AccentColor")
+        textView.tintAdjustmentMode = .normal
         // A faint tint of the text colour, a little stronger in the dark.
         band.backgroundColor = UIColor { traits in
             UIColor(Color.jText).resolvedColor(with: traits)
@@ -204,7 +211,12 @@ final class TranscriptBodyView: UIView, UITextViewDelegate, UIGestureRecognizerD
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        textView.frame = bounds
+        // Sized from its own measure, not the size SwiftUI hands down:
+        // that is off by a fraction of a point now and then (after a
+        // swipe between pages), and any change in size has the text
+        // view draw every paragraph again.
+        let frame = CGRect(x: 0, y: 0, width: bounds.width, height: height(for: bounds.width))
+        if textView.frame != frame { textView.frame = frame }
         guard bounds.width != laidOutWidth || overlays.isEmpty != paragraphs.isEmpty else { return }
         laidOutWidth = bounds.width
         layOutOverlays()
