@@ -367,6 +367,13 @@ enum OnboardingColor {
     static let prompt = pair(0xF7F6F4, 0x2A2927)
     static let promptButton = pair(0xE6E4E1, 0x3A3937)
     static let promptButtonDown = pair(0xCFCDCA, 0x52504E)
+    /// Behind a prompt on the lock screen.
+    static let scrim = Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor.black.withAlphaComponent(0.45) : UIColor.black.withAlphaComponent(0.06) })
+    /// The walk and the pin's ring on the Places map (`places_map.py`).
+    static let mapInk = pair(0x0A0A0A, 0xA6A4A1)
+    static let mapTop = pair(0xFFFFFF, 0x1F1E1C)
+    static let mapRing = pair(0xE3E1DE, 0x4C4A48)
+    static let mapShadow = Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor.black.withAlphaComponent(0.55) : UIColor(hex: 0x0A0A0A).withAlphaComponent(0.12) })
     /// The fingertip showing what to tap.
     static let finger = pair(0x82807D, 0x82807D)
 }

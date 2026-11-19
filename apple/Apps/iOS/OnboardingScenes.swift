@@ -36,8 +36,10 @@ private struct TapTargets: PreferenceKey {
 }
 
 private extension View {
-    func tapTarget(_ id: String) -> some View {
-        anchorPreference(key: TapTargets.self, value: .center) { [id: $0] }
+    /// `at` is where on it the fingertip lands: off a label's middle, so
+    /// the words stay readable under it.
+    func tapTarget(_ id: String, at point: UnitPoint = .center) -> some View {
+        anchorPreference(key: TapTargets.self, value: .unitPoint(point)) { [id: $0] }
     }
 
     /// The fingertip over the scene, at the target it's set to; gone
@@ -95,30 +97,30 @@ private struct PromptArt: View {
     var finger: FingerState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             Text(title)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(Color.jText)
                 .fixedSize(horizontal: false, vertical: true)
-            let layout = stacked ? AnyLayout(VStackLayout(spacing: 7)) : AnyLayout(HStackLayout(spacing: 8))
+            let layout = stacked ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 10))
             layout {
                 ForEach(buttons, id: \.self) { button in
                     let down = finger.pressed && finger.at == button
                     Text(button)
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(Color.jText)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
-                        .frame(maxWidth: .infinity, minHeight: 36)
+                        .frame(maxWidth: .infinity, minHeight: 44)
                         .background(down ? OnboardingColor.promptButtonDown : OnboardingColor.promptButton, in: Capsule())
-                        .tapTarget(button)
+                        .tapTarget(button, at: UnitPoint(x: 0.9, y: 0.66))
                 }
             }
         }
-        .padding(16)
-        .frame(width: 262)
-        .background(OnboardingColor.prompt, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).strokeBorder(OnboardingColor.cardLine, lineWidth: 1))
+        .padding(18)
+        .frame(width: 314)
+        .background(OnboardingColor.prompt, in: RoundedRectangle(cornerRadius: 32, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 32, style: .continuous).strokeBorder(OnboardingColor.cardLine, lineWidth: 1))
         .shadow(color: OnboardingColor.shadow.opacity(0.16), radius: 24, y: 12)
     }
 }
@@ -403,7 +405,7 @@ struct WatchScene: View {
                     .opacity(install == 2 ? 1 : 0)
             }
             .frame(width: 80)
-            .tapTarget("install")
+            .tapTarget("install", at: UnitPoint(x: 0.62, y: 0.65))
         }
         .padding(.horizontal, 16)
         .frame(height: 64)
@@ -878,6 +880,13 @@ struct LockScene: View {
                 .offset(y: notice ? 0 : -48)
                 .opacity(shown && notice ? 1 : 0)
 
+            // iOS dims what's behind its prompt.
+            RoundedRectangle(cornerRadius: 36, style: .continuous)
+                .fill(OnboardingColor.scrim)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
+                .opacity(promptIn ? 1 : 0)
+
             // The lock screen fades into the page at its foot.
             LinearGradient(colors: [Color.jBg.opacity(0), Color.jBg], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.85))
                 .frame(height: 110)
@@ -886,7 +895,7 @@ struct LockScene: View {
             PromptArt(title: "“jotto” Would Like to Send You Notifications",
                       buttons: ["Don’t Allow", "Allow"], finger: finger)
                 .prompt(promptIn)
-                .padding(.top, 150)
+                .padding(.top, 128)
         }
         .fingertip(finger, on: shown)
         .offset(x: page < 2 && !reduceMotion ? 48 : 0)
@@ -932,7 +941,7 @@ struct LockScene: View {
         promptIn = false
         finger = FingerState()
         while true {
-            guard await wait(0.7) else { return }
+            guard await wait(0.4) else { return }
             if asks {
                 withAnimation(.spring(duration: 0.4, bounce: 0.2)) { promptIn = true }
                 guard await wait(0.8) else { return }
@@ -942,7 +951,7 @@ struct LockScene: View {
                 guard await wait(0.45) else { return }
             }
             withAnimation(drop) { noticeIn = true }
-            guard await wait(3.6) else { return }
+            guard await wait(2.8) else { return }
             withAnimation(.easeIn(duration: 0.35)) { noticeIn = false }
             guard await wait(0.5) else { return }
         }
@@ -951,9 +960,11 @@ struct LockScene: View {
 
 // MARK: - 4 · Location
 
-/// The map drawn for Places. iOS asks for location, While Using is
-/// tapped, then it offers Always and that's tapped too; the pin drops
-/// into the park and the words said there come up under it.
+/// The map drawn for Places, there from the start so the prompts have
+/// somewhere to land. iOS asks for location, While Using is tapped, then
+/// it offers Always and that's tapped too; then the walk into the park
+/// draws itself, the pin drops where it ends and sends out rings, and the
+/// words said there come up under it.
 struct PlacesScene: View {
     let page: Int
     /// iOS hasn't been asked (or jotto doesn't keep places yet), so the
@@ -967,9 +978,24 @@ struct PlacesScene: View {
     @State private var firstPrompt = false
     @State private var secondPrompt = false
     @State private var finger = FingerState()
+    /// When the walk started drawing; nil while there's none.
+    @State private var walkedFrom: Date?
+    @State private var walkShown = false
+    /// The map steps back while iOS asks, both times.
+    @State private var prompting = false
 
     private var shown: Bool { page == 3 }
     private var active: Bool { shown && !reduceMotion }
+
+    /// The walk on the map, as fractions of it (`places_map.py route`).
+    private static let route: [CGPoint] = [
+        (0.3486, 0.6191), (0.4577, 0.5546), (0.4864, 0.5726), (0.4897, 0.5752), (0.4926, 0.5780),
+        (0.4950, 0.5810), (0.4970, 0.5842), (0.4987, 0.5876), (0.5000, 0.5912), (0.5010, 0.5949),
+        (0.5019, 0.5988), (0.5025, 0.6028), (0.5030, 0.6069), (0.5332, 0.6057),
+    ].map { CGPoint(x: $0.0, y: $0.1) }
+    /// The map's drawing units in points.
+    private static let unit: CGFloat = 450 / 330
+    private static let walkTime = 1.3
 
     var body: some View {
         let pin = reduceMotion || pinIn
@@ -977,14 +1003,19 @@ struct PlacesScene: View {
         ZStack(alignment: .bottom) {
             Color.clear.overlay {
                 ZStack {
-                    Image("PlacesMap").resizable().frame(width: 450, height: 438)
-                    Image("PlacesPin").resizable().frame(width: 450, height: 438)
+                    Image("PlacesMap").resizable()
+                    walk
+                    ground(pin: pin)
+                    Image("PlacesPin").resizable()
                         // The pin's tip, so it lands on its spot.
                         .scaleEffect(pin ? 1 : 0.6, anchor: UnitPoint(x: 0.5332, y: 0.6057))
                         .offset(y: pin ? 0 : -36)
                         .opacity(pin ? 1 : 0)
                 }
+                .frame(width: 450, height: 438)
             }
+            .opacity(prompting ? 0.35 : 1)
+            .animation(.easeInOut(duration: 0.3), value: prompting)
             .offset(y: 5 + (shown || reduceMotion ? 0 : 20))
             .opacity(shown ? 1 : 0)
             .animation(motion, value: page)
@@ -1014,39 +1045,142 @@ struct PlacesScene: View {
         .task(id: active) { await loop() }
     }
 
+    /// The dotted walk drawing itself from the corner into the park, its
+    /// head in orange, then its dots marching on towards the pin.
+    private var walk: some View {
+        TimelineView(.animation(paused: !active || walkedFrom == nil)) { context in
+            let since = walkedFrom.map { context.date.timeIntervalSince($0) } ?? (reduceMotion ? 99 : 0)
+            let t = min(1, since / Self.walkTime)
+            let drawn = 1 - pow(1 - t, 2.2)
+            GeometryReader { geo in
+                let size = geo.size
+                let points = Self.route.map { CGPoint(x: $0.x * size.width, y: $0.y * size.height) }
+                ZStack(alignment: .topLeading) {
+                    Polyline(points: points)
+                        .trim(from: 0, to: drawn)
+                        .stroke(OnboardingColor.mapInk, style: StrokeStyle(
+                            lineWidth: 1.8 * Self.unit, lineCap: .round,
+                            dash: [0.1, 4.6 * Self.unit], dashPhase: -since * 9))
+                    Circle()
+                        .fill(OnboardingColor.mapTop)
+                        .overlay(Circle().stroke(OnboardingColor.mapInk, lineWidth: Self.unit))
+                        .frame(width: 6.4 * Self.unit, height: 6.4 * Self.unit)
+                        .position(points[0])
+                    Circle()
+                        .fill(Color.jLive)
+                        .frame(width: 9, height: 9)
+                        .position(Polyline(points: points).point(at: drawn))
+                        .opacity(t < 1 ? 1 : 0)
+                        .animation(.easeOut(duration: 0.25), value: t < 1)
+                }
+            }
+        }
+        .opacity(reduceMotion || walkShown ? 1 : 0)
+    }
+
+    /// The pin's shadow and ring on the ground, and rings going out from
+    /// it once it has landed.
+    private func ground(pin: Bool) -> some View {
+        GeometryReader { geo in
+            let at = CGPoint(x: 0.5332 * geo.size.width, y: 0.6057 * geo.size.height)
+            ZStack {
+                TimelineView(.animation(paused: !active || !pin)) { context in
+                    let t = context.date.timeIntervalSinceReferenceDate
+                    ZStack {
+                        ForEach(0..<2, id: \.self) { i in
+                            let p = (t / 1.6 + Double(i) / 2).truncatingRemainder(dividingBy: 1)
+                            Ellipse()
+                                .stroke(Color.jLive.opacity(0.55 * (1 - p)), lineWidth: 1.5)
+                                .frame(width: 24 * Self.unit * (1 + 1.4 * p), height: 13.2 * Self.unit * (1 + 1.4 * p))
+                        }
+                    }
+                    .opacity(active && pin ? 1 : 0)
+                }
+                Ellipse()
+                    .stroke(OnboardingColor.mapRing, lineWidth: 0.8 * Self.unit)
+                    .frame(width: 24 * Self.unit, height: 13.2 * Self.unit)
+                Ellipse()
+                    .fill(OnboardingColor.mapShadow)
+                    .frame(width: 16 * Self.unit, height: 8.8 * Self.unit)
+            }
+            .position(at)
+            .opacity(pin ? 1 : 0)
+        }
+    }
+
     private func loop() async {
         guard active else { return }
         pinIn = false
         cardIn = false
         firstPrompt = false
         secondPrompt = false
+        prompting = false
+        walkShown = false
+        walkedFrom = nil
         finger = FingerState()
         while true {
-            guard await wait(0.7) else { return }
+            guard await wait(0.5) else { return }
             if asks {
-                withAnimation(.spring(duration: 0.4, bounce: 0.2)) { firstPrompt = true }
-                guard await wait(0.8) else { return }
+                withAnimation(.spring(duration: 0.4, bounce: 0.2)) {
+                    firstPrompt = true
+                    prompting = true
+                }
+                guard await wait(0.6) else { return }
                 guard await press($finger, "Allow While Using App") else { return }
                 lift($finger, away: false)
-                withAnimation(.easeOut(duration: 0.22)) { firstPrompt = false }
-                guard await wait(0.4) else { return }
+                withAnimation(.easeOut(duration: 0.2)) { firstPrompt = false }
+                guard await wait(0.3) else { return }
                 withAnimation(.spring(duration: 0.4, bounce: 0.2)) { secondPrompt = true }
-                guard await wait(0.9) else { return }
+                guard await wait(0.7) else { return }
                 guard await press($finger, "Change to Always Allow") else { return }
                 lift($finger)
-                withAnimation(.easeOut(duration: 0.22)) { secondPrompt = false }
-                guard await wait(0.4) else { return }
+                withAnimation(.easeOut(duration: 0.2)) {
+                    secondPrompt = false
+                    prompting = false
+                }
+                guard await wait(0.35) else { return }
             }
+            walkShown = true
+            walkedFrom = .now
+            guard await wait(Self.walkTime - 0.15) else { return }
             withAnimation(drop) { pinIn = true }
-            guard await wait(0.35) else { return }
+            guard await wait(0.3) else { return }
             withAnimation(settle) { cardIn = true }
-            guard await wait(3.6) else { return }
+            guard await wait(2.8) else { return }
             withAnimation(.easeIn(duration: 0.35)) {
                 pinIn = false
                 cardIn = false
+                walkShown = false
             }
-            guard await wait(0.5) else { return }
+            guard await wait(0.4) else { return }
+            walkedFrom = nil
         }
+    }
+}
+
+/// Straight lines through points, and where along them a fraction of the
+/// way is.
+private struct Polyline: Shape {
+    let points: [CGPoint]
+
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        p.addLines(points)
+        return p
+    }
+
+    func point(at fraction: Double) -> CGPoint {
+        let lengths = zip(points, points.dropFirst()).map { hypot($1.x - $0.x, $1.y - $0.y) }
+        var left = lengths.reduce(0, +) * min(max(fraction, 0), 1)
+        for (i, length) in lengths.enumerated() {
+            if left <= length, length > 0 {
+                let k = left / length
+                return CGPoint(x: points[i].x + (points[i + 1].x - points[i].x) * k,
+                               y: points[i].y + (points[i + 1].y - points[i].y) * k)
+            }
+            left -= length
+        }
+        return points.last ?? .zero
     }
 }
 

@@ -1,10 +1,12 @@
 """The isometric street map on the Places onboarding page.
 
-    python3 places_map.py light|dark base|pin|all > out.svg
+    python3 places_map.py light|dark noroute|pin|route|base|all > out.svg
 
-"base" is the map without the pin (its ground ring and shadow stay), "pin"
-the pin alone on the same canvas, so the app can drop it in. They go to
-apple/Apps/iOS/Assets.xcassets/PlacesMap and PlacesPin.
+"noroute" is the map with neither the route nor the pin and its ring: the
+app draws the route and the ring itself and drops the pin in. "pin" is the
+pin alone on the same canvas; "route" prints the route's points as
+fractions of the canvas. They go to apple/Apps/iOS/Assets.xcassets/PlacesMap
+and PlacesPin. "base" (everything but the pin) and "all" are for looking at.
 """
 import math, sys
 DARK = len(sys.argv) > 1 and sys.argv[1] == 'dark'
@@ -98,8 +100,12 @@ out.append(pl([pt(*p) for p in walk], P['road'], 3.0))
 PIN = (7.93, 7.2)
 route = [pt(6.15, 9.48), pt(6.15, 7.08), pt(PX0, 7.1)] + [pt(*p) for p in walk[:12]]
 route[-1] = pt(*PIN)
-out.append(pl(route, P['ink'], 1.8, ' stroke-dasharray="0.1 4.6"'))
-out.append(dot(pt(6.15, 9.48), 3.2, P['top'], P['ink'], 1))
+route_parts = [pl(route, P['ink'], 1.8, ' stroke-dasharray="0.1 4.6"'), dot(pt(6.15, 9.48), 3.2, P['top'], P['ink'], 1)]
+if MODE == 'route':
+    # The route for the app to draw itself, as fractions of the canvas.
+    print(', '.join(f'({(x - 36) / 330:.4f}, {(y - 32) / 322:.4f})' for x, y in route)); sys.exit()
+if MODE == 'ontop': ontop = route_parts
+elif MODE != 'noroute': out += route_parts
 # ---- buildings: (x0, y0, x1, y1, h, door side, roof kit)
 B = [(0.5, 0.5, 2.3, 1.7, 34, True, 'tank'), (0.5, 2.2, 1.9, 3.6, 18, True, 'ac'), (2.8, 0.6, 5.2, 1.6, 22, False, 'ac2'),
      (2.7, 2.2, 5.2, 3.5, 46, True, 'mast'), (0.5, 5.2, 2.7, 7.4, 12, True, 'skylight'), (7.0, 0.6, 8.2, 1.8, 28, False, 'ac'),
@@ -180,10 +186,11 @@ pin = [ell((x, y), 12, 6.6, 'none', P['faint'] if not DARK else P['tick'], 0.8),
        f'<path d="M{x},{y} C{x-4},{y-14} {x-16},{y-22} {x-16},{y-36} A16,16 0 1 1 {x+16},{y-36} C{x+16},{y-22} {x+4},{y-14} {x},{y} Z" fill="{ORANGE}" stroke="{P["ink"] if DARK else "#0A0A0A"}" stroke-width="1" stroke-linejoin="round"/>',
        dot((x, y - 36), 5.5, '#FFFFFF', P['ink'] if DARK else '#0A0A0A', 1)]
 if MODE == 'all': add(PIN[0] + PIN[1] + 0.01, pin)
-elif MODE == 'base': add(PIN[0] + PIN[1] + 0.01, pin[:2])
+elif MODE in ('base', 'ontop'): add(PIN[0] + PIN[1] + 0.01, pin[:2])
 for _, parts in sorted(items, key=lambda t: t[0]):
     out += parts
 if MODE == 'pin': out = pin[2:]
+if MODE == 'ontop': out += ontop
 svg = (f'<svg width="402" height="392" viewBox="36 32 330 322" xmlns="http://www.w3.org/2000/svg">'
        + ''.join(out) + '</svg>')
 print(svg)
