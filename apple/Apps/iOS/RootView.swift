@@ -43,6 +43,7 @@ final class Router {
 
 struct RootView: View {
     @State private var router = Router()
+    @AppStorage(Onboarding.key) private var onboarded = true
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -50,12 +51,16 @@ struct RootView: View {
             // Days' search sits at the top and its results scroll away
             // the keyboard; the other tabs' pages make room for it, so a
             // field low on a page can come up above it.
-            tab(.days) { DaysView(router: router) }
-                .ignoresSafeArea(.keyboard)
-            tab(.send) { SendView(router: router) }
-            tab(.settings) { SettingsView(router: router) }
+            // Not built under the first-launch pages: out of VoiceOver's
+            // way, and nothing in them asks for anything meanwhile.
+            if onboarded {
+                tab(.days) { DaysView(router: router) }
+                    .ignoresSafeArea(.keyboard)
+                tab(.send) { SendView(router: router) }
+                tab(.settings) { SettingsView(router: router) }
+            }
 
-            if router.showsTabBar {
+            if router.showsTabBar, onboarded {
                 TabBar(selection: $router.tab, onReselect: { tab in
                     if tab == .days { router.daysReselected += 1 }
                 }, accessory: AnyView(RecordButton(router: router)))
@@ -65,13 +70,29 @@ struct RootView: View {
             }
         }
         .animation(.easeOut(duration: 0.2), value: router.showsTabBar)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.jBg)
+        .overlay {
+            if !onboarded {
+                OnboardingView {
+                    PhoneLog.shared.note("onboarding", "done")
+                    withAnimation(.easeOut(duration: 0.35)) { onboarded = true }
+                }
+                .transition(.opacity)
+            }
+        }
         .fullScreenCover(item: $router.live) {
             // Clear behind it, so pulling it down shows the app underneath.
             LiveView(id: $0.id).presentationBackground(.clear)
         }
-        // The lock-screen activity or the island was tapped: jotto://live/<id>.
         .onOpenURL { url in
+            // jotto://welcome: the first-launch pages again, to see them
+            // after updating from an earlier jotto.
+            if url.scheme == "jotto", url.host() == "welcome" {
+                withAnimation(.easeOut(duration: 0.35)) { onboarded = false }
+                return
+            }
+            // The lock-screen activity or the island was tapped: jotto://live/<id>.
             guard url.scheme == "jotto", url.host() == "live" else { return }
             let id = url.lastPathComponent
             if LocalStore.shared.recordings[id]?.endedAt == nil {

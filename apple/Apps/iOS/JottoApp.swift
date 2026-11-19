@@ -7,6 +7,8 @@ struct JottoApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        // Before anything writes to Documents: tells a first launch apart.
+        Onboarding.settle()
         // Start receiving from the watch and resume pending uploads at launch.
         MainActor.assumeIsolated { PhoneLog.shared.note("launch") }
         _ = Inbox.shared

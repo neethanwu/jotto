@@ -21,6 +21,11 @@ final class Inbox: NSObject {
     private(set) var items: [Item] = []
     private(set) var watchStatus = "connecting…"
 
+    /// Whether there's a watch to record on, and jotto on it. Unknown until
+    /// the session has activated; follows pairing and installs after that.
+    enum WatchApp { case unknown, noWatch, notInstalled, installed }
+    private(set) var watchApp = WatchApp.unknown
+
     /// Not Documents/Inbox: that one belongs to the system (files handed
     /// to the app, WatchConnectivity's own store), and an app can't write
     /// there on a device, so the log and the watch's files never landed.
@@ -182,10 +187,23 @@ extension Inbox: WCSessionDelegate {
     ) {
         let status = error?.localizedDescription
             ?? (session.isPaired ? (session.isWatchAppInstalled ? "watch app installed" : "watch app not installed") : "no paired watch")
+        let app = Self.watchApp(session, activated: activationState == .activated)
         Task { @MainActor in
             self.watchStatus = status
+            self.watchApp = app
             self.syncHistory()
         }
+    }
+
+    /// A watch was paired or unpaired, or jotto installed on it or removed.
+    nonisolated func sessionWatchStateDidChange(_ session: WCSession) {
+        let app = Self.watchApp(session, activated: session.activationState == .activated)
+        Task { @MainActor in self.watchApp = app }
+    }
+
+    private nonisolated static func watchApp(_ session: WCSession, activated: Bool) -> WatchApp {
+        guard activated else { return .unknown }
+        return session.isPaired ? (session.isWatchAppInstalled ? .installed : .notInstalled) : .noWatch
     }
 
     /// The file is deleted when this returns, so move it synchronously.

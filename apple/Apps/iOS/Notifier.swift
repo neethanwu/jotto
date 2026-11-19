@@ -27,8 +27,9 @@ final class Notifier: NSObject {
     /// while it's in the background, too late to ask then.
     /// From the Settings switch, a "no" given earlier sends you to iOS
     /// Settings, the only place it can be changed.
+    /// Not while the first-launch pages are up: they ask on their own page.
     func askIfNeeded(fromSwitch: Bool = false) async {
-        guard AppConfig.shared.notifiesWhenReady else { return }
+        guard AppConfig.shared.notifiesWhenReady, fromSwitch || Onboarding.isDone else { return }
         let settings = await center.notificationSettings()
         if fromSwitch, settings.authorizationStatus == .denied,
            let url = URL(string: UIApplication.openNotificationSettingsURLString) {
