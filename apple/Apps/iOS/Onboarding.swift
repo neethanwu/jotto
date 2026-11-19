@@ -241,11 +241,47 @@ struct OnboardingView: View {
                 .font(.scaled(17, .regular, relativeTo: .body))
                 .lineSpacing(3)
                 .foregroundStyle(Color.jText2)
+            if page == 1 {
+                watchStatus
+                    .padding(.top, 4)
+            }
         }
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 28)
         .padding(.top, 8)
+    }
+
+    /// Whether jotto is on the paired watch, as it is now, in plain words
+    /// beside the page's, not in the picture, which only acts things out.
+    private var watchStatus: some View {
+        HStack(spacing: 8) {
+            Group {
+                switch watchApp {
+                case .installed: Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.jText)
+                case .notInstalled: Image(systemName: "arrow.down.circle").foregroundStyle(Color.jText2)
+                case .noWatch: Image(systemName: "applewatch.slash").foregroundStyle(Color.jText2)
+                case .unknown: ProgressView().controlSize(.mini)
+                }
+            }
+            .font(.system(size: 15, weight: .semibold))
+            .frame(width: 18)
+            Text(watchStatusText)
+                .font(.scaled(15, .semibold, relativeTo: .subheadline))
+                .foregroundStyle(Color.jText)
+        }
+        .contentTransition(.opacity)
+        .animation(.easeOut(duration: 0.25), value: watchApp)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var watchStatusText: String {
+        switch watchApp {
+        case .installed: "jotto is on your Apple Watch"
+        case .notInstalled: "Not on your Apple Watch yet"
+        case .noWatch: "No Apple Watch paired"
+        case .unknown: "Looking for your Apple Watch"
+        }
     }
 
     // MARK: - Buttons
@@ -385,7 +421,7 @@ enum OnboardingColor {
     /// Behind a prompt on the lock screen.
     static let scrim = Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor.black.withAlphaComponent(0.45) : UIColor.black.withAlphaComponent(0.06) })
     /// The walk and the pin's ring on the Places map (`places_map.py`).
-    static let mapInk = pair(0x0A0A0A, 0xA6A4A1)
+    static let mapInk = pair(0x1F1E1C, 0xA6A4A1)
     static let mapTop = pair(0xFFFFFF, 0x1F1E1C)
     static let mapRing = pair(0xE3E1DE, 0x4C4A48)
     static let mapShadow = Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor.black.withAlphaComponent(0.55) : UIColor(hex: 0x0A0A0A).withAlphaComponent(0.12) })

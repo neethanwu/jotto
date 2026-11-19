@@ -100,13 +100,7 @@ private struct PromptArt: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("iOS will ask")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Color.jText2)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(OnboardingColor.paper, in: Capsule())
-                .overlay(Capsule().strokeBorder(OnboardingColor.outline, lineWidth: 1))
+            ArtTag(text: "iOS will ask")
             card
         }
     }
@@ -136,18 +130,42 @@ private struct PromptArt: View {
         }
         .padding(16)
         .frame(width: 300)
-        .background(OnboardingColor.paper, in: shape)
-        .overlay(shape.strokeBorder(OnboardingColor.outline, lineWidth: 1))
-        // Standing on a drawn shadow, the way the watch and the map do.
-        .background(
-            shape.fill(OnboardingColor.paperShade)
-                .overlay(shape.strokeBorder(OnboardingColor.outline, lineWidth: 1))
-                .offset(x: 5, y: 5)
-        )
+        .drawnCard(radius: 26)
+    }
+}
+
+/// The small outlined label over a drawn card, saying where what it shows
+/// happens ("iOS will ask", "In the Watch app"), so the card reads as a
+/// picture of something elsewhere.
+private struct ArtTag: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(Color.jText2)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(OnboardingColor.paper, in: Capsule())
+            .overlay(Capsule().strokeBorder(OnboardingColor.outline, lineWidth: 1))
     }
 }
 
 private extension View {
+    /// A card in the line art of the other figures: outlined, standing on
+    /// a drawn shadow the way the watch and the map do.
+    func drawnCard(radius: CGFloat) -> some View {
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        return background(OnboardingColor.paper, in: shape)
+            .overlay(shape.strokeBorder(OnboardingColor.outline, lineWidth: 1))
+            .background(
+                shape.fill(OnboardingColor.paperShade)
+                    .overlay(shape.strokeBorder(OnboardingColor.outline, lineWidth: 1))
+                    .offset(x: 5, y: 5)
+            )
+    }
+
+
     /// A prompt arriving and going the way iOS's do.
     func prompt(_ shown: Bool) -> some View {
         scaleEffect(shown ? 1 : 1.08).opacity(shown ? 1 : 0)
@@ -191,8 +209,9 @@ struct WelcomeScene: View {
             .animation(motion, value: shown)
 
             card
-                .padding(.horizontal, 20)
-                .padding(.bottom, 4)
+                .padding(.leading, 28)
+                .padding(.trailing, 33)
+                .padding(.bottom, 10)
                 .offset(y: shown && now != .rest ? 0 : 24)
                 .opacity(shown && now != .rest ? 1 : 0)
                 .animation(shown ? settle : motion, value: shown)
@@ -347,7 +366,8 @@ struct WatchScene: View {
                     .scaleEffect(450 / 402)
                     .frame(width: 450, height: 439)
             }
-            .offset(y: -12)
+            // Up, out of the way of a drawn card below.
+            .offset(y: state == .notInstalled || state == .noWatch ? -40 : -12)
             .rotation3DEffect(.degrees(before ? 32 : 0), axis: (x: 0.55, y: -1, z: 0), perspective: 0.5)
             .scaleEffect(before ? 0.9 : 1)
             .offset(x: page > 1 && !reduceMotion ? -48 : 0)
@@ -356,8 +376,9 @@ struct WatchScene: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             card
-                .padding(.horizontal, 20)
-                .padding(.bottom, 4)
+                .padding(.leading, 28)
+                .padding(.trailing, 33)
+                .padding(.bottom, 10)
                 .offset(y: shown || reduceMotion ? 0 : 24)
                 .opacity(shown ? 1 : 0)
                 .animation(shown ? later(0.3) : motion, value: page)
@@ -380,13 +401,23 @@ struct WatchScene: View {
         }
     }
 
+    /// Without jotto on the watch, what to do instead, drawn and tagged
+    /// with where it happens. Whether jotto is on the watch is said under
+    /// the page's words, not here: the picture only acts things out.
     @ViewBuilder
     private var card: some View {
         switch state {
-        case .installed: StatusCardArt(badge: .check, title: "jotto is on your Apple Watch", detail: "Paired and ready to record")
-        case .unknown: StatusCardArt(badge: .looking, title: "Looking for your Apple Watch", detail: "A moment")
-        case .notInstalled: installRow
-        case .noWatch: phoneRow
+        case .installed, .unknown: EmptyView()
+        case .notInstalled:
+            VStack(alignment: .leading, spacing: 8) {
+                ArtTag(text: "In the Watch app")
+                installRow
+            }
+        case .noWatch:
+            VStack(alignment: .leading, spacing: 8) {
+                ArtTag(text: "In jotto, on this iPhone")
+                phoneRow
+            }
         }
     }
 
@@ -410,7 +441,8 @@ struct WatchScene: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Color.jText)
                     .frame(width: 76, height: 30)
-                    .background(finger.pressed ? OnboardingColor.promptButtonDown : OnboardingColor.promptButton, in: Capsule())
+                    .background(finger.pressed ? OnboardingColor.promptButton : Color.clear, in: Capsule())
+                    .overlay(Capsule().strokeBorder(OnboardingColor.bezelLine, lineWidth: 1))
                     .opacity(install == 0 ? 1 : 0)
                 ZStack {
                     Circle().stroke(OnboardingColor.track, lineWidth: 2.5)
@@ -431,7 +463,7 @@ struct WatchScene: View {
         }
         .padding(.horizontal, 16)
         .frame(height: 64)
-        .floatingCard(radius: 20)
+        .drawnCard(radius: 20)
     }
 
     /// The record dot at the bottom of Days, on this iPhone.
@@ -460,7 +492,7 @@ struct WatchScene: View {
         }
         .padding(.horizontal, 16)
         .frame(height: 64)
-        .floatingCard(radius: 20)
+        .drawnCard(radius: 20)
     }
 
     private var phoneDetail: String {
@@ -808,46 +840,6 @@ private struct CheckArt: Shape {
     }
 }
 
-/// Under the watch: whether jotto is on it.
-private struct StatusCardArt: View {
-    enum Badge { case check, looking }
-    let badge: Badge
-    let title: String
-    let detail: String
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Group {
-                switch badge {
-                case .check:
-                    Circle().fill(Color.jText).overlay {
-                        CheckArt()
-                            .stroke(Color.jBg, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                            .frame(width: 11, height: 8)
-                    }
-                case .looking:
-                    ProgressView().controlSize(.small)
-                }
-            }
-            .frame(width: 32, height: 32)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.scaled(15, .semibold, relativeTo: .subheadline))
-                    .foregroundStyle(Color.jText)
-                Text(detail)
-                    .font(.scaled(13, .regular, relativeTo: .footnote))
-                    .foregroundStyle(Color.jText2)
-            }
-            .lineLimit(1)
-            .minimumScaleFactor(0.8)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 16)
-        .frame(height: 64)
-        .floatingCard(radius: 20)
-    }
-}
-
 // MARK: - 3 · Notifications
 
 /// A lock screen. iOS asks about notifications and Allow is tapped; then
@@ -995,6 +987,7 @@ struct PlacesScene: View {
     let reduceMotion: Bool
     let motion: Animation
 
+    @Environment(\.colorScheme) private var scheme
     @State private var pinIn = false
     @State private var cardIn = false
     @State private var firstPrompt = false
@@ -1067,6 +1060,10 @@ struct PlacesScene: View {
         .task(id: active) { await loop() }
     }
 
+    /// One unit of line in the map: thinner on white, as places_map.py
+    /// draws the light map's lines (LIGHT_LINE).
+    private var line: CGFloat { (scheme == .light ? 0.72 : 1) * Self.unit }
+
     /// The dotted walk drawing itself from the corner into the park, its
     /// head in orange, then its dots marching on towards the pin.
     private var walk: some View {
@@ -1085,7 +1082,7 @@ struct PlacesScene: View {
                             dash: [0.1, 4.6 * Self.unit], dashPhase: -since * 9))
                     Circle()
                         .fill(OnboardingColor.mapTop)
-                        .overlay(Circle().stroke(OnboardingColor.mapInk, lineWidth: Self.unit))
+                        .overlay(Circle().stroke(OnboardingColor.mapInk, lineWidth: line))
                         .frame(width: 6.4 * Self.unit, height: 6.4 * Self.unit)
                         .position(points[0])
                     Circle()
@@ -1119,7 +1116,7 @@ struct PlacesScene: View {
                     .opacity(active && pin ? 1 : 0)
                 }
                 Ellipse()
-                    .stroke(OnboardingColor.mapRing, lineWidth: 0.8 * Self.unit)
+                    .stroke(OnboardingColor.mapRing, lineWidth: 0.8 * line)
                     .frame(width: 24 * Self.unit, height: 13.2 * Self.unit)
                 Ellipse()
                     .fill(OnboardingColor.mapShadow)

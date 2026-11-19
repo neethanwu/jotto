@@ -8,10 +8,10 @@ pin alone on the same canvas; "route" prints the route's points as
 fractions of the canvas. They go to apple/Apps/iOS/Assets.xcassets/PlacesMap
 and PlacesPin. "base" (everything but the pin) and "all" are for looking at.
 """
-import math, sys
+import math, re, sys
 DARK = len(sys.argv) > 1 and sys.argv[1] == 'dark'
 MODE = sys.argv[2] if len(sys.argv) > 2 else 'all'
-L = dict(top='#FFFFFF', left='#F5F3F1', right='#E8E6E3', ink='#0A0A0A', tick='#A6A4A1', faint='#E3E1DE',
+L = dict(top='#FFFFFF', left='#F5F3F1', right='#E8E6E3', ink='#1F1E1C', tick='#A6A4A1', faint='#E3E1DE',
          road='#F5F3F1', park='#FBFAF7', winL='#E9E7E3', winR='#DDDBD7', door='#82807D', shadow='#E8E6E3', bg='#FFFFFF')
 D = dict(top='#1F1E1C', left='#161514', right='#0F0E0D', ink='#A6A4A1', tick='#4C4A48', faint='#2A2927',
          road='#161514', park='#232220', winL='#22211F', winR='#191817', door='#656360', shadow='#141312', bg='#0A0A0A')
@@ -183,8 +183,8 @@ for s in [(234, 209), (250, 221.5), (241, 233), (204, 249), (226, 246), (262, 23
 # ---- pin with a ring on the ground
 x, y = pt(*PIN)
 pin = [ell((x, y), 12, 6.6, 'none', P['faint'] if not DARK else P['tick'], 0.8), ell((x, y), 8, 4.4, '#000000' if DARK else P['ink'], op=0.55 if DARK else 0.12),
-       f'<path d="M{x},{y} C{x-4},{y-14} {x-16},{y-22} {x-16},{y-36} A16,16 0 1 1 {x+16},{y-36} C{x+16},{y-22} {x+4},{y-14} {x},{y} Z" fill="{ORANGE}" stroke="{P["ink"] if DARK else "#0A0A0A"}" stroke-width="1" stroke-linejoin="round"/>',
-       dot((x, y - 36), 5.5, '#FFFFFF', P['ink'] if DARK else '#0A0A0A', 1)]
+       f'<path d="M{x},{y} C{x-4},{y-14} {x-16},{y-22} {x-16},{y-36} A16,16 0 1 1 {x+16},{y-36} C{x+16},{y-22} {x+4},{y-14} {x},{y} Z" fill="{ORANGE}" stroke="{P["ink"]}" stroke-width="1" stroke-linejoin="round"/>',
+       dot((x, y - 36), 5.5, '#FFFFFF', P['ink'], 1)]
 if MODE == 'all': add(PIN[0] + PIN[1] + 0.01, pin)
 elif MODE in ('base', 'ontop'): add(PIN[0] + PIN[1] + 0.01, pin[:2])
 for _, parts in sorted(items, key=lambda t: t[0]):
@@ -193,4 +193,10 @@ if MODE == 'pin': out = pin[2:]
 if MODE == 'ontop': out += ontop
 svg = (f'<svg width="402" height="392" viewBox="36 32 330 322" xmlns="http://www.w3.org/2000/svg">'
        + ''.join(out) + '</svg>')
+# On white, full-width ink reads heavier than the same lines in the dark
+# theme: light lines are drawn at LIGHT_LINE of their width (about 1 pt on
+# screen, as the watch's outlines are).
+LIGHT_LINE = 0.72
+if not DARK:
+    svg = re.sub(r'stroke-width="([\d.]+)"', lambda m: f'stroke-width="{float(m.group(1)) * LIGHT_LINE:.2f}"', svg)
 print(svg)
