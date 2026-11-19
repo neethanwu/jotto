@@ -26,6 +26,8 @@ struct TranscriptView: View {
     @State private var shifts: [Tab: CGFloat] = [:]
     /// A sideways swipe holds the page still: no scrolling until it lets go.
     @State private var swiping = false
+    /// The page a sideways swipe is heading for, while there is one.
+    @State private var toward: Tab?
     /// True while a finger is on the page; a swipe the system cancels never
     /// gets its end, so this is what lets the page scroll again.
     @GestureState private var touching = false
@@ -506,6 +508,8 @@ struct TranscriptView: View {
         let order = tabs(detail)
         let i = order.firstIndex(of: shown) ?? 0
         let n = dx < 0 ? i + 1 : i - 1
+        let heading = order.indices.contains(n) ? order[n] : nil
+        if toward != heading { toward = heading }
         if order.indices.contains(n) {
             slide = dx
         } else {
@@ -673,7 +677,7 @@ struct TranscriptView: View {
         let here = order.firstIndex(of: shown) ?? 0
         return SlidingPages(slide: $slide, here: here, width: pageWidth) {
             ForEach(order, id: \.self) { t in
-                pageIfNeeded(detail, t, order: order)
+                pageIfNeeded(detail, t)
                     .padding(.horizontal, 20)
                     .offset(y: t == shown ? 0 : shifts[t] ?? 0)
                     .allowsHitTesting(t == shown)
@@ -682,16 +686,17 @@ struct TranscriptView: View {
         }
     }
 
-    /// Highlights only while it's the page, or the one coming or going.
-    /// Off to the side it was still drawn again on every frame of a slide,
-    /// a scroll or the title opening for a rename, wherever its text moved
-    /// on the screen: a couple of dozen paragraphs each time, which made
-    /// long recordings with highlights drag. The text pages draw once and
-    /// stay drawn, so they stay.
+    /// Highlights only while it's the page, or the one a swipe is heading
+    /// for. Off to the side it was still drawn again on every frame of a
+    /// slide, a scroll or the title opening for a rename, wherever its text
+    /// moved on the screen: a couple of dozen paragraphs each time, which
+    /// made long recordings with highlights drag. Built for any swipe from
+    /// Original, it was laid out from scratch on the way back to Formatted
+    /// too, the other way, and caught as the pages started to move. The
+    /// text pages draw once and stay drawn, so they stay.
     @ViewBuilder
-    private func pageIfNeeded(_ detail: SessionDetail, _ t: Tab, order: [Tab]) -> some View {
-        let distance = abs((order.firstIndex(of: t) ?? 0) - (order.firstIndex(of: shown) ?? 0))
-        if t != .highlights || t == shown || t == tab || (swiping && distance == 1) {
+    private func pageIfNeeded(_ detail: SessionDetail, _ t: Tab) -> some View {
+        if t != .highlights || t == shown || t == tab || (swiping && toward == t) {
             page(detail, t)
         } else {
             Color.clear.frame(height: 0)
