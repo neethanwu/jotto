@@ -88,8 +88,10 @@ private func lift(_ finger: Binding<FingerState>, away: Bool = true) {
 
 // MARK: - iOS prompts
 
-/// iOS's permission prompt, small, as it looks on this iPhone: the title
-/// and its buttons, side by side or stacked.
+/// iOS's permission prompt, drawn rather than copied: the same words and
+/// buttons, but in the line art of the other figures (an outlined card
+/// standing on its shadow, outlined buttons) and tagged "iOS will ask", so
+/// it reads as a picture of what's coming, not something to tap.
 private struct PromptArt: View {
     let title: String
     let buttons: [String]
@@ -97,9 +99,23 @@ private struct PromptArt: View {
     var finger: FingerState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("iOS will ask")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color.jText2)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(OnboardingColor.paper, in: Capsule())
+                .overlay(Capsule().strokeBorder(OnboardingColor.outline, lineWidth: 1))
+            card
+        }
+    }
+
+    private var card: some View {
+        let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
+        return VStack(alignment: .leading, spacing: 14) {
             Text(title)
-                .font(.system(size: 17, weight: .semibold))
+                .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(Color.jText)
                 .fixedSize(horizontal: false, vertical: true)
             let layout = stacked ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 10))
@@ -107,21 +123,27 @@ private struct PromptArt: View {
                 ForEach(buttons, id: \.self) { button in
                     let down = finger.pressed && finger.at == button
                     Text(button)
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(Color.jText)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .background(down ? OnboardingColor.promptButtonDown : OnboardingColor.promptButton, in: Capsule())
+                        .frame(maxWidth: .infinity, minHeight: 40)
+                        .background(down ? OnboardingColor.promptButton : Color.clear, in: Capsule())
+                        .overlay(Capsule().strokeBorder(OnboardingColor.bezelLine, lineWidth: 1))
                         .tapTarget(button, at: UnitPoint(x: 0.9, y: 0.66))
                 }
             }
         }
-        .padding(18)
-        .frame(width: 314)
-        .background(OnboardingColor.prompt, in: RoundedRectangle(cornerRadius: 32, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 32, style: .continuous).strokeBorder(OnboardingColor.cardLine, lineWidth: 1))
-        .shadow(color: OnboardingColor.shadow.opacity(0.16), radius: 24, y: 12)
+        .padding(16)
+        .frame(width: 300)
+        .background(OnboardingColor.paper, in: shape)
+        .overlay(shape.strokeBorder(OnboardingColor.outline, lineWidth: 1))
+        // Standing on a drawn shadow, the way the watch and the map do.
+        .background(
+            shape.fill(OnboardingColor.paperShade)
+                .overlay(shape.strokeBorder(OnboardingColor.outline, lineWidth: 1))
+                .offset(x: 5, y: 5)
+        )
     }
 }
 
@@ -895,7 +917,7 @@ struct LockScene: View {
             PromptArt(title: "“jotto” Would Like to Send You Notifications",
                       buttons: ["Don’t Allow", "Allow"], finger: finger)
                 .prompt(promptIn)
-                .padding(.top, 128)
+                .padding(.top, 104)
         }
         .fingertip(finger, on: shown)
         .offset(x: page < 2 && !reduceMotion ? 48 : 0)

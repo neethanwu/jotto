@@ -92,10 +92,19 @@ struct OnboardingView: View {
         .onChange(of: scenePhase) { _, now in
             if now == .active { Task { await readNotifications() } }
         }
-        // iOS answered the location prompt (Always is offered afterwards,
-        // over Days).
+        // iOS answered the location prompts. With While Using it asks
+        // about Always straight after, over these pages, and only Always
+        // is heard back: then they close. Otherwise they stay, and the
+        // button has become Continue.
         .onChange(of: places.permission) { _, now in
-            if waitingForPlaces, now != .notDetermined { finish() }
+            guard waitingForPlaces, now != .notDetermined, now != .authorizedWhenInUse else { return }
+            waitingForPlaces = false
+            if now == .authorizedAlways {
+                Task {
+                    try? await Task.sleep(for: .seconds(0.5))
+                    if page == Self.pages - 1 { finish() }
+                }
+            }
         }
     }
 
@@ -303,6 +312,8 @@ struct OnboardingView: View {
             Task {
                 let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])) ?? false
                 PhoneLog.shared.note("notify_permission", granted ? "granted" : "denied")
+                // Settings → Notify when ready shows what was chosen.
+                AppConfig.shared.notifiesWhenReady = granted
                 await readNotifications()
                 next()
             }
@@ -325,7 +336,11 @@ struct OnboardingView: View {
     }
 
     private func secondary() {
-        if page == 2 { PhoneLog.shared.note("onboarding", "notifications not now") }
+        if page == 2 {
+            PhoneLog.shared.note("onboarding", "notifications not now")
+            // Off until it's turned on in Settings, which asks then.
+            if notifications != .authorized { AppConfig.shared.notifiesWhenReady = false }
+        }
         if page == 3 { PhoneLog.shared.note("onboarding", "places not now") }
         next()
     }

@@ -23,13 +23,11 @@ final class Notifier: NSObject {
         center.delegate = self
     }
 
-    /// Asks once, the first time the app is in front: recordings arrive
-    /// while it's in the background, too late to ask then.
-    /// From the Settings switch, a "no" given earlier sends you to iOS
-    /// Settings, the only place it can be changed.
-    /// Not while the first-launch pages are up: they ask on their own page.
+    /// From the Settings switch: asks, or, after a "no" given earlier, opens
+    /// iOS Settings, the only place it can be changed. The first-launch
+    /// pages ask on their own page, so nothing else asks.
     func askIfNeeded(fromSwitch: Bool = false) async {
-        guard AppConfig.shared.notifiesWhenReady, fromSwitch || Onboarding.isDone else { return }
+        guard AppConfig.shared.notifiesWhenReady, fromSwitch else { return }
         let settings = await center.notificationSettings()
         if fromSwitch, settings.authorizationStatus == .denied,
            let url = URL(string: UIApplication.openNotificationSettingsURLString) {
