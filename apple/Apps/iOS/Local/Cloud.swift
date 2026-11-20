@@ -97,18 +97,21 @@ enum Cloud {
     static let defaultCompatibleTranscribeModel = "gpt-transcribe"
     static let defaultCompatibleWriteModel = "gpt-6-luna"
 
-    /// On SiliconFlow (China mainland): SenseVoice and TeleSpeech hear
-    /// the audio, through the same transcription request as Whisper's.
+    /// On SiliconFlow (China mainland), through the same transcription
+    /// request as Whisper's. Tried in November 2026 on English and on
+    /// Chinese with English words: Qwen3-ASR kept the punctuation and the
+    /// English best; XingChen gives times; SenseVoice is the smallest.
     static let siliconFlowTranscribeModels: [Suggestion] = [
+        .init(id: "Qwen/Qwen3-ASR-1.7B", name: "Qwen3-ASR 1.7B"),
+        .init(id: "XingChenAGI/XingChenASR-V3.2", name: "XingChen ASR V3.2"),
         .init(id: "FunAudioLLM/SenseVoiceSmall", name: "SenseVoice Small"),
-        .init(id: "TeleAI/TeleSpeechASR", name: "TeleSpeech ASR"),
     ]
     static let siliconFlowWriteModels: [Suggestion] = [
         .init(id: "deepseek-ai/DeepSeek-V4-Flash", name: "DeepSeek V4 Flash"),
-        .init(id: "Pro/deepseek-ai/DeepSeek-V4", name: "DeepSeek V4"),
-        .init(id: "Pro/zai-org/GLM-5.2", name: "GLM-5.2"),
+        .init(id: "deepseek-ai/DeepSeek-V4-Pro", name: "DeepSeek V4 Pro"),
+        .init(id: "zai-org/GLM-5.3", name: "GLM-5.3"),
     ]
-    static let defaultSiliconFlowTranscribeModel = "FunAudioLLM/SenseVoiceSmall"
+    static let defaultSiliconFlowTranscribeModel = "Qwen/Qwen3-ASR-1.7B"
     static let defaultSiliconFlowWriteModel = "deepseek-ai/DeepSeek-V4-Flash"
     static let siliconFlowBase = "https://api.siliconflow.cn/v1"
 
@@ -427,7 +430,14 @@ enum Cloud {
                 body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
                 request.httpBody = body
                 do {
-                    answer = try await send(request)
+                    let got = try await send(request)
+                    // Some answer an option they don't take with nothing
+                    // at all (Qwen3-ASR on SiliconFlow, to verbose_json).
+                    guard (try? JSONDecoder().decode(Transcription.self, from: got)) != nil else {
+                        last = Failure.unreadable
+                        continue
+                    }
+                    answer = got
                     break
                 } catch let Failure.refused(why) {
                     last = Failure.refused(why)
