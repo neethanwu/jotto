@@ -161,7 +161,7 @@ private extension View {
             .background(
                 shape.fill(OnboardingColor.paperShade)
                     .overlay(shape.strokeBorder(OnboardingColor.outline, lineWidth: 1))
-                    .offset(x: 5, y: 5)
+                    .offset(x: 3, y: 3)
             )
     }
 
@@ -210,7 +210,7 @@ struct WelcomeScene: View {
 
             card
                 .padding(.leading, 28)
-                .padding(.trailing, 33)
+                .padding(.trailing, 31)
                 .padding(.bottom, 10)
                 .offset(y: shown && now != .rest ? 0 : 24)
                 .opacity(shown && now != .rest ? 1 : 0)
@@ -377,7 +377,7 @@ struct WatchScene: View {
 
             card
                 .padding(.leading, 28)
-                .padding(.trailing, 33)
+                .padding(.trailing, 31)
                 .padding(.bottom, 10)
                 .offset(y: shown || reduceMotion ? 0 : 24)
                 .opacity(shown ? 1 : 0)
@@ -661,12 +661,20 @@ private struct FrontWatch: View {
             .offset(x: x, y: y)
     }
 
+    /// The time now, as the watch shows it, so it agrees with the lock
+    /// screen on the next page and the status bar.
+    private static func watchTime(_ date: Date) -> String {
+        date.formatted(.dateTime.hour(.defaultDigits(amPM: .omitted)).minute(.twoDigits))
+    }
+
     private var clock: some View {
-        Text("9:41")
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(Color.ink50)
-            .frame(width: 60, alignment: .trailing)
-            .position(x: 241, y: 107.5)
+        TimelineView(.everyMinute) { context in
+            Text(Self.watchTime(context.date))
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color.ink50)
+                .frame(width: 60, alignment: .trailing)
+                .position(x: 241, y: 107.5)
+        }
     }
 
     private var home: some View {
@@ -783,14 +791,20 @@ private struct FrontWatch: View {
     }
 
     private var plainFace: some View {
+        TimelineView(.everyMinute) { context in
+            plainFace(at: context.date)
+        }
+    }
+
+    private func plainFace(at date: Date) -> some View {
         ZStack(alignment: .topLeading) {
-            Text("THU 19")
+            Text(date.formatted(.dateTime.weekday(.abbreviated).day()).uppercased())
                 .font(.system(size: 12, weight: .semibold))
                 .tracking(0.6)
                 .foregroundStyle(Color.ink400)
                 .fixedSize()
                 .position(x: 201, y: 163.5)
-            Text("9:41")
+            Text(Self.watchTime(date))
                 .font(.system(size: 56, weight: .light))
                 .tracking(-1.5)
                 .foregroundStyle(Color.ink50)
