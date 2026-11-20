@@ -151,17 +151,24 @@ private struct ArtTag: View {
     }
 }
 
+/// How far the sheet under a drawn card sits down and to the right.
+private let drawnSheetOffset: CGFloat = 3
+
 private extension View {
     /// A card in the line art of the other figures: outlined, standing on
     /// a drawn shadow the way the watch and the map do.
     func drawnCard(radius: CGFloat) -> some View {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        // The sheet under it is rounded by as much more as it's moved, so
+        // the gap between the two is as wide round the corner as along the
+        // sides; with the same radius it swells at the corner.
+        let sheet = RoundedRectangle(cornerRadius: radius + drawnSheetOffset, style: .continuous)
         return background(OnboardingColor.paper, in: shape)
             .overlay(shape.strokeBorder(OnboardingColor.outline, lineWidth: 1))
             .background(
-                shape.fill(OnboardingColor.paperShade)
-                    .overlay(shape.strokeBorder(OnboardingColor.outline, lineWidth: 1))
-                    .offset(x: 3, y: 3)
+                sheet.fill(OnboardingColor.paperShade)
+                    .overlay(sheet.strokeBorder(OnboardingColor.outline, lineWidth: 1))
+                    .offset(x: drawnSheetOffset, y: drawnSheetOffset)
             )
     }
 
