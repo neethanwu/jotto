@@ -1,6 +1,6 @@
 # jotto privacy policy
 
-Last updated 17 November 2026.
+Last updated 20 November 2026.
 
 jotto is a recorder for Apple Watch and iPhone, published by Hallidai Inc. This policy covers the jotto apps.
 
@@ -28,13 +28,22 @@ Nothing is sent anywhere for this.
 
 **The optional Qwen3-ASR model.** If you choose to download it, your iPhone fetches the model files through the App Store, the way it fetches an app. If the App Store can't supply them, and in versions built from the source, they come from Hugging Face (huggingface.co) instead; as with any download, Hugging Face then sees your IP address. The model runs on your iPhone; no audio or text is sent to anyone.
 
-**Your own API key, if you turn it on.** You can choose to have a cloud service do the work instead: OpenRouter, or any OpenAI-compatible service whose address you enter; from the App Store in China mainland, SiliconFlow, or another service that operates there whose address you enter. While this is on:
+**Your own API key, if you turn it on.** You can choose to have a cloud service you've signed up with do the work instead, with your own key. Which services jotto offers depends on the country of your App Store (see [Where you are](#where-you-are)). While this is on:
 
 - the audio of your recordings and the text of your transcripts go straight from your iPhone to that service, to be transcribed, titled and formatted;
 - the service handles them under its own terms and privacy policy, which you agreed to when you got the key;
 - your key is kept in the iPhone's Keychain and is sent only to that service.
 
 We are not in the middle of this, and we never see your key, your audio or your text. Turn it off in Settings → Processing and everything is done on your iPhone again.
+
+## Where you are
+
+jotto works the same everywhere, except for which cloud services "Your own API key" offers. jotto goes by the country of the App Store your iPhone uses.
+
+- **In China mainland:** SiliconFlow (硅基流动), or another model service that operates in China mainland, at an address you enter. Only those services' own models are suggested.
+- **Everywhere else:** OpenRouter, or another service that takes the same requests, at an address you enter.
+
+Either way, jotto itself provides no AI service: transcription and writing happen on your iPhone unless you turn on your own key, and then only with the service you chose.
 
 ## Places
 
