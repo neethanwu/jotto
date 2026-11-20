@@ -539,7 +539,16 @@ enum Cloud {
         }
         if json { body["response_format"] = ["type": "json_object"] }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let data = try await send(request)
+        let data: Data
+        do {
+            data = try await send(request)
+        } catch Failure.refused where json {
+            // Some models turn down JSON mode (GLM on SiliconFlow): the
+            // prompt asks for JSON anyway, so ask again without it.
+            body["response_format"] = nil
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            data = try await send(request)
+        }
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let choices = object["choices"] as? [[String: Any]],
               let message = choices.first?["message"] as? [String: Any],
