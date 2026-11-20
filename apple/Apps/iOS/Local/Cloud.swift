@@ -446,9 +446,6 @@ enum Cloud {
             guard let answer else { throw last }
             data = answer
         }
-        #if DEBUG
-        try? data.write(to: URL.temporaryDirectory.appending(path: "last-cloud-asr.json"))
-        #endif
         guard let t = try? JSONDecoder().decode(Transcription.self, from: data) else { throw Failure.unreadable }
         var out = phrases(t, duration: duration)
         // Text without times: spread it over the speech in the audio, as
