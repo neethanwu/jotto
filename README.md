@@ -20,12 +20,10 @@
 </p>
 
 <p align="center">
-  <img src=".github/readme/01-recorder.jpg" width="32%" alt="The watch recording, and the words already on the iPhone">
-  <img src=".github/readme/02-talk.jpg" width="32%" alt="Live: the timer, the record dot and the latest words">
-  <img src=".github/readme/03-clean.jpg" width="32%" alt="A transcript, original view with the fillers struck through">
-  <img src=".github/readme/04-mark.jpg" width="32%" alt="Highlights, starred from the watch">
-  <img src=".github/readme/05-send.jpg" width="32%" alt="Send: jotto writes it down, your own agent does the rest">
-  <img src=".github/readme/06-private.jpg" width="32%" alt="Processing: on this iPhone or with your own API key">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/readme/record-dark.avif">
+    <img src=".github/readme/record-light.avif" width="728" alt="Tap the dot on the watch and a recording opens on the iPhone. The words arrive as they're said, a star marks the moment, and when it stops the recording gets a title.">
+  </picture>
 </p>
 
 jotto turns the Apple Watch you already have into an everyday recorder. There's no new gadget to buy and nothing to set up: tap the dot on your wrist and talk. Your iPhone turns what it hears into clean text, names the recording, and keeps it ready to search, highlight and send on. There is no account and no server. Everything runs on your devices, unless you choose to bring your own API key.
@@ -33,6 +31,18 @@ jotto turns the Apple Watch you already have into an everyday recorder. There's 
 jotto is free, and this repository is its full source.
 
 ## What it does
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/readme/clean-dark.webp">
+    <img src=".github/readme/clean-light.webp" width="358" alt="A transcript in Original: every word kept, the fillers struck through.">
+  </picture>
+  &nbsp;
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/readme/send-dark.webp">
+    <img src=".github/readme/send-light.webp" width="358" alt="Send, with the template To-dos for my agent: the instruction first, then the transcript as Markdown.">
+  </picture>
+</p>
 
 - **Records from your wrist.** Tap the dot in the watch app (a complication gets you there in one tap), or press the Action Button. The watch keeps recording with its screen off, in parts of about a minute cut at a pause, and sends them to your iPhone, where they're heard while jotto is running and otherwise when the watch wakes it: when you look at the recording and when you stop. When the phone is out of reach, the parts wait on the watch and go over later. No watch on? Record on the iPhone itself.
 - **Notes where you were, and keeps up as you talk.** Turn on Places and each recording keeps the place it was made, and the places it moved to. Following location also keeps jotto running on the iPhone while the watch records, so the text arrives as you go. Places stay on the iPhone and go with a recording only when you add them.
