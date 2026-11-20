@@ -90,6 +90,13 @@ final class AppConfig {
     var siliconFlowWriteModel: String {
         didSet { UserDefaults.standard.set(siliconFlowWriteModel, forKey: "siliconFlowWriteModel") }
     }
+    /// And on Alibaba Cloud's Bailian, also from the App Store in China mainland.
+    var bailianTranscribeModel: String {
+        didSet { UserDefaults.standard.set(bailianTranscribeModel, forKey: "bailianTranscribeModel") }
+    }
+    var bailianWriteModel: String {
+        didSet { UserDefaults.standard.set(bailianWriteModel, forKey: "bailianWriteModel") }
+    }
 
     private init() {
         let defaults = UserDefaults.standard
@@ -103,6 +110,8 @@ final class AppConfig {
         compatibleWriteModel = defaults.string(forKey: "compatibleWriteModel") ?? Cloud.defaultCompatibleWriteModel
         siliconFlowTranscribeModel = defaults.string(forKey: "siliconFlowTranscribeModel") ?? Cloud.defaultSiliconFlowTranscribeModel
         siliconFlowWriteModel = defaults.string(forKey: "siliconFlowWriteModel") ?? Cloud.defaultSiliconFlowWriteModel
+        bailianTranscribeModel = defaults.string(forKey: "bailianTranscribeModel") ?? Cloud.defaultBailianTranscribeModel
+        bailianWriteModel = defaults.string(forKey: "bailianWriteModel") ?? Cloud.defaultBailianWriteModel
         // Before 2026-11-11 there was one language, or Automatic (none).
         mixesLanguages = defaults.bool(forKey: "mixesLanguages")
         languages = defaults.stringArray(forKey: "transcriptionLocales")

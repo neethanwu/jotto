@@ -4,7 +4,7 @@ import StoreKit
 
 /// Which country's App Store this iPhone gets its apps from. From the
 /// App Store in China mainland, "Your own API key" offers only services
-/// that operate there (SiliconFlow, or another at an address you enter),
+/// that operate there (Bailian, SiliconFlow, or another at an address you enter),
 /// and jotto names no service from elsewhere. Everything on this iPhone
 /// works the same there.
 @MainActor @Observable

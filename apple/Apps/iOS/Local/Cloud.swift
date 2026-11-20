@@ -6,16 +6,17 @@ import Security
 /// service the person pays for, instead of the models on this iPhone.
 /// OpenRouter by default (one key for everything); any service with the
 /// OpenAI API shape otherwise, at its address. From the App Store in China
-/// mainland, SiliconFlow takes OpenRouter's place, and only services that
-/// operate there are suggested (`StoreRegion`). The key lives in the
+/// mainland, Alibaba Cloud's Bailian and SiliconFlow take OpenRouter's
+/// place, and only services that operate there are suggested (`StoreRegion`). The key lives in the
 /// Keychain, and audio goes from the phone straight to that service.
 enum Cloud {
     enum Service: String, CaseIterable, Identifiable {
-        case openRouter, siliconFlow, compatible
+        case openRouter, bailian, siliconFlow, compatible
         var id: String { rawValue }
         var name: String {
             switch self {
             case .openRouter: "OpenRouter"
+            case .bailian: "Bailian"
             case .siliconFlow: "SiliconFlow"
             case .compatible: "Other service"
             }
@@ -23,9 +24,10 @@ enum Cloud {
     }
 
     /// The services to choose from where this iPhone's App Store is: one
-    /// with a key for everything, and one at an address you enter.
+    /// with a key for everything (two in China mainland), and one at an
+    /// address you enter.
     @MainActor static var services: [Service] {
-        StoreRegion.shared.isChinaMainland ? [.siliconFlow, .compatible] : [.openRouter, .compatible]
+        StoreRegion.shared.isChinaMainland ? [.bailian, .siliconFlow, .compatible] : [.openRouter, .compatible]
     }
 
     /// The service picked, or the store's own where it isn't offered.
@@ -115,6 +117,24 @@ enum Cloud {
     static let defaultSiliconFlowWriteModel = "deepseek-ai/DeepSeek-V4-Flash"
     static let siliconFlowBase = "https://api.siliconflow.cn/v1"
 
+    /// On Alibaba Cloud's Bailian (China mainland). Qwen3-ASR Flash is
+    /// the full Qwen3-ASR, not the 0.6B that runs on this iPhone; it takes
+    /// audio in a chat request rather than a transcription one, and gives
+    /// text without times. Qwen Plus and Flash answer without thinking
+    /// first unless asked to.
+    static let bailianTranscribeModels: [Suggestion] = [
+        .init(id: "qwen3-asr-flash", name: "Qwen3-ASR Flash"),
+    ]
+    static let bailianWriteModels: [Suggestion] = [
+        .init(id: "qwen-plus", name: "Qwen Plus"),
+        .init(id: "qwen-flash", name: "Qwen Flash"),
+        .init(id: "deepseek-v3.2", name: "DeepSeek V3.2"),
+    ]
+    static let defaultBailianTranscribeModel = "qwen3-asr-flash"
+    static let defaultBailianWriteModel = "qwen-plus"
+    /// The shared address, which takes a key from any workspace.
+    static let bailianBase = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
     /// At an address, in China mainland: services that operate there.
     /// DeepSeek's and Alibaba Cloud's own write; neither takes audio in
     /// the transcription request, so transcription is typed in.
@@ -157,6 +177,7 @@ enum Cloud {
     @MainActor static func suggestions(_ slot: ModelSlot) -> [Suggestion] {
         switch service {
         case .openRouter: return slot == .transcribe ? transcribeModels : writeModels
+        case .bailian: return slot == .transcribe ? bailianTranscribeModels : bailianWriteModels
         case .siliconFlow: return slot == .transcribe ? siliconFlowTranscribeModels : siliconFlowWriteModels
         case .compatible: break
         }
@@ -169,6 +190,7 @@ enum Cloud {
     @MainActor static var transcribeModel: String {
         switch service {
         case .openRouter: config.transcribeModel
+        case .bailian: config.bailianTranscribeModel
         case .siliconFlow: config.siliconFlowTranscribeModel
         case .compatible: config.compatibleTranscribeModel
         }
@@ -176,6 +198,7 @@ enum Cloud {
     @MainActor static var writeModel: String {
         switch service {
         case .openRouter: config.writeModel
+        case .bailian: config.bailianWriteModel
         case .siliconFlow: config.siliconFlowWriteModel
         case .compatible: config.compatibleWriteModel
         }
@@ -185,6 +208,8 @@ enum Cloud {
         switch (service, slot) {
         case (.openRouter, .transcribe): config.transcribeModel = model
         case (.openRouter, .write): config.writeModel = model
+        case (.bailian, .transcribe): config.bailianTranscribeModel = model
+        case (.bailian, .write): config.bailianWriteModel = model
         case (.siliconFlow, .transcribe): config.siliconFlowTranscribeModel = model
         case (.siliconFlow, .write): config.siliconFlowWriteModel = model
         case (.compatible, .transcribe): config.compatibleTranscribeModel = model
@@ -235,6 +260,7 @@ enum Cloud {
     @MainActor static func baseURL(for service: Service) -> URL? {
         switch service {
         case .openRouter: URL(string: "https://openrouter.ai/api/v1")
+        case .bailian: URL(string: bailianBase)
         case .siliconFlow: URL(string: siliconFlowBase)
         case .compatible:
             URL(string: config.cloudBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -273,6 +299,9 @@ enum Cloud {
         /// OpenRouter, picked or at its address under Other service: its
         /// requests take audio as JSON, and a reasoning setting of its own.
         var isOpenRouter: Bool { service == .openRouter || base.host()?.lowercased().hasSuffix("openrouter.ai") == true }
+        /// Alibaba Cloud's, picked or at its address: Qwen3-ASR there hears
+        /// audio sent in a chat request, and models that can think are told not to.
+        var isBailian: Bool { service == .bailian || Cloud.provider(of: base.absoluteString) == "Alibaba Cloud" }
     }
 
     @MainActor private static func endpoint() throws -> Endpoint {
@@ -319,6 +348,7 @@ enum Cloud {
     static func check(key: String, service: Service, base: String) async -> Check {
         let address = switch service {
         case .openRouter: "https://openrouter.ai/api/v1/key"
+        case .bailian: bailianBase + "/models"
         case .siliconFlow: siliconFlowBase + "/models"
         // OpenRouter's list of models is open to anyone: its key check instead.
         case .compatible: base.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
@@ -374,7 +404,10 @@ enum Cloud {
         let model = transcribeModel
         let address = endpoint.base.appending(path: "audio/transcriptions")
         let data: Data
-        if endpoint.isOpenRouter {
+        if endpoint.isBailian, model.lowercased().contains("asr") {
+            let t = try await transcribeInChat(url, model: model, endpoint: endpoint)
+            return (try await spread(phrases(t, duration: duration), url: url), t.language)
+        } else if endpoint.isOpenRouter {
             let wav = wavOnly.contains(model)
             let audio = try await Task.detached { try wav ? Self.wav(from: url) : Data(contentsOf: url) }.value
             let base: [String: Any] = ["model": model, "input_audio": ["data": audio.base64EncodedString(), "format": wav ? "wav" : "m4a"]]
@@ -447,20 +480,51 @@ enum Cloud {
             data = answer
         }
         guard let t = try? JSONDecoder().decode(Transcription.self, from: data) else { throw Failure.unreadable }
-        var out = phrases(t, duration: duration)
-        // Text without times: spread it over the speech in the audio, as
-        // with Qwen3-ASR, so playback still follows it sentence by sentence.
-        if t.segments?.isEmpty ?? true, t.words?.isEmpty ?? true, !out.isEmpty {
-            let text = out.map(\.text).joined(separator: " ")
-            if let spread = try? await Task.detached(operation: { () throws -> [Phrase] in
-                let samples = try QwenTranscriber.load(url)
-                let energy = QwenASR.frameEnergy(samples, hop: QwenASR.sampleRate / 100)
-                return QwenTranscriber.timed(text, energy: energy, offset: 0)
-            }).value, !spread.isEmpty {
-                out = spread
-            }
-        }
-        return (out, t.language)
+        let out = phrases(t, duration: duration)
+        let timed = !(t.segments?.isEmpty ?? true) || !(t.words?.isEmpty ?? true)
+        return (timed ? out : try await spread(out, url: url), t.language)
+    }
+
+    /// Text without times, as one phrase: spread over the speech in the
+    /// audio, as with Qwen3-ASR on this iPhone, so playback still follows
+    /// it sentence by sentence.
+    private static func spread(_ phrases: [Phrase], url: URL) async throws -> [Phrase] {
+        guard !phrases.isEmpty else { return phrases }
+        let text = phrases.map(\.text).joined(separator: " ")
+        let spread = try? await Task.detached(operation: { () throws -> [Phrase] in
+            let samples = try QwenTranscriber.load(url)
+            let energy = QwenASR.frameEnergy(samples, hop: QwenASR.sampleRate / 100)
+            return QwenTranscriber.timed(text, energy: energy, offset: 0)
+        }).value
+        return spread?.isEmpty == false ? spread! : phrases
+    }
+
+    /// Qwen3-ASR on Bailian: the audio as WAV in a chat request, the text
+    /// in the reply, and the language it heard beside it.
+    private static func transcribeInChat(_ url: URL, model: String, endpoint: Endpoint) async throws -> Transcription {
+        let audio = try await Task.detached { try Self.wav16k(from: url) }.value
+        let encoded = audio.base64EncodedString()
+        // Bailian takes up to 10 MB: about four minutes; parts are about one.
+        guard encoded.utf8.count < 10_000_000 else { throw Failure.refused("This part is too long for Qwen3-ASR Flash.") }
+        let body: [String: Any] = [
+            "model": model,
+            "messages": [["role": "user", "content": [
+                ["type": "input_audio", "input_audio": ["data": "data:audio/wav;base64," + encoded]],
+            ]]],
+            "stream": false,
+            // Numbers, dates and amounts written as figures, as other services do.
+            "asr_options": ["enable_itn": true],
+        ]
+        var request = authorized(endpoint.base.appending(path: "chat/completions"), endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let data = try await send(request)
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let message = (object["choices"] as? [[String: Any]])?.first?["message"] as? [String: Any],
+              let text = message["content"] as? String else { throw Failure.unreadable }
+        let language = (message["annotations"] as? [[String: Any]])?.lazy.compactMap { $0["language"] as? String }.first
+        return Transcription(text: text, language: language, segments: nil, words: nil)
     }
 
     /// Speakers from the words when the segments don't carry them
@@ -496,6 +560,21 @@ enum Cloud {
         }
         let text = t.text.trimmingCharacters(in: .whitespacesAndNewlines)
         return text.isEmpty ? [] : [Phrase(start: 0, end: duration, text: text)]
+    }
+
+    /// 16 kHz mono 16-bit WAV, made from the samples rather than the file's
+    /// own format, so it's that size whatever the part was recorded at.
+    private static func wav16k(from url: URL) throws -> Data {
+        let samples = try QwenTranscriber.load(url)
+        var data = Data(capacity: 44 + samples.count * 2)
+        func put<T: FixedWidthInteger>(_ value: T) { withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) } }
+        let rate = UInt32(QwenASR.sampleRate), bytes = UInt32(samples.count * 2)
+        data.append(contentsOf: Array("RIFF".utf8)); put(36 + bytes)
+        data.append(contentsOf: Array("WAVEfmt ".utf8)); put(UInt32(16)); put(UInt16(1)); put(UInt16(1))
+        put(rate); put(rate * 2); put(UInt16(2)); put(UInt16(16))
+        data.append(contentsOf: Array("data".utf8)); put(bytes)
+        for s in samples { put(Int16(max(-1, min(1, s)) * Float(Int16.max))) }
+        return data
     }
 
     /// 16 kHz mono 16-bit WAV, for models that won't take AAC (≈1.9 MB a minute).
@@ -539,7 +618,11 @@ enum Cloud {
             "model": writeModel,
             "messages": [["role": "system", "content": system], ["role": "user", "content": user]],
         ]
-        if thinks(writeModel) {
+        if endpoint.isBailian {
+            // Qwen3.5 and later think first unless told not to.
+            body["enable_thinking"] = false
+            body["temperature"] = 0.2
+        } else if thinks(writeModel) {
             // A title or a tidied paragraph needs little thought, and
             // OpenAI's thinking models turn down any temperature but their own.
             if endpoint.isOpenRouter {

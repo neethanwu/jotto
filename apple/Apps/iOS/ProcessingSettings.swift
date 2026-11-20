@@ -229,7 +229,7 @@ struct ProcessingView: View {
                 .fieldBackground()
                 .animation(.easeOut(duration: 0.15), value: config.cloudBaseURL.isEmpty)
                 if Cloud.addressBlocked {
-                    Text("This service doesn't operate in China mainland. Here, jotto works with services that do, like SiliconFlow, DeepSeek or Alibaba Cloud.")
+                    Text("This service doesn't operate in China mainland. Here, jotto works with services that do, like Bailian, SiliconFlow or DeepSeek.")
                         .font(.scaled(13, .regular, relativeTo: .footnote))
                         .foregroundStyle(Color.jLive)
                         .fixedSize(horizontal: false, vertical: true)
@@ -319,9 +319,10 @@ struct ProcessingView: View {
     private var serviceDetail: String {
         switch Cloud.service {
         case .openRouter: "One key for transcription and polish. Recommended."
-        case .siliconFlow: "A model service in China mainland. One key for transcription and polish. Recommended."
+        case .bailian: "Alibaba Cloud's model service (Bailian). One key for transcription and polish. Recommended."
+        case .siliconFlow: "A model service in China mainland. One key for transcription and polish."
         case .compatible where region.isChinaMainland:
-            "Another service in China mainland that takes the same requests, like DeepSeek or Alibaba Cloud. The address and the key both come from that service."
+            "Another service in China mainland that takes the same requests, like DeepSeek. The address and the key both come from that service."
         case .compatible: "For services built to the same standard as OpenAI's, like Groq, Together or OpenAI itself. The address and the key both come from that service."
         }
     }
@@ -330,6 +331,7 @@ struct ProcessingView: View {
     private var keyPage: URL? {
         switch Cloud.service {
         case .openRouter: URL(string: "https://openrouter.ai/keys")
+        case .bailian: URL(string: "https://bailian.console.aliyun.com/?tab=model#/api-key")
         case .siliconFlow: URL(string: "https://cloud.siliconflow.cn/account/ak")
         case .compatible: nil
         }
