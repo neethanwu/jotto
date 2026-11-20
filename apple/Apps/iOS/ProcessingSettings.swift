@@ -34,7 +34,7 @@ struct ProcessingView: View {
     /// Nothing to send recordings with: no key, or one the service
     /// turned down. Until there is, they stay on this iPhone.
     private var keyMissing: Bool {
-        draftKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || check == .fails
+        draftKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || check == .fails || Cloud.addressBlocked
     }
 
     var body: some View {
@@ -228,6 +228,13 @@ struct ProcessingView: View {
                 .frame(height: 52)
                 .fieldBackground()
                 .animation(.easeOut(duration: 0.15), value: config.cloudBaseURL.isEmpty)
+                if Cloud.addressBlocked {
+                    Text("This service doesn't operate in China mainland. Here, jotto works with services that do, like SiliconFlow, DeepSeek or Alibaba Cloud.")
+                        .font(.scaled(13, .regular, relativeTo: .footnote))
+                        .foregroundStyle(Color.jLive)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 8)
+                }
             }
 
             label("API key").padding(.top, 24)
@@ -501,7 +508,7 @@ struct ProcessingView: View {
     }
 
     private func runCheck() async {
-        guard !draftKey.isEmpty else { check = .unknown; return }
+        guard !draftKey.isEmpty, !Cloud.addressBlocked else { check = .unknown; return }
         check = .checking
         switch await Cloud.check(key: draftKey, service: Cloud.service, base: config.cloudBaseURL) {
         case .works: check = .works

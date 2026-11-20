@@ -130,7 +130,23 @@ enum Cloud {
         if on("deepseek.com") { return "DeepSeek" }
         if on("aliyuncs.com") { return "Alibaba Cloud" }
         if on("siliconflow.cn") { return "SiliconFlow" }
+        if on("openrouter.ai") { return "OpenRouter" }
         return nil
+    }
+
+    /// Services from outside China mainland, by their hosts: from the App
+    /// Store there, an address at one of them isn't used.
+    static func isAbroad(_ base: String) -> Bool {
+        guard let host = URL(string: base.trimmingCharacters(in: .whitespacesAndNewlines))?.host()?.lowercased() else { return false }
+        let abroad = ["openai.com", "openrouter.ai", "anthropic.com", "googleapis.com", "groq.com", "together.xyz",
+                      "together.ai", "mistral.ai", "x.ai", "deepinfra.com", "fireworks.ai", "elevenlabs.io",
+                      "azure.com", "siliconflow.com"]
+        return abroad.contains { host == $0 || host.hasSuffix("." + $0) }
+    }
+
+    /// The address entered can't be used where this iPhone's App Store is.
+    @MainActor static var addressBlocked: Bool {
+        service == .compatible && StoreRegion.shared.isChinaMainland && isAbroad(config.cloudBaseURL)
     }
 
     /// What to suggest for the service in use; at an address we know,
@@ -206,8 +222,8 @@ enum Cloud {
 
     @MainActor static var config: AppConfig { .shared }
 
-    /// On, with a key to use.
-    @MainActor static var isOn: Bool { config.usesOwnKey && key != nil }
+    /// On, with a key to use, at an address that can be used here.
+    @MainActor static var isOn: Bool { config.usesOwnKey && key != nil && !addressBlocked }
 
     @MainActor static var key: String? { Keychain.read(account: service.rawValue) }
 
@@ -251,11 +267,14 @@ enum Cloud {
         let base: URL
         let key: String
         let service: Service
+        /// OpenRouter, picked or at its address under Other service: its
+        /// requests take audio as JSON, and a reasoning setting of its own.
+        var isOpenRouter: Bool { service == .openRouter || base.host()?.lowercased().hasSuffix("openrouter.ai") == true }
     }
 
     @MainActor private static func endpoint() throws -> Endpoint {
         guard let key else { throw Failure.noKey }
-        guard let base = baseURL else { throw Failure.badAddress }
+        guard let base = baseURL, !addressBlocked else { throw Failure.badAddress }
         return Endpoint(base: base, key: key, service: service)
     }
 
@@ -283,7 +302,7 @@ enum Cloud {
     private static func authorized(_ url: URL, _ endpoint: Endpoint) -> URLRequest {
         var request = URLRequest(url: url)
         request.setValue("Bearer \(endpoint.key)", forHTTPHeaderField: "Authorization")
-        if endpoint.service == .openRouter {
+        if endpoint.isOpenRouter {
             request.setValue("jotto", forHTTPHeaderField: "X-Title")
         }
         return request
@@ -298,7 +317,9 @@ enum Cloud {
         let address = switch service {
         case .openRouter: "https://openrouter.ai/api/v1/key"
         case .siliconFlow: siliconFlowBase + "/models"
-        case .compatible: base.trimmingCharacters(in: CharacterSet(charactersIn: "/ ")) + "/models"
+        // OpenRouter's list of models is open to anyone: its key check instead.
+        case .compatible: base.trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+            + (provider(of: base) == "OpenRouter" ? "/key" : "/models")
         }
         guard let url = URL(string: address), url.scheme?.hasPrefix("http") == true, url.host() != nil else { return .turnedDown }
         var request = URLRequest(url: url)
@@ -350,7 +371,7 @@ enum Cloud {
         let model = transcribeModel
         let address = endpoint.base.appending(path: "audio/transcriptions")
         let data: Data
-        if endpoint.service == .openRouter {
+        if endpoint.isOpenRouter {
             let wav = wavOnly.contains(model)
             let audio = try await Task.detached { try wav ? Self.wav(from: url) : Data(contentsOf: url) }.value
             let base: [String: Any] = ["model": model, "input_audio": ["data": audio.base64EncodedString(), "format": wav ? "wav" : "m4a"]]
@@ -508,7 +529,7 @@ enum Cloud {
         if thinks(writeModel) {
             // A title or a tidied paragraph needs little thought, and
             // OpenAI's thinking models turn down any temperature but their own.
-            if service == .openRouter {
+            if endpoint.isOpenRouter {
                 body["reasoning"] = ["effort": "low"]
             } else {
                 body["reasoning_effort"] = "low"
