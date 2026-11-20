@@ -5,13 +5,51 @@ import Security
 /// "Your own API key": transcription, titles and formatting through a
 /// service the person pays for, instead of the models on this iPhone.
 /// OpenRouter by default (one key for everything); any service with the
-/// OpenAI API shape otherwise. The key lives in the Keychain, and audio
-/// goes from the phone straight to that service.
+/// OpenAI API shape otherwise, at its address. From the App Store in China
+/// mainland, SiliconFlow takes OpenRouter's place, and only services that
+/// operate there are suggested (`StoreRegion`). The key lives in the
+/// Keychain, and audio goes from the phone straight to that service.
 enum Cloud {
     enum Service: String, CaseIterable, Identifiable {
-        case openRouter, compatible
+        case openRouter, siliconFlow, compatible
         var id: String { rawValue }
-        var name: String { self == .openRouter ? "OpenRouter" : "OpenAI-compatible" }
+        var name: String {
+            switch self {
+            case .openRouter: "OpenRouter"
+            case .siliconFlow: "SiliconFlow"
+            case .compatible: "Other service"
+            }
+        }
+    }
+
+    /// The services to choose from where this iPhone's App Store is: one
+    /// with a key for everything, and one at an address you enter.
+    @MainActor static var services: [Service] {
+        StoreRegion.shared.isChinaMainland ? [.siliconFlow, .compatible] : [.openRouter, .compatible]
+    }
+
+    /// The service picked, or the store's own where it isn't offered.
+    @MainActor static var service: Service {
+        services.contains(config.cloudService) ? config.cloudService : services[0]
+    }
+
+    /// Once the App Store is known: a service it doesn't offer gives way
+    /// to one it does, and an address left as it came, for a service
+    /// outside China mainland, is emptied there.
+    @MainActor static func settle() {
+        if !services.contains(config.cloudService) { config.cloudService = services[0] }
+        if StoreRegion.shared.isChinaMainland, provider(of: config.cloudBaseURL).map(chinaProviders.contains) == false {
+            config.cloudBaseURL = ""
+        }
+        // Nor a model of a service from elsewhere, picked or left as it came.
+        if StoreRegion.shared.isChinaMainland {
+            if compatibleTranscribeModels.contains(where: { $0.id == config.compatibleTranscribeModel }) {
+                config.compatibleTranscribeModel = ""
+            }
+            if compatibleWriteModels.contains(where: { $0.id == config.compatibleWriteModel }) {
+                config.compatibleWriteModel = chinaCompatibleWriteModels[0].id
+            }
+        }
     }
 
     /// What a model is picked for: hearing the audio, or writing titles
@@ -59,46 +97,95 @@ enum Cloud {
     static let defaultCompatibleTranscribeModel = "gpt-transcribe"
     static let defaultCompatibleWriteModel = "gpt-6-luna"
 
+    /// On SiliconFlow (China mainland): SenseVoice and TeleSpeech hear
+    /// the audio, through the same transcription request as Whisper's.
+    static let siliconFlowTranscribeModels: [Suggestion] = [
+        .init(id: "FunAudioLLM/SenseVoiceSmall", name: "SenseVoice Small"),
+        .init(id: "TeleAI/TeleSpeechASR", name: "TeleSpeech ASR"),
+    ]
+    static let siliconFlowWriteModels: [Suggestion] = [
+        .init(id: "deepseek-ai/DeepSeek-V4-Flash", name: "DeepSeek V4 Flash"),
+        .init(id: "Pro/deepseek-ai/DeepSeek-V4", name: "DeepSeek V4"),
+        .init(id: "Pro/zai-org/GLM-5.2", name: "GLM-5.2"),
+    ]
+    static let defaultSiliconFlowTranscribeModel = "FunAudioLLM/SenseVoiceSmall"
+    static let defaultSiliconFlowWriteModel = "deepseek-ai/DeepSeek-V4-Flash"
+    static let siliconFlowBase = "https://api.siliconflow.cn/v1"
+
+    /// At an address, in China mainland: services that operate there.
+    /// DeepSeek's and Alibaba Cloud's own write; neither takes audio in
+    /// the transcription request, so transcription is typed in.
+    static let chinaCompatibleWriteModels: [Suggestion] = [
+        .init(id: "deepseek-chat", name: "DeepSeek Chat", by: "DeepSeek"),
+        .init(id: "qwen-plus", name: "Qwen Plus", by: "Alibaba Cloud"),
+    ]
+    static let chinaProviders: Set<String> = ["DeepSeek", "Alibaba Cloud", "SiliconFlow"]
+
     /// The known service an address belongs to, by its host.
     static func provider(of base: String) -> String? {
         guard let host = URL(string: base.trimmingCharacters(in: .whitespacesAndNewlines))?.host()?.lowercased() else { return nil }
-        if host == "openai.com" || host.hasSuffix(".openai.com") { return "OpenAI" }
-        if host == "groq.com" || host.hasSuffix(".groq.com") { return "Groq" }
+        func on(_ domain: String) -> Bool { host == domain || host.hasSuffix("." + domain) }
+        if on("openai.com") { return "OpenAI" }
+        if on("groq.com") { return "Groq" }
+        if on("deepseek.com") { return "DeepSeek" }
+        if on("aliyuncs.com") { return "Alibaba Cloud" }
+        if on("siliconflow.cn") { return "SiliconFlow" }
         return nil
     }
 
     /// What to suggest for the service in use; at an address we know,
     /// that service's own models first.
     @MainActor static func suggestions(_ slot: ModelSlot) -> [Suggestion] {
-        if config.cloudService == .openRouter { return slot == .transcribe ? transcribeModels : writeModels }
-        let all = slot == .transcribe ? compatibleTranscribeModels : compatibleWriteModels
+        switch service {
+        case .openRouter: return slot == .transcribe ? transcribeModels : writeModels
+        case .siliconFlow: return slot == .transcribe ? siliconFlowTranscribeModels : siliconFlowWriteModels
+        case .compatible: break
+        }
+        let all = compatibleSuggestions(slot)
         guard let here = provider(of: config.cloudBaseURL) else { return all }
         return all.filter { $0.by == here } + all.filter { $0.by != here }
     }
 
     /// The model in use for each job, on the service in use.
     @MainActor static var transcribeModel: String {
-        config.cloudService == .openRouter ? config.transcribeModel : config.compatibleTranscribeModel
+        switch service {
+        case .openRouter: config.transcribeModel
+        case .siliconFlow: config.siliconFlowTranscribeModel
+        case .compatible: config.compatibleTranscribeModel
+        }
     }
     @MainActor static var writeModel: String {
-        config.cloudService == .openRouter ? config.writeModel : config.compatibleWriteModel
+        switch service {
+        case .openRouter: config.writeModel
+        case .siliconFlow: config.siliconFlowWriteModel
+        case .compatible: config.compatibleWriteModel
+        }
     }
 
     @MainActor static func setModel(_ model: String, for slot: ModelSlot) {
-        switch (config.cloudService, slot) {
+        switch (service, slot) {
         case (.openRouter, .transcribe): config.transcribeModel = model
         case (.openRouter, .write): config.writeModel = model
+        case (.siliconFlow, .transcribe): config.siliconFlowTranscribeModel = model
+        case (.siliconFlow, .write): config.siliconFlowWriteModel = model
         case (.compatible, .transcribe): config.compatibleTranscribeModel = model
         case (.compatible, .write): config.compatibleWriteModel = model
         }
     }
 
+    /// At an address: OpenAI's and Groq's, or in China mainland only
+    /// services that operate there.
+    @MainActor private static func compatibleSuggestions(_ slot: ModelSlot) -> [Suggestion] {
+        if StoreRegion.shared.isChinaMainland { return slot == .transcribe ? [] : chinaCompatibleWriteModels }
+        return slot == .transcribe ? compatibleTranscribeModels : compatibleWriteModels
+    }
+
     /// The address now points at a service we know, and a model picked
     /// is one of another known service's: switch to this one's own.
     @MainActor static func matchModelsToAddress() {
-        guard config.cloudService == .compatible, let here = provider(of: config.cloudBaseURL) else { return }
+        guard service == .compatible, let here = provider(of: config.cloudBaseURL) else { return }
         for slot in [ModelSlot.transcribe, .write] {
-            let all = slot == .transcribe ? compatibleTranscribeModels : compatibleWriteModels
+            let all = compatibleSuggestions(slot)
             let current = slot == .transcribe ? config.compatibleTranscribeModel : config.compatibleWriteModel
             if let picked = all.first(where: { $0.id == current }), picked.by != here,
                let own = all.first(where: { $0.by == here }) {
@@ -111,7 +198,8 @@ enum Cloud {
     private static let wavOnly: Set<String> = ["microsoft/mai-transcribe-2", "meta/muse-voice-transcribe-1.0"]
 
     static func displayName(_ model: String, in list: [Suggestion]) -> String {
-        list.first { $0.id == model }?.name ?? model.split(separator: "/").last.map(String.init) ?? model
+        if model.isEmpty { return "Not set" }
+        return list.first { $0.id == model }?.name ?? model.split(separator: "/").last.map(String.init) ?? model
     }
 
     // MARK: Settings
@@ -121,11 +209,14 @@ enum Cloud {
     /// On, with a key to use.
     @MainActor static var isOn: Bool { config.usesOwnKey && key != nil }
 
-    @MainActor static var key: String? { Keychain.read(account: config.cloudService.rawValue) }
+    @MainActor static var key: String? { Keychain.read(account: service.rawValue) }
 
-    @MainActor static var baseURL: URL? {
-        switch config.cloudService {
+    @MainActor static var baseURL: URL? { baseURL(for: service) }
+
+    @MainActor static func baseURL(for service: Service) -> URL? {
+        switch service {
         case .openRouter: URL(string: "https://openrouter.ai/api/v1")
+        case .siliconFlow: URL(string: siliconFlowBase)
         case .compatible:
             URL(string: config.cloudBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
                 .trimmingCharacters(in: CharacterSet(charactersIn: "/")))
@@ -165,7 +256,7 @@ enum Cloud {
     @MainActor private static func endpoint() throws -> Endpoint {
         guard let key else { throw Failure.noKey }
         guard let base = baseURL else { throw Failure.badAddress }
-        return Endpoint(base: base, key: key, service: config.cloudService)
+        return Endpoint(base: base, key: key, service: service)
     }
 
     private static func send(_ request: URLRequest) async throws -> Data {
@@ -204,8 +295,11 @@ enum Cloud {
     enum Check { case works, turnedDown, unanswered }
 
     static func check(key: String, service: Service, base: String) async -> Check {
-        let address = service == .openRouter ? "https://openrouter.ai/api/v1/key"
-            : base.trimmingCharacters(in: CharacterSet(charactersIn: "/ ")) + "/models"
+        let address = switch service {
+        case .openRouter: "https://openrouter.ai/api/v1/key"
+        case .siliconFlow: siliconFlowBase + "/models"
+        case .compatible: base.trimmingCharacters(in: CharacterSet(charactersIn: "/ ")) + "/models"
+        }
         guard let url = URL(string: address), url.scheme?.hasPrefix("http") == true, url.host() != nil else { return .turnedDown }
         var request = URLRequest(url: url)
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
@@ -414,7 +508,7 @@ enum Cloud {
         if thinks(writeModel) {
             // A title or a tidied paragraph needs little thought, and
             // OpenAI's thinking models turn down any temperature but their own.
-            if config.cloudService == .openRouter {
+            if service == .openRouter {
                 body["reasoning"] = ["effort": "low"]
             } else {
                 body["reasoning_effort"] = "low"

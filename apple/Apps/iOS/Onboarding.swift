@@ -156,6 +156,9 @@ struct OnboardingView: View {
             PlacesScene(page: page, asks: !places.isOn, reduceMotion: reduceMotion, motion: motion)
         }
         .frame(width: width, height: Self.figureHeight)
+        // Pictures only: the page's words say it, and VoiceOver shouldn't
+        // read out every page's picture at once.
+        .accessibilityHidden(true)
     }
 
     private var motion: Animation {

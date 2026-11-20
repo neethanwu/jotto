@@ -28,7 +28,7 @@ Nothing is sent anywhere for this.
 
 **The optional Qwen3-ASR model.** If you choose to download it, your iPhone fetches the model files through the App Store, the way it fetches an app. If the App Store can't supply them, and in versions built from the source, they come from Hugging Face (huggingface.co) instead; as with any download, Hugging Face then sees your IP address. The model runs on your iPhone; no audio or text is sent to anyone.
 
-**Your own API key, if you turn it on.** You can choose to have a cloud service do the work instead: OpenRouter, or any OpenAI-compatible service whose address you enter. While this is on:
+**Your own API key, if you turn it on.** You can choose to have a cloud service do the work instead: OpenRouter, or any OpenAI-compatible service whose address you enter; from the App Store in China mainland, SiliconFlow, or another service that operates there whose address you enter. While this is on:
 
 - the audio of your recordings and the text of your transcripts go straight from your iPhone to that service, to be transcribed, titled and formatted;
 - the service handles them under its own terms and privacy policy, which you agreed to when you got the key;

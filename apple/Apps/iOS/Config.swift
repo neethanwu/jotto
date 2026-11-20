@@ -64,7 +64,7 @@ final class AppConfig {
     var cloudService: Cloud.Service {
         didSet { UserDefaults.standard.set(cloudService.rawValue, forKey: "cloudService") }
     }
-    /// The address of an OpenAI-compatible service, up to /v1.
+    /// The address of a service with the OpenAI API shape, up to /v1.
     var cloudBaseURL: String {
         didSet { UserDefaults.standard.set(cloudBaseURL, forKey: "cloudBaseURL") }
     }
@@ -83,6 +83,13 @@ final class AppConfig {
     var compatibleWriteModel: String {
         didSet { UserDefaults.standard.set(compatibleWriteModel, forKey: "compatibleWriteModel") }
     }
+    /// The same two on SiliconFlow, offered from the App Store in China mainland.
+    var siliconFlowTranscribeModel: String {
+        didSet { UserDefaults.standard.set(siliconFlowTranscribeModel, forKey: "siliconFlowTranscribeModel") }
+    }
+    var siliconFlowWriteModel: String {
+        didSet { UserDefaults.standard.set(siliconFlowWriteModel, forKey: "siliconFlowWriteModel") }
+    }
 
     private init() {
         let defaults = UserDefaults.standard
@@ -94,6 +101,8 @@ final class AppConfig {
         writeModel = defaults.string(forKey: "writeModel") ?? Cloud.defaultWriteModel
         compatibleTranscribeModel = defaults.string(forKey: "compatibleTranscribeModel") ?? Cloud.defaultCompatibleTranscribeModel
         compatibleWriteModel = defaults.string(forKey: "compatibleWriteModel") ?? Cloud.defaultCompatibleWriteModel
+        siliconFlowTranscribeModel = defaults.string(forKey: "siliconFlowTranscribeModel") ?? Cloud.defaultSiliconFlowTranscribeModel
+        siliconFlowWriteModel = defaults.string(forKey: "siliconFlowWriteModel") ?? Cloud.defaultSiliconFlowWriteModel
         // Before 2026-11-11 there was one language, or Automatic (none).
         mixesLanguages = defaults.bool(forKey: "mixesLanguages")
         languages = defaults.stringArray(forKey: "transcriptionLocales")

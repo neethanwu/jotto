@@ -26,7 +26,7 @@ Titles and the tidier formatting are written by Apple Intelligence on your iPhon
 Apple's speech model works best when a recording stays in one language. In Settings → Processing you can download Qwen3-ASR, which hears Chinese and English mixed together, or use your own API key.
 
 **What does "Your own API key" do?**
-It has a cloud service do the transcribing and formatting instead of your iPhone: OpenRouter, or any OpenAI-compatible service. Your recordings then go straight from your iPhone to that service and you pay it directly. Turn it off in Settings → Processing and everything happens on your iPhone again.
+It has a cloud service do the transcribing and formatting instead of your iPhone: OpenRouter, or any OpenAI-compatible service (from the App Store in China mainland: SiliconFlow, or another service that operates there). Your recordings then go straight from your iPhone to that service and you pay it directly. Turn it off in Settings → Processing and everything happens on your iPhone again.
 
 **What does Places do?**
 Settings → Places → Note where you record keeps the place each recording was made, and each place it moved a few hundred metres to, and shows them on the recording. Following your location also keeps jotto running while your watch records, which is what lets the text arrive as you go. Choose Always when iOS asks: jotto then uses location only while a recording goes on and until it's transcribed. With While Using, iOS only lets jotto start following while it's open, so it keeps going from the last time you opened jotto and iOS shows the location arrow. Places stay on your iPhone; when you send a recording, Add the place decides whether its place goes with it.

@@ -18,6 +18,9 @@ struct JottoApp: App {
             Notifier.shared.start()
             // Reconnects to a model download that went on while closed.
             _ = SpeechPack.shared
+            // Which App Store this is: in China mainland, your own API key
+            // offers only services that operate there.
+            _ = StoreRegion.shared
         }
         #if DEBUG
         MainActor.assumeIsolated { Pipeline.shared.simulateRecordingIfRequested() }

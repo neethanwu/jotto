@@ -28,6 +28,9 @@ struct ProcessingView: View {
 
     enum KeyCheck { case unknown, checking, works, fails, unanswered }
 
+    /// From the App Store in China mainland, only services that operate there.
+    private var region: StoreRegion { .shared }
+
     /// Nothing to send recordings with: no key, or one the service
     /// turned down. Until there is, they stay on this iPhone.
     private var keyMissing: Bool {
@@ -86,7 +89,10 @@ struct ProcessingView: View {
         .toolbar(.hidden, for: .navigationBar)
         .sensoryFeedback(.selection, trigger: ModelPick.value(.transcribe))
         .sensoryFeedback(.selection, trigger: ModelPick.value(.write))
-        .onAppear { loadKey() }
+        .onAppear {
+            Cloud.settle()
+            loadKey()
+        }
         .onDisappear(perform: leave)
         .onChange(of: config.usesOwnKey) { saveKey() }
         .onChange(of: config.cloudService) {
@@ -183,27 +189,26 @@ struct ProcessingView: View {
 
     // MARK: Your own key
 
-    /// Who gets the recordings with this key: OpenRouter, or the service at the address.
+    /// Who gets the recordings with this key: the service picked, or the one at the address.
     private var sendsTo: String {
-        if config.cloudService == .openRouter { return "OpenRouter" }
+        if Cloud.service != .compatible { return Cloud.service.name }
         return URL(string: config.cloudBaseURL.trimmingCharacters(in: .whitespaces))?.host() ?? "the service at that address"
     }
 
     private var keySettings: some View {
         VStack(alignment: .leading, spacing: 0) {
             label("Provider").padding(.top, 28)
-            ServicePicker(selection: $config.cloudService)
-            Text(config.cloudService == .openRouter
-                 ? "One key for transcription and polish. Recommended."
-                 : "For services built to the same standard as OpenAI's, like Groq, Together or OpenAI itself. The address and the key both come from that service.")
+            ServicePicker(selection: $config.cloudService, services: Cloud.services)
+            Text(serviceDetail)
                 .font(.scaled(13, .regular, relativeTo: .footnote))
                 .foregroundStyle(Color.jText3)
                 .padding(.top, 8)
 
-            if config.cloudService == .compatible {
+            if Cloud.service == .compatible {
                 label("Address").padding(.top, 24)
                 HStack(spacing: 4) {
-                    TextField("https://api.openai.com/v1", text: $config.cloudBaseURL)
+                    TextField(region.isChinaMainland ? "https://api.deepseek.com/v1" : "https://api.openai.com/v1",
+                              text: $config.cloudBaseURL)
                         .font(.system(size: 15, design: .monospaced))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -276,7 +281,7 @@ struct ProcessingView: View {
             }
             .card()
             if openSlot != nil || nextSlot != nil {
-                Text(config.cloudService == .openRouter
+                Text(Cloud.service == .openRouter
                      ? "Any other model goes in as OpenRouter names it, like provider/model. Return to use it."
                      : "Any other model goes in as your service names it. Return to use it.")
                     .font(.scaled(13, .regular, relativeTo: .footnote))
@@ -288,8 +293,8 @@ struct ProcessingView: View {
             }
             Color.clear.frame(height: 8).id(Self.modelsEnd)
 
-            if config.cloudService == .openRouter {
-                Link(destination: URL(string: "https://openrouter.ai/keys")!) {
+            if let keys = keyPage {
+                Link(destination: keys) {
                     HStack(spacing: 6) {
                         Text("How to get a key, and what it costs")
                         Image(systemName: "arrow.up.right").font(.system(size: 11, weight: .semibold))
@@ -301,6 +306,26 @@ struct ProcessingView: View {
             }
         }
         .animation(.easeOut(duration: 0.2), value: keyMissing)
+    }
+
+    /// What the service picked is, under the switch.
+    private var serviceDetail: String {
+        switch Cloud.service {
+        case .openRouter: "One key for transcription and polish. Recommended."
+        case .siliconFlow: "A model service in China mainland. One key for transcription and polish. Recommended."
+        case .compatible where region.isChinaMainland:
+            "Another service in China mainland that takes the same requests, like DeepSeek or Alibaba Cloud. The address and the key both come from that service."
+        case .compatible: "For services built to the same standard as OpenAI's, like Groq, Together or OpenAI itself. The address and the key both come from that service."
+        }
+    }
+
+    /// Where the service picked hands out keys.
+    private var keyPage: URL? {
+        switch Cloud.service {
+        case .openRouter: URL(string: "https://openrouter.ai/keys")
+        case .siliconFlow: URL(string: "https://cloud.siliconflow.cn/account/ak")
+        case .compatible: nil
+        }
     }
 
     @ViewBuilder
@@ -461,7 +486,7 @@ struct ProcessingView: View {
     }
 
     private func loadKey() {
-        draftKey = Keychain.read(account: config.cloudService.rawValue) ?? ""
+        draftKey = Keychain.read(account: Cloud.service.rawValue) ?? ""
         check = .unknown
         if !draftKey.isEmpty { Task { await runCheck() } }
     }
@@ -469,8 +494,8 @@ struct ProcessingView: View {
     private func saveKey() {
         let key = draftKey.trimmingCharacters(in: .whitespacesAndNewlines)
         draftKey = key
-        guard key != (Keychain.read(account: config.cloudService.rawValue) ?? "") else { return }
-        Keychain.save(key, account: config.cloudService.rawValue)
+        guard key != (Keychain.read(account: Cloud.service.rawValue) ?? "") else { return }
+        Keychain.save(key, account: Cloud.service.rawValue)
         Task { await runCheck() }
         Pipeline.shared.languageChanged()
     }
@@ -478,7 +503,7 @@ struct ProcessingView: View {
     private func runCheck() async {
         guard !draftKey.isEmpty else { check = .unknown; return }
         check = .checking
-        switch await Cloud.check(key: draftKey, service: config.cloudService, base: config.cloudBaseURL) {
+        switch await Cloud.check(key: draftKey, service: Cloud.service, base: config.cloudBaseURL) {
         case .works: check = .works
         case .turnedDown: check = .fails
         case .unanswered: check = .unanswered
@@ -665,14 +690,16 @@ private struct ProgressBar: View {
     }
 }
 
-/// OpenRouter or any OpenAI-shaped service: a two-way switch.
+/// The service with a key for everything, or one at an address: a
+/// two-way switch.
 private struct ServicePicker: View {
     @Binding var selection: Cloud.Service
+    let services: [Cloud.Service]
     @Namespace private var knob
 
     var body: some View {
         HStack(spacing: 0) {
-            ForEach(Cloud.Service.allCases) { service in
+            ForEach(services) { service in
                 let on = service == selection
                 Button {
                     withAnimation(.spring(duration: 0.3, bounce: 0.1)) { selection = service }
@@ -773,7 +800,7 @@ private struct ModelChoices: View {
             line
             HStack(spacing: 12) {
                 check(!typed.isEmpty && typed == value && !ModelPick.isListed(value, for: slot))
-                TextField(config.cloudService == .openRouter ? "Another, like provider/model" : "Another model",
+                TextField(Cloud.service == .openRouter ? "Another, like provider/model" : "Another model",
                           text: $typed)
                     .font(.system(size: 15, design: .monospaced))
                     .textInputAutocapitalization(.never)

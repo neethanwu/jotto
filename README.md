@@ -51,7 +51,7 @@ Pick one in Settings → Processing.
 |-------|------|----------|
 | Apple | On the iPhone, built in | Up to three languages; jotto works out which one each recording is in |
 | Qwen3-ASR 0.6B | On the iPhone's Neural Engine, after a 950 MB download | Chinese and English mixed in one sentence |
-| Your own API key | OpenRouter, or any OpenAI-compatible service such as Groq, Together or OpenAI | Telling speakers apart; you pay the service directly |
+| Your own API key | OpenRouter, or any OpenAI-compatible service such as Groq, Together or OpenAI (from the App Store in China mainland: SiliconFlow, or another service there) | Telling speakers apart; you pay the service directly |
 
 Titles and tidying are written on the iPhone by Apple Intelligence where it's available, or by the model behind your key.
 
