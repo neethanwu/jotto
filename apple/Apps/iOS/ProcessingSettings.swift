@@ -608,20 +608,15 @@ private struct SpeechMenuRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Menu {
-                // Title, subtitle, then the icon: how a menu item takes them.
-                Button { pick(.apple) } label: {
+                // As toggles, so iOS gives every item the same check column
+                // and the names line up whichever is picked.
+                Toggle(isOn: Binding(get: { !config.usesQwen }, set: { if $0 { pick(.apple) } })) {
                     Text("Apple")
                     Text("Built in")
-                    if !config.usesQwen { Image(systemName: "checkmark") }
                 }
-                Button { pick(.qwen) } label: {
+                Toggle(isOn: Binding(get: { config.usesQwen }, set: { if $0 { pick(.qwen) } })) {
                     Text(SpeechPack.name)
-                    Text(pack.isReady ? "Many languages, even mixed" : "Many languages, even mixed · \(SpeechPack.sizeLabel)")
-                    if config.usesQwen {
-                        Image(systemName: "checkmark")
-                    } else if !pack.isReady {
-                        Image(systemName: "arrow.down.to.line")
-                    }
+                    Text(pack.isReady ? "Many languages, even mixed" : "Many languages · \(SpeechPack.sizeLabel)")
                 }
                 if case .downloading = pack.state {
                     Divider()

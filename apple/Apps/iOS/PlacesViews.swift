@@ -14,7 +14,7 @@ struct PlacesSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
-                Text("Places, and text\nas you record")
+                Text("Location, and text\nas you record")
                     .font(.sheetTitle)
                     .tracking(-0.48)
                     .lineSpacing(2)
@@ -143,13 +143,13 @@ struct PlacesCard: View {
                 .padding(-8)
                 .accessibilityLabel("Close")
             }
-            Text("\(waitedTitle ?? "Your last recording") waited until you opened jotto. With Places on, your watch's recordings turn into text while you record.")
+            Text("\(waitedTitle ?? "Your last recording") waited until you opened jotto. With Location on, your watch's recordings turn into text while you record.")
                 .font(.scaled(14, .regular, relativeTo: .subheadline))
                 .lineSpacing(3)
                 .foregroundStyle(Color.jText2)
                 .fixedSize(horizontal: false, vertical: true)
             Button(action: turnOn) {
-                Text("Turn on Places")
+                Text("Turn on Location")
                     .font(.scaled(14, .medium, relativeTo: .subheadline))
                     .foregroundStyle(Color.jBg)
                     .padding(.horizontal, 15)
@@ -167,22 +167,21 @@ struct PlacesCard: View {
 
 // MARK: - Settings
 
-/// Settings → Places. The switch first, and the state of location under
+/// Settings → Location. The switch first, and the state of location under
 /// it, with the one thing to do about it when there is one. Then what
-/// places give, the facts about location, and why Always, folded away.
+/// it gives, the facts about location, and why Always.
 /// The switch shows what actually happens: off while iOS doesn't allow
 /// location, though the choice is kept, so allowing it again turns
 /// places back on.
 struct PlacesPage: View {
     @Environment(\.dismiss) private var dismiss
     @State private var asking = false
-    @State private var whyOpen = false
     private var places: PlaceTracker { .shared }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                PageHeader(title: "Places", detail: "Where each recording was made, and text while you record.") { dismiss() }
+                PageHeader(title: "Location", detail: "Where each recording was made, and text while you record.") { dismiss() }
 
                 VStack(spacing: 0) {
                     Toggle(isOn: Binding(
@@ -208,7 +207,7 @@ struct PlacesPage: View {
                     if places.isOn || places.isDenied {
                         Rectangle().fill(Color.jHairline).frame(height: 1).padding(.leading, 16)
                         Link(destination: Self.settings) {
-                            CardRow("Location", value: places.permissionLabel, accessory: .outside, warns: warns)
+                            CardRow("Allowed", value: places.permissionLabel, accessory: .outside, warns: warns)
                         }
                         .buttonStyle(.plain)
                     }
@@ -245,36 +244,19 @@ struct PlacesPage: View {
                 .background(Color.jWell, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                 .padding(.top, 28)
 
-                Button {
-                    withAnimation(.easeOut(duration: 0.2)) { whyOpen.toggle() }
-                } label: {
-                    HStack {
-                        Text("Why Always?")
-                            .font(.scaled(15, .semibold, relativeTo: .subheadline))
-                            .foregroundStyle(Color.jText)
-                        Spacer()
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Color.jText4)
-                            .rotationEffect(.degrees(whyOpen ? 180 : 0))
-                    }
-                    .padding(.horizontal, 4)
-                    .frame(minHeight: 48)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 12)
-                .accessibilityValue(whyOpen ? "Shown" : "Hidden")
-
-                if whyOpen {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Why Always")
+                        .font(.scaled(15, .semibold, relativeTo: .subheadline))
+                        .foregroundStyle(Color.jText)
+                        .accessibilityAddTraits(.isHeader)
                     Text("Your watch starts recordings while this iPhone is locked, and only Always lets jotto begin then. iOS asks twice: While Using first, then Always. With While Using, jotto stays running from the last time you open it, and iOS shows the location arrow.")
                         .font(.scaled(13, .regular, relativeTo: .footnote))
                         .lineSpacing(3)
                         .foregroundStyle(Color.jText2)
                         .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 4)
-                        .transition(.opacity)
                 }
+                .padding(.horizontal, 4)
+                .padding(.top, 24)
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 48)

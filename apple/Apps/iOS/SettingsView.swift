@@ -37,7 +37,7 @@ struct SettingsView: View {
                         CardRow("Highlights", icon: "star", value: "\(config.momentBefore) s · \(config.momentAfter) s")
                     }
                     NavigationLink(value: Route.places) {
-                        CardRow("Places", icon: "pin", value: placesValue,
+                        CardRow("Location", icon: "pin", value: placesValue,
                                 warns: places.isDenied && places.wantsPlaces)
                     }
                 }
