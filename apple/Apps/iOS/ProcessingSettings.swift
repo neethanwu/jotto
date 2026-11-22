@@ -616,7 +616,7 @@ private struct SpeechMenuRow: View {
                 }
                 Button { pick(.qwen) } label: {
                     Text(SpeechPack.name)
-                    Text(pack.isReady ? "Mixed Chinese and English" : "Mixed Chinese and English · \(SpeechPack.sizeLabel)")
+                    Text(pack.isReady ? "Many languages, even mixed" : "Many languages, even mixed · \(SpeechPack.sizeLabel)")
                     if config.usesQwen {
                         Image(systemName: "checkmark")
                     } else if !pack.isReady {
@@ -705,7 +705,7 @@ private struct OwnKeyExtras: View {
                 .font(.scaled(13, .medium, relativeTo: .footnote))
                 .foregroundStyle(Color.jText2)
             if StoreRegion.shared.isChinaMainland {
-                item("character.bubble", "Mixed Chinese and English, heard better")
+                item("character.bubble", "Mixed languages, heard better")
             } else {
                 item("person.2", "Who said what")
             }
