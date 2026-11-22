@@ -15,6 +15,10 @@ struct ProcessingView: View {
     @State private var confirmingRemove = false
     /// The model row open in place, showing its choices.
     @State private var openSlot: Cloud.ModelSlot?
+    /// Speech to text or Service, open in place. One row open at a time,
+    /// these or a model's.
+    @State private var openPick: Pick?
+    enum Pick { case speech, service }
     /// The row that opens once the other one has folded away.
     @State private var nextSlot: Cloud.ModelSlot?
     /// Another model, typed into a row's last line.
@@ -129,7 +133,7 @@ struct ProcessingView: View {
         VStack(alignment: .leading, spacing: 0) {
             CardSectionTitle("On this iPhone").padding(.top, 28)
             VStack(spacing: 0) {
-                SpeechMenuRow(pick: pick, remove: { confirmingRemove = true })
+                SpeechMenuRow(open: openBinding(.speech), pick: pick, remove: { confirmingRemove = true })
                 if !config.usesQwen {
                     Rectangle().fill(Color.jHairline).frame(height: 1).padding(.leading, 36)
                     // Only Apple's model needs telling; it belongs to the row above.
@@ -205,17 +209,18 @@ struct ProcessingView: View {
         VStack(alignment: .leading, spacing: 0) {
             CardSectionTitle("Service").padding(.top, 28)
             VStack(spacing: 0) {
-                Menu {
-                    Picker("Service", selection: Binding(get: { Cloud.service }, set: { config.cloudService = $0 })) {
-                        ForEach(Cloud.services) { service in
-                            Text(service.name).tag(service)
+                ExpandRow(title: "Service", value: Cloud.service.name, open: openBinding(.service)) {
+                    ForEach(Array(Cloud.services.enumerated()), id: \.element) { i, service in
+                        ChoiceLine(name: service.name, detail: Self.shortDetail(service),
+                                   selected: service == Cloud.service, first: i == 0) {
+                            config.cloudService = service
+                            Task {
+                                try? await Task.sleep(for: .milliseconds(250))
+                                withAnimation(ExpandRow<EmptyView>.fold) { openPick = nil }
+                            }
                         }
                     }
-                    .pickerStyle(.inline)
-                } label: {
-                    MenuRowLabel(title: "Service", value: Cloud.service.name)
                 }
-                .buttonStyle(.plain)
                 .sensoryFeedback(.selection, trigger: config.cloudService)
 
                 if Cloud.service == .compatible {
@@ -355,6 +360,27 @@ struct ProcessingView: View {
         .animation(.easeOut(duration: 0.2), value: keyMissing)
     }
 
+    private func openBinding(_ pick: Pick) -> Binding<Bool> {
+        Binding(get: { openPick == pick }, set: { open in
+            if open {
+                openPick = pick
+                openSlot = nil
+            } else if openPick == pick {
+                openPick = nil
+            }
+        })
+    }
+
+    /// Under each service's name, in its open list.
+    static func shortDetail(_ service: Cloud.Service) -> String {
+        switch service {
+        case .openRouter: "One key for everything. Recommended."
+        case .bailian: "Alibaba Cloud. One key for everything. Recommended."
+        case .siliconFlow: "One key for everything."
+        case .compatible: "Any service built like OpenAI's, at its address."
+        }
+    }
+
     private var hairline: some View {
         Rectangle().fill(Color.jHairline).frame(height: 1).padding(.leading, 16)
     }
@@ -481,6 +507,7 @@ struct ProcessingView: View {
     /// away first and this one opens after: one closing, then one
     /// opening, rather than both at once with the rows sliding past.
     private func toggle(_ slot: Cloud.ModelSlot) {
+        if openPick != nil { withAnimation(Self.fold) { openPick = nil } }
         useTypedModel()
         modelFocus = nil
         if openSlot == slot {
@@ -569,30 +596,106 @@ extension Cloud {
     }
 }
 
-/// A row that opens a menu in place: its name, then what's picked with
-/// the up-and-down chevron menus use.
-struct MenuRowLabel: View {
+/// A row that opens its choices in place, under it, as the model rows
+/// do (design 13f): its name, what's picked, and a chevron that turns.
+/// The choices fold open and shut at their bottom edge.
+struct ExpandRow<Choices: View>: View {
     let title: String
     let value: String
+    @Binding var open: Bool
+    @ViewBuilder var choices: Choices
+
+    static var fold: Animation { .smooth(duration: 0.26) }
 
     var body: some View {
-        HStack(spacing: 6) {
-            Text(title).font(.reading).foregroundStyle(Color.jText)
-                .lineLimit(1)
-                .layoutPriority(1)
-            Spacer(minLength: 8)
-            Text(value)
-                .font(.scaled(15, .medium, relativeTo: .subheadline))
-                .foregroundStyle(Color.jText2)
-                .lineLimit(1)
-                .contentTransition(.opacity)
-            Image(systemName: "chevron.up.chevron.down")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Color.jText4)
+        VStack(spacing: 0) {
+            Button {
+                withAnimation(Self.fold) { open.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Text(title).font(.reading).foregroundStyle(Color.jText)
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                    Spacer(minLength: 8)
+                    Text(value)
+                        .font(.scaled(15, .medium, relativeTo: .subheadline))
+                        .foregroundStyle(Color.jText2)
+                        .lineLimit(1)
+                        .contentTransition(.opacity)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.jText4)
+                        .rotationEffect(.degrees(open ? 180 : 0))
+                }
+                .padding(.horizontal, 16)
+                .frame(minHeight: 56)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(open ? "Hides the choices" : "Shows the choices")
+
+            VStack(spacing: 0) { choices }
+                .padding(.bottom, 2)
+                .frame(height: open ? nil : 0, alignment: .top)
+                .clipped()
+                .allowsHitTesting(open)
+                .accessibilityHidden(!open)
         }
-        .padding(.horizontal, 16)
-        .frame(minHeight: 56)
-        .contentShape(Rectangle())
+    }
+}
+
+/// One choice under an open row: the check, its name and a line about
+/// it, and anything it carries at the end (a size, a bin).
+struct ChoiceLine<Trailing: View>: View {
+    let name: String
+    var detail: String?
+    let selected: Bool
+    var first = false
+    let action: () -> Void
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if !first {
+                // Hairlines start where the names do.
+                Rectangle().fill(Color.jHairline).frame(height: 1).padding(.leading, 48).padding(.trailing, 16)
+            }
+            HStack(spacing: 12) {
+                Button(action: action) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(Color.jText)
+                            .opacity(selected ? 1 : 0)
+                            .frame(width: 20)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(name)
+                                .font(.scaled(16, .regular, relativeTo: .body))
+                                .foregroundStyle(Color.jText)
+                            if let detail {
+                                Text(detail)
+                                    .font(.scaled(12, .regular, relativeTo: .caption1))
+                                    .foregroundStyle(Color.jText3)
+                            }
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+                trailing
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 9)
+            .frame(minHeight: 54)
+        }
+    }
+}
+
+extension ChoiceLine where Trailing == EmptyView {
+    init(name: String, detail: String? = nil, selected: Bool, first: Bool = false, action: @escaping () -> Void) {
+        self.init(name: name, detail: detail, selected: selected, first: first, action: action) { EmptyView() }
     }
 }
 
@@ -600,6 +703,7 @@ struct MenuRowLabel: View {
 /// Qwen3-ASR, downloaded the first time it's picked. While it comes, the
 /// row shows how far; once here, the menu can remove it (design 13h).
 private struct SpeechMenuRow: View {
+    @Binding var open: Bool
     let pick: (AppConfig.SpeechModel) -> Void
     let remove: () -> Void
     private var pack: SpeechPack { .shared }
@@ -607,28 +711,30 @@ private struct SpeechMenuRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Menu {
-                // As toggles, so iOS gives every item the same check column
-                // and the names line up whichever is picked.
-                Toggle(isOn: Binding(get: { !config.usesQwen }, set: { if $0 { pick(.apple) } })) {
-                    Text("Apple")
-                    Text("Built in")
+            ExpandRow(title: "Speech to text", value: value, open: $open) {
+                ChoiceLine(name: "Apple", detail: "Built in", selected: !config.usesQwen, first: true) { choose(.apple) }
+                ChoiceLine(name: SpeechPack.name,
+                           detail: pack.isReady ? "Many languages, even mixed" : "Many languages · \(SpeechPack.sizeLabel)",
+                           selected: config.usesQwen) { choose(.qwen) } trailing: {
+                    switch pack.state {
+                    case .absent, .failed:
+                        Image(systemName: "arrow.down.to.line")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color.jText3)
+                            .accessibilityHidden(true)
+                    case .downloading:
+                        circle(label: "Stop downloading", action: pack.cancel) {
+                            Image(systemName: "xmark").font(.system(size: 11, weight: .bold))
+                        }
+                    case .preparing:
+                        ProgressView().controlSize(.small)
+                    case .ready:
+                        circle(label: "Remove \(SpeechPack.name)", action: remove) {
+                            GlyphView(glyph: .trash, color: .jText2).frame(width: 15, height: 15)
+                        }
+                    }
                 }
-                Toggle(isOn: Binding(get: { config.usesQwen }, set: { if $0 { pick(.qwen) } })) {
-                    Text(SpeechPack.name)
-                    Text(pack.isReady ? "Many languages, even mixed" : "Many languages · \(SpeechPack.sizeLabel)")
-                }
-                if case .downloading = pack.state {
-                    Divider()
-                    Button("Stop downloading", role: .destructive) { pack.cancel() }
-                } else if pack.isReady {
-                    Divider()
-                    Button("Remove \(SpeechPack.name)", role: .destructive, action: remove)
-                }
-            } label: {
-                MenuRowLabel(title: "Speech to text", value: value)
             }
-            .buttonStyle(.plain)
 
             if let line = statusLine {
                 VStack(alignment: .leading, spacing: 7) {
@@ -647,6 +753,31 @@ private struct SpeechMenuRow: View {
             }
         }
         .animation(.easeOut(duration: 0.2), value: pack.state)
+    }
+
+    /// Picked: a beat to see the check move, then fold away. Qwen3-ASR
+    /// not here yet starts coming, its progress under the row.
+    private func choose(_ model: AppConfig.SpeechModel) {
+        pick(model)
+        Task {
+            try? await Task.sleep(for: .milliseconds(250))
+            withAnimation(ExpandRow<EmptyView>.fold) { open = false }
+        }
+    }
+
+    private func circle(label: String, action: @escaping () -> Void, @ViewBuilder _ glyph: () -> some View) -> some View {
+        Button(action: action) {
+            glyph()
+                .foregroundStyle(Color.jText2)
+                .frame(width: 30, height: 30)
+                .background(Color.jFill, in: Circle())
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        // Laid out as the 30-pt circle, touched as 44 pt.
+        .padding(-7)
     }
 
     private var value: String {
