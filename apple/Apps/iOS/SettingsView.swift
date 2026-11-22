@@ -1,15 +1,16 @@
 import StoreKit
 import SwiftUI
 
-/// The Settings tab: this month's numbers on the one card, then plain
-/// rows grouped under small labels.
+/// The Settings tab, in the order a recording goes: how it becomes text
+/// first, then what happens while you record, then the transcripts, then
+/// this month. Each setting is one row; what it does is on its own page.
 struct SettingsView: View {
     let router: Router
     private var config: AppConfig { .shared }
     private var inbox: Inbox { .shared }
     private var library: Library { .shared }
+    private var places: PlaceTracker { .shared }
     @State private var isBeta = false
-    @State private var askingPlaces = false
 
     /// A build from Xcode or TestFlight, not the App Store.
     static func isBetaBuild() async -> Bool {
@@ -28,46 +29,49 @@ struct SettingsView: View {
         // No large title: the tab bar already says Settings.
         TabPage {
             VStack(alignment: .leading, spacing: 0) {
-                MonthCard(entries: library.entries)
+                FlowCard(change: { router.settings.append(.processing) })
                     .padding(.top, 16)
 
-                SettingsSection("Transcribe and polish") {
-                    NavigationLink(value: Route.processing) {
-                        SettingsRow("Processing", value: config.usesOwnKey ? "Your own key" : "On this iPhone")
+                CardSection("While you record", inset: 56) {
+                    NavigationLink(value: Route.highlights) {
+                        CardRow("Highlights", icon: "star", value: "\(config.momentBefore) s · \(config.momentAfter) s")
                     }
-                    SettingsToggle("Notify when ready", isOn: Bindable(config).notifiesWhenReady)
+                    NavigationLink(value: Route.places) {
+                        CardRow("Places", icon: "pin", value: placesValue,
+                                warns: places.isDenied && places.wantsPlaces)
+                    }
                 }
 
-                PlacesSettings { askingPlaces = true }
-
-                SettingsSection("Highlights") {
-                    StarReach(config: config)
-                }
-
-                SettingsSection("Storage") {
-                    NavigationLink(value: Route.keepAudio) {
-                        SettingsRow("Keep audio", value: KeepAudio.label(config.keepAudioDays))
-                    }
+                CardSection("Transcripts", inset: 56) {
                     NavigationLink(value: Route.openIn) {
-                        SettingsRow("Open transcripts in", value: config.opensOriginal ? "Original" : "Formatted")
+                        CardRow("Open in", icon: "doc.text", value: config.opensOriginal ? "Original" : "Formatted")
+                    }
+                    NavigationLink(value: Route.keepAudio) {
+                        CardRow("Keep audio", icon: "waveform", value: KeepAudio.label(config.keepAudioDays))
                     }
                 }
 
-                SettingsSection("About") {
-                    Link(destination: Links.privacy) { SettingsRow("Privacy policy", opensOutside: true) }
-                    Link(destination: Links.support) { SettingsRow("Help and feedback", opensOutside: true) }
-                    Link(destination: Links.source) { SettingsRow("Source code", value: "GitHub", opensOutside: true) }
+                VStack(alignment: .leading, spacing: 0) {
+                    CardSectionTitle("Your month")
+                    MonthCard(entries: library.entries)
+                }
+                .padding(.top, 28)
+
+                CardSection("About") {
+                    Link(destination: Links.support) { CardRow("Help and feedback", accessory: .outside) }
+                    Link(destination: Links.privacy) { CardRow("Privacy policy", accessory: .outside) }
+                    Link(destination: Links.source) { CardRow("Source code", value: "GitHub", accessory: .outside) }
                     NavigationLink(value: Route.acknowledgements) {
-                        SettingsRow("Acknowledgements")
+                        CardRow("Acknowledgements")
                     }
                 }
 
                 // For testing: gone in the App Store build.
                 if isBeta {
-                    SettingsSection("Beta") {
-                        SettingsRow("Apple Watch", value: inbox.watchStatus.capitalizedFirst, chevron: false)
+                    CardSection("Beta") {
+                        CardRow("Apple Watch", value: inbox.watchStatus.capitalizedFirst, accessory: .none)
                         NavigationLink(value: Route.inbox) {
-                            SettingsRow("Files from the watch", value: "\(inbox.items.count)")
+                            CardRow("Files from the watch", value: "\(inbox.items.count)")
                         }
                     }
                 }
@@ -90,10 +94,272 @@ struct SettingsView: View {
         }
         .task { await library.refresh() }
         .task { isBeta = await Self.isBetaBuild() }
-        .drawer(isPresented: $askingPlaces) { PlacesSheet() }
+    }
+
+    private var placesValue: String {
+        if places.isDenied, places.wantsPlaces { return "Not allowed" }
+        return places.isOn ? "On" : "Off"
+    }
+}
+
+// MARK: - How a recording becomes text
+
+/// The page's centre: the three things that happen to a recording and
+/// who does each, with Notify when ready at its end. Change goes to
+/// Processing, where the last two are picked.
+struct FlowCard: View {
+    let change: () -> Void
+    @Bindable private var config: AppConfig = .shared
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("How a recording becomes text")
+                    .font(.scaled(13, .medium, relativeTo: .footnote))
+                    .foregroundStyle(Color.jText2)
+                Spacer(minLength: 8)
+                Button(action: change) {
+                    HStack(spacing: 4) {
+                        Text("Change")
+                        Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold))
+                    }
+                    .font(.scaled(15, .semibold, relativeTo: .subheadline))
+                    .foregroundStyle(Color.jText)
+                    .contentShape(Rectangle().inset(by: -8))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Change processing")
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 16)
+
+            FlowSteps(steps: [
+                .init(icon: .symbol("applewatch"), label: "Records", value: "Apple Watch"),
+                .init(icon: .symbol("iphone"), label: "Transcribes", value: transcribes),
+                .init(icon: .symbol("text.alignleft"), label: "Tidies and titles", value: tidies ?? "Off", off: tidies == nil),
+            ])
+            .padding(.top, 18)
+            .padding(.bottom, 18)
+
+            Rectangle().fill(Color.jHairline).frame(height: 1)
+            HStack(spacing: 12) {
+                RowIcon("bell")
+                Toggle(isOn: $config.notifiesWhenReady) {
+                    Text("Notify when ready").font(.reading).foregroundStyle(Color.jText)
+                }
+                .toggleStyle(JottoToggleStyle())
+            }
+            .padding(.horizontal, 16)
+            .frame(minHeight: 56)
+        }
+        .card()
         .onChange(of: config.notifiesWhenReady) { _, on in
             if on { Task { await Notifier.shared.askIfNeeded(fromSwitch: true) } }
         }
+    }
+
+    private var transcribes: String {
+        Cloud.isOn ? Cloud.sendsTo : "This iPhone"
+    }
+
+    /// Nil when nothing on this iPhone can: no Apple Intelligence here.
+    private var tidies: String? {
+        if Cloud.isOn { return Cloud.sendsTo }
+        return Editor.isAvailable ? "Apple" : nil
+    }
+}
+
+/// Steps in a row on a thin line: a round icon, what happens, and who or
+/// what does it. Used for a recording's way to text and for a shortcut.
+struct FlowSteps: View {
+    struct Step: Identifiable {
+        enum Icon { case symbol(String), app }
+        let icon: Icon
+        let label: String
+        let value: String
+        var off = false
+        var id: String { label }
+    }
+
+    let steps: [Step]
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            ForEach(steps) { step in
+                VStack(spacing: 10) {
+                    icon(step)
+                        .frame(width: 40, height: 40)
+                        .background(Color.jFill, in: Circle())
+                    VStack(spacing: 2) {
+                        Text(step.label)
+                            .font(.scaled(11, .medium, relativeTo: .caption2))
+                            .foregroundStyle(Color.jText3)
+                        Text(step.value)
+                            .font(.scaled(15, .semibold, relativeTo: .subheadline))
+                            .foregroundStyle(step.off ? Color.jText4 : Color.jText)
+                    }
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .accessibilityElement(children: .combine)
+            }
+        }
+        .padding(.horizontal, 10)
+        // The line runs from the first circle's centre to the last's, under them.
+        .background(alignment: .top) {
+            GeometryReader { geo in
+                let inset = (geo.size.width - 20) / CGFloat(steps.count) / 2 + 10
+                Rectangle().fill(Color.jHairline)
+                    .frame(width: max(0, geo.size.width - inset * 2), height: 1)
+                    .offset(x: inset, y: 20)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func icon(_ step: Step) -> some View {
+        switch step.icon {
+        case let .symbol(name):
+            Image(systemName: name)
+                .font(.system(size: 17, weight: .regular))
+                .foregroundStyle(step.off ? Color.jText4 : Color.jText)
+        case .app:
+            // jotto's own mark: the dot on black.
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color.ink950)
+                .overlay(Circle().fill(Color.jLive).frame(width: 7, height: 7))
+                .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Color.jChromeStroke))
+                .frame(width: 20, height: 20)
+        }
+    }
+}
+
+// MARK: - Cards of rows
+
+/// A small grey label over a card.
+struct CardSectionTitle: View {
+    let title: String
+    init(_ title: String) { self.title = title }
+
+    var body: some View {
+        Text(title)
+            .font(.scaled(13, .medium, relativeTo: .footnote))
+            .foregroundStyle(Color.jText2)
+            .padding(.horizontal, 4)
+            .padding(.bottom, 8)
+            .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// A label, then its rows in one card.
+struct CardSection<Content: View>: View {
+    let title: String
+    /// Rows with icons: hairlines start after the icon.
+    var inset: CGFloat
+    @ViewBuilder var content: Content
+
+    init(_ title: String, inset: CGFloat = 16, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.inset = inset
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            CardSectionTitle(title)
+            CardGroup(inset: inset) { content }
+        }
+        .padding(.top, 28)
+    }
+}
+
+/// Rows in a card, a hairline between them that starts where the text does.
+struct CardGroup<Content: View>: View {
+    var inset: CGFloat = 16
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        Group(subviews: content) { rows in
+            VStack(spacing: 0) {
+                ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
+                    if i > 0 {
+                        Rectangle().fill(Color.jHairline)
+                            .frame(height: 1)
+                            .padding(.leading, inset)
+                    }
+                    row
+                }
+            }
+        }
+        .card()
+    }
+}
+
+/// A row's icon: an outline symbol in a fixed slot, so the labels line up.
+struct RowIcon: View {
+    let name: String
+    init(_ name: String) { self.name = name }
+
+    var body: some View {
+        Group {
+            // A place has jotto's own pin, as on Days.
+            if name == "pin" {
+                GlyphView(glyph: .pin, color: .jText2).frame(width: 18, height: 18)
+            } else {
+                Image(systemName: name)
+                    .font(.system(size: 17, weight: .regular))
+                    .foregroundStyle(Color.jText2)
+            }
+        }
+        .frame(width: 28)
+        .accessibilityHidden(true)
+    }
+}
+
+/// One setting: an optional icon, its name, its value, and where a tap goes.
+struct CardRow: View {
+    enum Accessory { case chevron, outside, none }
+
+    let label: String
+    var icon: String?
+    var value: String
+    var accessory: Accessory
+    /// The value is something to fix.
+    var warns: Bool
+
+    init(_ label: String, icon: String? = nil, value: String = "", accessory: Accessory = .chevron, warns: Bool = false) {
+        self.label = label
+        self.icon = icon
+        self.value = value
+        self.accessory = accessory
+        self.warns = warns
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if let icon { RowIcon(icon) }
+            Text(label).font(.reading).foregroundStyle(Color.jText)
+            Spacer(minLength: 8)
+            HStack(spacing: 6) {
+                Text(value)
+                    .font(.scaled(15, .medium, relativeTo: .subheadline))
+                    .foregroundStyle(warns ? Color.jLive : Color.jText2)
+                    .lineLimit(1)
+                switch accessory {
+                case .chevron:
+                    Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold)).foregroundStyle(Color.jText4)
+                case .outside:
+                    Image(systemName: "arrow.up.right").font(.system(size: 11, weight: .bold)).foregroundStyle(Color.jText4)
+                case .none:
+                    EmptyView()
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .frame(minHeight: icon == nil ? 52 : 56)
+        .contentShape(Rectangle())
     }
 }
 

@@ -72,6 +72,11 @@ extension Color {
     static let jDestructive = Color(UIColor(hex: 0xE5484D))
     static let jLive = Color(Orange.o500)
     static let jLiveHalo = pair(Orange.o100, Orange.o950)
+    /// Behind a note that needs doing something about: a wash of orange.
+    static let jLiveWash = pair(UIColor(hex: 0xFFF4F1), UIColor(hex: 0x2A0E04))
+    /// A quiet panel for a picture or a few facts: a step off the page,
+    /// warm in light, barely lifted in dark.
+    static let jWell = pair(Ink.i50, UIColor(hex: 0x141413))
 
     // Fixed tones for surfaces that are dark in both modes (Live, the player).
     static let ink50 = Color(Ink.i50)

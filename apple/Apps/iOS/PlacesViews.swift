@@ -167,54 +167,206 @@ struct PlacesCard: View {
 
 // MARK: - Settings
 
-/// Settings → Places. The switch shows what actually happens: off while
-/// iOS doesn't allow location, though the choice is kept, so allowing it
-/// again turns places back on.
-struct PlacesSettings: View {
-    let ask: () -> Void
+/// Settings → Places. The switch first, and the state of location under
+/// it, with the one thing to do about it when there is one. Then what
+/// places give, the facts about location, and why Always, folded away.
+/// The switch shows what actually happens: off while iOS doesn't allow
+/// location, though the choice is kept, so allowing it again turns
+/// places back on.
+struct PlacesPage: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var asking = false
+    @State private var whyOpen = false
     private var places: PlaceTracker { .shared }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            SettingsSection("Places") {
-                SettingsToggle("Note where you record", isOn: Binding(
-                    get: { places.isOn },
-                    set: { on in
-                        if !on {
-                            places.turnOff()
-                        } else if places.needsAsking {
-                            ask()
-                        } else {
-                            places.turnOn()
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                PageHeader(title: "Places", detail: "Where each recording was made, and text while you record.") { dismiss() }
+
+                VStack(spacing: 0) {
+                    Toggle(isOn: Binding(
+                        get: { places.isOn },
+                        set: { on in
+                            if !on {
+                                places.turnOff()
+                            } else if places.needsAsking {
+                                asking = true
+                            } else {
+                                places.turnOn()
+                            }
                         }
+                    )) {
+                        Text("Note where you record")
+                            .font(.scaled(17, .semibold, relativeTo: .body))
+                            .foregroundStyle(Color.jText)
                     }
-                ))
-                if places.isOn || places.isDenied, let settings = URL(string: UIApplication.openSettingsURLString) {
-                    Link(destination: settings) {
-                        SettingsRow("Location", value: places.permissionLabel, opensOutside: true, warns: places.isDenied)
+                    .toggleStyle(JottoToggleStyle())
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: 60)
+
+                    if places.isOn || places.isDenied {
+                        Rectangle().fill(Color.jHairline).frame(height: 1).padding(.leading, 16)
+                        Link(destination: Self.settings) {
+                            CardRow("Location", value: places.permissionLabel, accessory: .outside, warns: warns)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    if let note {
+                        callout(note)
                     }
                 }
-            }
-            Text(footer)
-                .font(.scaled(13, .regular, relativeTo: .footnote))
-                .lineSpacing(3)
-                .foregroundStyle(Color.jText3)
-                .fixedSize(horizontal: false, vertical: true)
+                .card()
+                .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                .padding(.top, 24)
+                .animation(.easeOut(duration: 0.2), value: places.isOn)
+
+                CardSectionTitle("What it does").padding(.top, 28)
+                VStack(alignment: .leading, spacing: 18) {
+                    benefit(icon: AnyView(GlyphView(glyph: .pin, color: .jText).frame(width: 16, height: 16)),
+                            title: "Every recording keeps its place",
+                            text: "Like \u{201C}Mission District\u{201D} on Days and on the transcript.")
+                    benefit(icon: AnyView(Image(systemName: "text.alignleft").font(.system(size: 14, weight: .medium)).foregroundStyle(Color.jText)),
+                            title: "Text while you record",
+                            text: "Your watch's recordings are written down before you open jotto.")
+                }
+                .padding(.horizontal, 4)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Your location")
+                        .font(.scaled(13, .medium, relativeTo: .footnote))
+                        .foregroundStyle(Color.jText2)
+                    fact("clock", "Only while recording and transcribing")
+                    fact("scope", "Low accuracy: the area, not the address")
+                    fact("iphone", "Places stay on this iPhone")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .background(Color.jWell, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                .padding(.top, 28)
+
+                Button {
+                    withAnimation(.easeOut(duration: 0.2)) { whyOpen.toggle() }
+                } label: {
+                    HStack {
+                        Text("Why Always?")
+                            .font(.scaled(15, .semibold, relativeTo: .subheadline))
+                            .foregroundStyle(Color.jText)
+                        Spacer()
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color.jText4)
+                            .rotationEffect(.degrees(whyOpen ? 180 : 0))
+                    }
+                    .padding(.horizontal, 4)
+                    .frame(minHeight: 48)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
                 .padding(.top, 12)
+                .accessibilityValue(whyOpen ? "Shown" : "Hidden")
+
+                if whyOpen {
+                    Text("Your watch starts recordings while this iPhone is locked, and only Always lets jotto begin then. iOS asks twice: While Using first, then Always. With While Using, jotto stays running from the last time you open it, and iOS shows the location arrow.")
+                        .font(.scaled(13, .regular, relativeTo: .footnote))
+                        .lineSpacing(3)
+                        .foregroundStyle(Color.jText2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 4)
+                        .transition(.opacity)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 48)
         }
+        .statusBarCover()
+        .background(Color.jBg)
+        .toolbar(.hidden, for: .navigationBar)
+        .drawer(isPresented: $asking) { PlacesSheet() }
     }
 
-    private var footer: String {
-        if places.isDenied {
-            return "Location is off for jotto in Settings, so recordings don't keep a place. Turn this on to allow it there."
+    private static let settings = URL(string: UIApplication.openSettingsURLString)!
+
+    private var warns: Bool {
+        places.isDenied || places.permission == .authorizedWhenInUse || (places.isOn && !places.isPrecise)
+    }
+
+    private struct Note {
+        let text: String
+        let action: String
+    }
+
+    /// The one thing to fix, if any, and the button that goes there.
+    private var note: Note? {
+        if places.isDenied, places.wantsPlaces {
+            return Note(text: "Location is off for jotto in Settings, so recordings don't keep a place.", action: "Open Settings")
         }
-        guard places.isOn else {
-            return "Keep the place each recording was made, and have your watch's recordings turn into text while you record. Places stay on this iPhone."
-        }
-        let rough = places.isPrecise ? "" : " Precise Location is off for jotto, so places are only roughly right."
+        guard places.isOn else { return nil }
         if places.permission == .authorizedWhenInUse {
-            return "jotto stays running from the last time you opened it, so it's ready when your watch records, and iOS shows the location arrow the whole time. Set Location to Always to use it only while you record." + rough
+            return Note(text: "jotto stays running so it's ready when your watch records, and iOS shows the location arrow. Choose Always to use location only while you record.", action: "Change to Always")
         }
-        return "Each recording keeps the place it was made. While you record, jotto also stays running, so your watch's recording turns into text as you go. Location is used only then and until it's transcribed, and places stay on this iPhone." + rough
+        if !places.isPrecise {
+            return Note(text: "Precise Location is off for jotto, so places are only roughly right.", action: "Open Settings")
+        }
+        return nil
+    }
+
+    private func callout(_ note: Note) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Circle().fill(Color.jLive).frame(width: 7, height: 7).padding(.top, 6)
+            VStack(alignment: .leading, spacing: 12) {
+                Text(note.text)
+                    .font(.scaled(14, .regular, relativeTo: .subheadline))
+                    .lineSpacing(2)
+                    .foregroundStyle(Color.jText)
+                    .fixedSize(horizontal: false, vertical: true)
+                Link(destination: Self.settings) {
+                    HStack(spacing: 5) {
+                        Text(note.action)
+                        Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .bold))
+                    }
+                    .font(.scaled(14, .semibold, relativeTo: .subheadline))
+                    .foregroundStyle(Color.jBg)
+                    .padding(.horizontal, 14)
+                    .frame(height: 32)
+                    .background(Color.jText, in: Capsule())
+                }
+                .buttonStyle(PressStyle())
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(Color.jLiveWash)
+    }
+
+    private func benefit(icon: AnyView, title: String, text: String) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            icon
+                .frame(width: 36, height: 36)
+                .background(Color.jFill, in: Circle())
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.scaled(16, .semibold, relativeTo: .callout))
+                    .foregroundStyle(Color.jText)
+                Text(text)
+                    .font(.scaled(13, .regular, relativeTo: .footnote))
+                    .foregroundStyle(Color.jText3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func fact(_ icon: String, _ text: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color.jText2)
+                .frame(width: 18)
+            Text(text)
+                .font(.scaled(15, .regular, relativeTo: .subheadline))
+                .foregroundStyle(Color.jText)
+        }
+        .accessibilityElement(children: .combine)
     }
 }

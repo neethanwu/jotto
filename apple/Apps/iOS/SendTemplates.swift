@@ -244,8 +244,8 @@ enum Composer {
 
 // MARK: - The Send tab
 
-/// What goes out with a recording, and where it can go by itself.
-/// Automations sit first: there will only ever be a few. Templates follow.
+/// What goes out with a recording: the templates are the page. Sending
+/// by itself is one row on top, set up on its own page.
 struct SendView: View {
     let router: Router
     private var templates: SendTemplates { .shared }
@@ -255,43 +255,57 @@ struct SendView: View {
         // No large title: the tab bar already says Send.
         TabPage {
             VStack(alignment: .leading, spacing: 0) {
-                sectionTitle("Automations", top: 16)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("When a transcript is ready").font(.rowTitle).foregroundStyle(Color.jText)
-                    Text("jotto sends a notification once a recording is ready. In Shortcuts, add an automation for it that runs Get Finished Transcripts with a template, then hands each one on: \(StoreRegion.shared.isChinaMainland ? "Send Email" : "Send Email, Ask ChatGPT,") or Save File into iCloud Drive or an Obsidian vault.")
-                        .font(.summary)
-                        .foregroundStyle(Color.jText2)
-                        .fixedSize(horizontal: false, vertical: true)
-                    // The automation starts from that notification.
-                    if !AppConfig.shared.notifiesWhenReady {
-                        Text("Needs Notify when ready, in Settings.")
-                            .font(.summary)
-                            .foregroundStyle(Color.jLive)
-                    }
-                    Button {
-                        if let url = URL(string: "shortcuts://") { UIApplication.shared.open(url) }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Text("Open Shortcuts").font(.scaled(15, .medium, relativeTo: .subheadline))
-                            Image(systemName: "arrow.up.right").font(.system(size: 11, weight: .semibold))
+                NavigationLink(value: Route.sendAutomatically) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "bolt")
+                            .font(.system(size: 16, weight: .regular))
+                            .foregroundStyle(Color.jText)
+                            .frame(width: 36, height: 36)
+                            .background(Color.jFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Send automatically").font(.reading).foregroundStyle(Color.jText)
+                            Text("With the Shortcuts app")
+                                .font(.scaled(13, .regular, relativeTo: .footnote))
+                                .foregroundStyle(Color.jText3)
                         }
-                        .foregroundStyle(Color.jText)
-                        .padding(.leading, 14)
-                        .padding(.trailing, 12)
-                        .frame(height: 34)
-                        .background(Color.jFill, in: Capsule())
+                        Spacer(minLength: 8)
+                        Text("Set up")
+                            .font(.scaled(15, .medium, relativeTo: .subheadline))
+                            .foregroundStyle(Color.jText2)
+                        Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold)).foregroundStyle(Color.jText4)
                     }
-                    .buttonStyle(PressStyle())
-                    .padding(.top, 4)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .contentShape(Rectangle())
+                    .card()
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(16)
-                .card()
+                .buttonStyle(.plain)
+                .padding(.top, 12)
 
-                sectionTitle("Templates", count: templates.all.count) { newTemplate }
-                VStack(spacing: 10) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text("Templates")
+                                .font(.scaled(20, .semibold, relativeTo: .title3))
+                                .tracking(-0.3)
+                                .foregroundStyle(Color.jText)
+                            Text("\(templates.all.count)").font(.meta).foregroundStyle(Color.jText3)
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityAddTraits(.isHeader)
+                        Text("Pick one each time you send.")
+                            .font(.scaled(13, .regular, relativeTo: .footnote))
+                            .foregroundStyle(Color.jText3)
+                    }
+                    Spacer(minLength: 8)
+                    newTemplate
+                }
+                .padding(.top, 28)
+                .padding(.bottom, 12)
+
+                CardGroup {
                     ForEach(templates.all) { template in
-                        Button { editing = template } label: { card(template) }
+                        Button { editing = template } label: { row(template) }
                             .buttonStyle(.plain)
                     }
                 }
@@ -325,65 +339,139 @@ struct SendView: View {
         .accessibilityLabel("New template")
     }
 
-    /// Section titles here are headings, not labels: the page is two lists.
-    /// The add button sits on the list it adds to.
-    private func sectionTitle<Trailing: View>(_ text: String, count: Int? = nil, top: CGFloat = 36,
-                                              @ViewBuilder trailing: () -> Trailing = { EmptyView() }) -> some View {
-        HStack(spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(text)
-                    .font(.scaled(20, .semibold, relativeTo: .title3))
-                    .tracking(-0.3)
-                    .foregroundStyle(Color.jText)
-                if let count {
-                    Text("\(count)").font(.meta).foregroundStyle(Color.jText3)
+    /// Name, the first line of its instruction, then what it sends.
+    private func row(_ t: SendTemplate) -> some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(t.name).font(.reading).foregroundStyle(Color.jText)
+                if !t.instruction.isEmpty {
+                    Text(t.instruction)
+                        .font(.scaled(13, .regular, relativeTo: .footnote))
+                        .foregroundStyle(Color.jText2)
+                        .lineLimit(1)
                 }
+                Text([t.summary, usage(t.id)].compactMap { $0 }.joined(separator: " · "))
+                    .font(.scaled(12, .medium, relativeTo: .caption1))
+                    .foregroundStyle(Color.jText3)
             }
-            .accessibilityElement(children: .combine)
-            .accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 8)
-            trailing()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold)).foregroundStyle(Color.jText4)
         }
-        .frame(minHeight: 32)
-        .padding(.top, top)
-        .padding(.bottom, 12)
-    }
-    private func card(_ t: SendTemplate) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(t.name).font(.rowTitle).foregroundStyle(Color.jText)
-                Spacer(minLength: 8)
-                Text(t.summary).font(.metaSmall).foregroundStyle(Color.jText3)
-            }
-            Text(t.instruction.isEmpty ? "No instruction" : t.instruction)
-                .font(.summary)
-                .foregroundStyle(t.instruction.isEmpty ? Color.jText4 : Color.jText2)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-            Text(usage(t.id))
-                .font(.metaSmall)
-                .foregroundStyle(Color.jText4)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .card()
-        .contentShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .contentShape(Rectangle())
     }
 
-    private func usage(_ id: UUID) -> String {
-        guard let use = templates.uses[id], use.count > 0, let last = use.last else { return "Not used yet" }
-        let calendar = Calendar.current
-        let when: String
-        if calendar.isDateInToday(last) {
-            when = "today"
-        } else if calendar.isDateInYesterday(last) {
-            when = "yesterday"
-        } else if let days = calendar.dateComponents([.day], from: last, to: .now).day, days < 7 {
-            when = last.formatted(.dateTime.weekday(.wide))
-        } else {
-            when = last.formatted(.dateTime.day().month(.abbreviated))
+    private func usage(_ id: UUID) -> String? {
+        guard let use = templates.uses[id], use.count > 0 else { return nil }
+        return "used \(Format.plural(use.count, "time"))"
+    }
+}
+
+/// Send → Send automatically: the two things to do, then a picture of
+/// the shortcut they make. The shortcut starts from Notify when ready.
+struct SendAutomaticallyPage: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable private var config: AppConfig = .shared
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                PageHeader(title: "Send automatically", detail: "When a transcript is ready, a shortcut sends it on. Nothing to tap.") { dismiss() }
+
+                CardSectionTitle("Two steps").padding(.top, 28)
+                VStack(spacing: 0) {
+                    step(done: config.notifiesWhenReady, number: 1,
+                         title: "Notify when ready", detail: "The shortcut starts from it") {
+                        if config.notifiesWhenReady {
+                            Text("On")
+                                .font(.scaled(15, .medium, relativeTo: .subheadline))
+                                .foregroundStyle(Color.jText2)
+                        } else {
+                            pill("Turn on") {
+                                config.notifiesWhenReady = true
+                                Task { await Notifier.shared.askIfNeeded(fromSwitch: true) }
+                            }
+                        }
+                    }
+                    Rectangle().fill(Color.jHairline).frame(height: 1).padding(.leading, 52)
+                    step(done: false, number: 2,
+                         title: "Make the automation", detail: "In Shortcuts, under Automation") {
+                        pill("Open", outside: true) {
+                            if let url = URL(string: "shortcuts://") { UIApplication.shared.open(url) }
+                        }
+                    }
+                }
+                .card()
+
+                VStack(spacing: 0) {
+                    HStack {
+                        Text("What you\u{2019}ll build")
+                            .font(.scaled(13, .medium, relativeTo: .footnote))
+                            .foregroundStyle(Color.jText2)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.top, 16)
+                    FlowSteps(steps: [
+                        .init(icon: .app, label: "Notifies", value: "jotto"),
+                        .init(icon: .symbol("doc.text"), label: "Formats with", value: "A template"),
+                        .init(icon: .symbol("paperplane"), label: "Sends to", value: "Files or Mail"),
+                    ])
+                    .padding(.vertical, 18)
+                }
+                .card()
+                .padding(.top, 28)
+                .accessibilityElement(children: .combine)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 48)
         }
-        return "Used \(Format.plural(use.count, "time")) · last \(when)"
+        .statusBarCover()
+        .background(Color.jBg)
+        .toolbar(.hidden, for: .navigationBar)
+    }
+
+    private func step(done: Bool, number: Int, title: String, detail: String,
+                      @ViewBuilder trailing: () -> some View) -> some View {
+        HStack(spacing: 12) {
+            ZStack {
+                if done {
+                    Circle().fill(Color.jText)
+                    Image(systemName: "checkmark").font(.system(size: 11, weight: .heavy)).foregroundStyle(Color.jBg)
+                } else {
+                    Circle().strokeBorder(Color.jText5, lineWidth: 1.5)
+                    Text("\(number)")
+                        .font(.scaled(13, .semibold, relativeTo: .footnote))
+                        .foregroundStyle(Color.jText2)
+                }
+            }
+            .frame(width: 24, height: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.reading).foregroundStyle(Color.jText)
+                Text(detail)
+                    .font(.scaled(13, .regular, relativeTo: .footnote))
+                    .foregroundStyle(Color.jText3)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            trailing()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+    }
+
+    private func pill(_ title: String, outside: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Text(title).font(.scaled(14, .semibold, relativeTo: .subheadline))
+                if outside { Image(systemName: "arrow.up.right").font(.system(size: 10, weight: .bold)) }
+            }
+            .foregroundStyle(Color.jText)
+            .padding(.horizontal, 13)
+            .frame(height: 32)
+            .background(Color.jFill, in: Capsule())
+        }
+        .buttonStyle(PressStyle())
     }
 }
 

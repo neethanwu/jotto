@@ -43,18 +43,22 @@ struct ProcessingView: View {
             VStack(alignment: .leading, spacing: 0) {
                 PageHeader(title: "Processing", detail: "How your recordings turn into text.") { dismiss() }
 
-                VStack(spacing: 10) {
+                HStack(alignment: .top, spacing: 10) {
                     ChoiceCard(
                         title: "On this iPhone",
-                        detail: "Free, and nothing leaves your phone. Doesn't tell speakers apart.",
+                        detail: "Free. Nothing leaves your phone.",
+                        icon: "iphone",
                         selected: !config.usesOwnKey
                     ) { choose(ownKey: false) }
                     ChoiceCard(
-                        title: "Your own API key",
-                        detail: "Sends your recordings to a service you pick. Handles mixed Chinese and English, and tells speakers apart. You pay it directly.",
+                        title: "Your own key",
+                        // Bailian's speech model gives no times, so no speakers either.
+                        detail: region.isChinaMainland ? "Larger models. You pay the service." : "Tells speakers apart. You pay the service.",
+                        icon: "key.horizontal",
                         selected: config.usesOwnKey
                     ) { choose(ownKey: true) }
                 }
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 24)
 
                 if config.usesOwnKey {
@@ -123,50 +127,58 @@ struct ProcessingView: View {
 
     private var phoneSettings: some View {
         VStack(alignment: .leading, spacing: 0) {
-            label("Speech model").padding(.top, 28).padding(.horizontal, 4)
+            CardSectionTitle("On this iPhone").padding(.top, 28)
             VStack(spacing: 0) {
-                SpeechModelRow(
-                    title: "Apple",
-                    detail: "Built in. Best when a recording stays in one language.",
-                    selected: !config.usesQwen
-                ) { pick(.apple) }
-                Rectangle().fill(Color.jHairline).frame(height: 1).padding(.leading, 48).padding(.trailing, 16)
-                QwenRow(selected: config.usesQwen, action: { pick(.qwen) }, remove: { confirmingRemove = true })
+                SpeechMenuRow(pick: pick, remove: { confirmingRemove = true })
+                if !config.usesQwen {
+                    Rectangle().fill(Color.jHairline).frame(height: 1).padding(.leading, 36)
+                    // Only Apple's model needs telling; it belongs to the row above.
+                    NavigationLink(value: Route.language) {
+                        HStack(spacing: 6) {
+                            Text("Languages").font(.scaled(15, .regular, relativeTo: .subheadline)).foregroundStyle(Color.jText)
+                            Spacer(minLength: 8)
+                            Text(config.languages.count == 1
+                                 ? LanguageView.name(config.languages[0])
+                                 : config.languages.map(LanguageView.shortName).joined(separator: ", "))
+                                .font(.scaled(15, .medium, relativeTo: .subheadline))
+                                .foregroundStyle(Color.jText2)
+                                .lineLimit(1)
+                            Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold)).foregroundStyle(Color.jText4)
+                        }
+                        .padding(.leading, 36)
+                        .padding(.trailing, 16)
+                        .frame(minHeight: 48)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                Rectangle().fill(Color.jHairline).frame(height: 1).padding(.leading, 16)
+                HStack(spacing: 6) {
+                    Text("Tidying and titles").font(.reading).foregroundStyle(Color.jText)
+                    Spacer(minLength: 8)
+                    Text(Editor.isAvailable ? "Apple" : "Not on this iPhone")
+                        .font(.scaled(15, .medium, relativeTo: .subheadline))
+                        .foregroundStyle(Editor.isAvailable ? Color.jText2 : Color.jText3)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 16)
+                .frame(minHeight: 56)
+                .accessibilityElement(children: .combine)
             }
             .card()
+            .animation(.easeOut(duration: 0.2), value: config.usesQwen)
 
-            if config.usesQwen {
-                Text("\(SpeechPack.name) tells the language by itself.")
-                    .font(.scaled(13, .regular, relativeTo: .footnote))
-                    .foregroundStyle(Color.jText3)
-                    .padding(.top, 8)
-                    .padding(.horizontal, 4)
-            } else {
-                NavigationLink(value: Route.language) {
-                    HStack(spacing: 12) {
-                        Text("Languages").font(.reading).foregroundStyle(Color.jText)
-                        Spacer(minLength: 8)
-                        Text(config.languages.count == 1
-                             ? LanguageView.name(config.languages[0])
-                             : config.languages.map(LanguageView.shortName).joined(separator: ", "))
-                            .font(.scaled(15, .medium, relativeTo: .subheadline))
-                            .foregroundStyle(Color.jText2)
-                            .lineLimit(1)
-                        Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.jText4)
-                    }
-                    .padding(.horizontal, 16)
-                    .frame(height: 52)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .card()
-                .padding(.top, 12)
-                Text("What people speak in your recordings. Only Apple's model needs this; \(SpeechPack.name) tells by itself.")
-                    .font(.scaled(13, .regular, relativeTo: .footnote))
-                    .foregroundStyle(Color.jText3)
-                    .padding(.top, 8)
-                    .padding(.horizontal, 4)
-            }
+            Text(Editor.isAvailable
+                 ? "Tidying takes out fillers and gives each recording a title."
+                 : "Without Apple Intelligence, recordings keep the words as said, without a title.")
+                .font(.scaled(13, .regular, relativeTo: .footnote))
+                .foregroundStyle(Color.jText3)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 8)
+                .padding(.horizontal, 4)
+
+            OwnKeyExtras()
+                .padding(.top, 28)
         }
         // The same centred alert as deleting a recording.
         .alert("Remove \(SpeechPack.name)?", isPresented: $confirmingRemove) {
@@ -189,101 +201,113 @@ struct ProcessingView: View {
 
     // MARK: Your own key
 
-    /// Who gets the recordings with this key: the service picked, or the one at the address.
-    private var sendsTo: String {
-        if Cloud.service != .compatible { return Cloud.service.name }
-        return URL(string: config.cloudBaseURL.trimmingCharacters(in: .whitespaces))?.host() ?? "the service at that address"
-    }
-
     private var keySettings: some View {
         VStack(alignment: .leading, spacing: 0) {
-            label("Provider").padding(.top, 28)
-            ServicePicker(selection: $config.cloudService, services: Cloud.services)
-            Text(serviceDetail)
-                .font(.scaled(13, .regular, relativeTo: .footnote))
-                .foregroundStyle(Color.jText3)
-                .padding(.top, 8)
+            CardSectionTitle("Service").padding(.top, 28)
+            VStack(spacing: 0) {
+                Menu {
+                    Picker("Service", selection: Binding(get: { Cloud.service }, set: { config.cloudService = $0 })) {
+                        ForEach(Cloud.services) { service in
+                            Text(service.name).tag(service)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                } label: {
+                    MenuRowLabel(title: "Service", value: Cloud.service.name)
+                }
+                .buttonStyle(.plain)
+                .sensoryFeedback(.selection, trigger: config.cloudService)
 
-            if Cloud.service == .compatible {
-                label("Address").padding(.top, 24)
-                HStack(spacing: 4) {
-                    TextField(region.isChinaMainland ? "https://api.deepseek.com/v1" : "https://api.openai.com/v1",
-                              text: $config.cloudBaseURL)
-                        .font(.system(size: 15, design: .monospaced))
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-                        .focused($addressFocused)
-                        .onSubmit {
-                            Cloud.matchModelsToAddress()
-                            Task { await runCheck() }
+                if Cloud.service == .compatible {
+                    hairline
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Address")
+                            .font(.scaled(13, .regular, relativeTo: .footnote))
+                            .foregroundStyle(Color.jText3)
+                        HStack(spacing: 4) {
+                            TextField(region.isChinaMainland ? "https://api.deepseek.com/v1" : "https://api.openai.com/v1",
+                                      text: $config.cloudBaseURL)
+                                .font(.system(size: 15, design: .monospaced))
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .keyboardType(.URL)
+                                .focused($addressFocused)
+                                .onSubmit {
+                                    Cloud.matchModelsToAddress()
+                                    Task { await runCheck() }
+                                }
+                                .onChange(of: addressFocused) { _, focused in
+                                    if !focused { Cloud.matchModelsToAddress() }
+                                }
+                            ClearButton(text: $config.cloudBaseURL, label: "Clear address") { addressFocused = true }
                         }
-                        .onChange(of: addressFocused) { _, focused in
-                            if !focused { Cloud.matchModelsToAddress() }
-                        }
-                    ClearButton(text: $config.cloudBaseURL, label: "Clear address") { addressFocused = true }
+                    }
+                    .padding(.leading, 16)
+                    .padding(.trailing, 10)
+                    .padding(.vertical, 10)
+                    .animation(.easeOut(duration: 0.15), value: config.cloudBaseURL.isEmpty)
+                }
+
+                hairline
+                HStack(spacing: 10) {
+                    Text("API key").font(.reading).foregroundStyle(Color.jText)
+                        .layoutPriority(1)
+                    Spacer(minLength: 8)
+                    if editingKey || draftKey.isEmpty {
+                        SecureField("Paste your key", text: $draftKey)
+                            .font(.system(size: 15, design: .monospaced))
+                            .multilineTextAlignment(.trailing)
+                            // A key, not a password: no offer to save it as one.
+                            .textContentType(.oneTimeCode)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .focused($keyFocused)
+                            .onSubmit { keyFocused = false }
+                        ClearButton(text: $draftKey, visible: keyFocused, label: "Clear key") { keyFocused = true }
+                    } else {
+                        checkMark
+                        // Saved: just enough of it to recognise. Tap to change it.
+                        Text(Self.masked(draftKey))
+                            .font(.system(size: 15, design: .monospaced))
+                            .foregroundStyle(Color.jText2)
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                    }
                 }
                 .padding(.leading, 16)
-                .padding(.trailing, 10)
-                .frame(height: 52)
-                .fieldBackground()
-                .animation(.easeOut(duration: 0.15), value: config.cloudBaseURL.isEmpty)
-                if Cloud.addressBlocked {
-                    Text("This service doesn't operate in China mainland. Here, jotto works with services that do, like Bailian, SiliconFlow or DeepSeek.")
-                        .font(.scaled(13, .regular, relativeTo: .footnote))
-                        .foregroundStyle(Color.jLive)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, 8)
+                .padding(.trailing, editingKey && !draftKey.isEmpty ? 10 : 16)
+                .frame(minHeight: 56)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    editingKey = true
+                    keyFocused = true
+                }
+                .onChange(of: keyFocused) { _, focused in
+                    if focused { editingKey = true } else { editingKey = false; saveKey() }
                 }
             }
+            .card()
 
-            label("API key").padding(.top, 24)
-            HStack(spacing: 10) {
-                if editingKey || draftKey.isEmpty {
-                    SecureField("Paste your key", text: $draftKey)
-                        .font(.system(size: 15, design: .monospaced))
-                        // A key, not a password: no offer to save it as one.
-                        .textContentType(.oneTimeCode)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .focused($keyFocused)
-                        .onSubmit { keyFocused = false }
-                    ClearButton(text: $draftKey, visible: keyFocused, label: "Clear key") { keyFocused = true }
-                } else {
-                    // Saved: just enough of it to recognise. Tap to change it.
-                    Text(Self.masked(draftKey))
-                        .font(.system(size: 15, design: .monospaced))
-                        .foregroundStyle(Color.jText)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                checkMark
+            if Cloud.addressBlocked {
+                Text("This service doesn't operate in China mainland. Here, jotto works with services that do, like Bailian, SiliconFlow or DeepSeek.")
+                    .font(.scaled(13, .regular, relativeTo: .footnote))
+                    .foregroundStyle(Color.jLive)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 8)
+                    .padding(.horizontal, 4)
+            } else if Cloud.service == .compatible {
+                Text(serviceDetail)
+                    .font(.scaled(13, .regular, relativeTo: .footnote))
+                    .foregroundStyle(Color.jText3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 8)
+                    .padding(.horizontal, 4)
             }
-            .padding(.leading, 16)
-            .padding(.trailing, editingKey && !draftKey.isEmpty ? 10 : 16)
-            .frame(height: 52)
-            .fieldBackground()
-            .contentShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-            .onTapGesture {
-                editingKey = true
-                keyFocused = true
-            }
-            .onChange(of: keyFocused) { _, focused in
-                if focused { editingKey = true } else { editingKey = false; saveKey() }
-            }
-            // Said either way: where recordings go with this key, before and after it works.
-            Text(keyMissing
-                 ? "Until there's a key that works, recordings stay on this iPhone. With one, their audio and text go from this iPhone straight to \(sendsTo)."
-                 : "Your recordings' audio and text go from this iPhone straight to \(sendsTo), under its terms. Nothing passes through jotto.")
-                .font(.scaled(13, .regular, relativeTo: .footnote))
-                .foregroundStyle(Color.jText3)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 8)
 
-            label("Models").padding(.top, 24).padding(.horizontal, 4)
+            CardSectionTitle("Models").padding(.top, 28)
             VStack(spacing: 0) {
                 modelRow(.transcribe)
-                Rectangle().fill(Color.jHairline).frame(height: 1).padding(.horizontal, 16)
+                hairline
                 modelRow(.write)
             }
             .card()
@@ -300,19 +324,39 @@ struct ProcessingView: View {
             }
             Color.clear.frame(height: 8).id(Self.modelsEnd)
 
+            // Said either way: where recordings go with this key, before and after it works.
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.jText4)
+                Text(keyMissing
+                     ? "Until a key works, recordings stay on this iPhone."
+                     : "Audio goes from this iPhone straight to \(Cloud.sendsTo). You pay them, not jotto.")
+                    .font(.scaled(13, .regular, relativeTo: .footnote))
+                    .foregroundStyle(Color.jText3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.top, 8)
+            .padding(.horizontal, 4)
+
             if let keys = keyPage {
                 Link(destination: keys) {
                     HStack(spacing: 6) {
-                        Text("How to get a key, and what it costs")
+                        Text(Cloud.service == .bailian ? "Get a Bailian key, and what it costs" : "How to get a key, and what it costs")
                         Image(systemName: "arrow.up.right").font(.system(size: 11, weight: .semibold))
                     }
                     .font(.scaled(15, .medium, relativeTo: .subheadline))
                     .foregroundStyle(Color.jText)
                 }
-                .padding(.top, 16)
+                .padding(.top, 20)
+                .padding(.horizontal, 4)
             }
         }
         .animation(.easeOut(duration: 0.2), value: keyMissing)
+    }
+
+    private var hairline: some View {
+        Rectangle().fill(Color.jHairline).frame(height: 1).padding(.leading, 16)
     }
 
     /// What the service picked is, under the switch.
@@ -343,12 +387,15 @@ struct ProcessingView: View {
         case .unknown: EmptyView()
         case .checking: ProgressView().controlSize(.small)
         case .works:
-            HStack(spacing: 5) {
-                Image(systemName: "checkmark").font(.system(size: 11, weight: .heavy))
+            HStack(spacing: 4) {
+                Image(systemName: "checkmark").font(.system(size: 9, weight: .heavy))
                 Text("Works")
             }
-            .font(.scaled(13, .medium, relativeTo: .footnote))
+            .font(.scaled(13, .semibold, relativeTo: .footnote))
             .foregroundStyle(Color.jText)
+            .padding(.horizontal, 8)
+            .frame(height: 24)
+            .background(Color.jFill, in: Capsule())
         case .fails:
             Text("Didn't work")
                 .font(.scaled(13, .medium, relativeTo: .footnote))
@@ -481,13 +528,6 @@ struct ProcessingView: View {
         ModelPick.set(model, for: slot)
     }
 
-    private func label(_ text: String) -> some View {
-        Text(text)
-            .font(.scaled(11, .medium, relativeTo: .caption2))
-            .foregroundStyle(Color.jText3)
-            .padding(.bottom, 8)
-    }
-
     static func masked(_ key: String) -> String {
         guard key.count > 12 else { return String(repeating: "•", count: key.count) }
         let head = key.prefix(key.hasPrefix("sk-or-v1-") ? 9 : 3)
@@ -520,131 +560,133 @@ struct ProcessingView: View {
     }
 }
 
-/// One of the speech models, as a row: radio, name, a line about it.
-private struct SpeechModelRow<Detail: View, Trailing: View>: View {
+extension Cloud {
+    /// Who gets the recordings with your own key: the service picked, or
+    /// the one at the address.
+    @MainActor static var sendsTo: String {
+        if service != .compatible { return service.name }
+        return URL(string: config.cloudBaseURL.trimmingCharacters(in: .whitespaces))?.host() ?? "the service at that address"
+    }
+}
+
+/// A row that opens a menu in place: its name, then what's picked with
+/// the up-and-down chevron menus use.
+struct MenuRowLabel: View {
     let title: String
-    let selected: Bool
-    let action: () -> Void
-    @ViewBuilder let detail: Detail
-    @ViewBuilder let trailing: Trailing
+    let value: String
 
     var body: some View {
-        Button(action: action) {
-            HStack(alignment: .top, spacing: 12) {
-                ZStack {
-                    Circle().strokeBorder(Color.jText5, lineWidth: 1.5).opacity(selected ? 0 : 1)
-                    Circle().fill(Color.jText).opacity(selected ? 1 : 0)
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 10, weight: .heavy))
-                        .foregroundStyle(Color.jBg)
-                        .opacity(selected ? 1 : 0)
-                }
-                .frame(width: 20, height: 20)
-                .padding(.top, 1)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.reading).foregroundStyle(Color.jText)
-                    detail
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                trailing
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(selected ? .isSelected : [])
-        .animation(.easeOut(duration: 0.2), value: selected)
-    }
-}
-
-extension SpeechModelRow where Detail == Text, Trailing == EmptyView {
-    init(title: String, detail: String, selected: Bool, action: @escaping () -> Void) {
-        self.init(title: title, selected: selected, action: action) {
-            Text(detail)
-                .font(.scaled(14, .regular, relativeTo: .subheadline))
+        HStack(spacing: 6) {
+            Text(title).font(.reading).foregroundStyle(Color.jText)
+                .lineLimit(1)
+                .layoutPriority(1)
+            Spacer(minLength: 8)
+            Text(value)
+                .font(.scaled(15, .medium, relativeTo: .subheadline))
                 .foregroundStyle(Color.jText2)
-        } trailing: {
-            EmptyView()
+                .lineLimit(1)
+                .contentTransition(.opacity)
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color.jText4)
         }
+        .padding(.horizontal, 16)
+        .frame(minHeight: 56)
+        .contentShape(Rectangle())
     }
 }
 
-/// Qwen3-ASR: download it (size on the button), watch it come, then pick
-/// it. Once it's here, the bin on the row takes it off again (design 13h).
-private struct QwenRow: View {
-    let selected: Bool
-    let action: () -> Void
+/// Speech to text on this iPhone, picked in place: Apple's model, or
+/// Qwen3-ASR, downloaded the first time it's picked. While it comes, the
+/// row shows how far; once here, the menu can remove it (design 13h).
+private struct SpeechMenuRow: View {
+    let pick: (AppConfig.SpeechModel) -> Void
     let remove: () -> Void
     private var pack: SpeechPack { .shared }
+    private var config: AppConfig { .shared }
 
     var body: some View {
-        SpeechModelRow(title: SpeechPack.name, selected: selected, action: action) {
-            switch pack.state {
-            case let .downloading(fraction):
-                VStack(alignment: .leading, spacing: 7) {
-                    ProgressBar(fraction: fraction)
-                    Text(progressLine(fraction)).monospacedDigit()
-                        .foregroundStyle(pack.stalled ? Color.jLive : Color.jText2)
+        VStack(alignment: .leading, spacing: 0) {
+            Menu {
+                // Title, subtitle, then the icon: how a menu item takes them.
+                Button { pick(.apple) } label: {
+                    Text("Apple")
+                    Text("Built in")
+                    if !config.usesQwen { Image(systemName: "checkmark") }
                 }
-                .padding(.top, 6)
-            case .preparing:
-                Text("Getting it ready…")
-            case let .failed(why):
-                Text(why).foregroundStyle(Color.jLive)
-            case .absent:
-                Text("Hears Chinese and English mixed together.")
-            case .ready:
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Hears Chinese and English mixed together.")
-                    Text("\(SpeechPack.sizeLabel) on this iPhone")
-                        .font(.scaled(13, .regular, relativeTo: .footnote))
-                        .foregroundStyle(Color.jText3)
+                Button { pick(.qwen) } label: {
+                    Text(SpeechPack.name)
+                    Text(pack.isReady ? "Mixed Chinese and English" : "Mixed Chinese and English · \(SpeechPack.sizeLabel)")
+                    if config.usesQwen {
+                        Image(systemName: "checkmark")
+                    } else if !pack.isReady {
+                        Image(systemName: "arrow.down.to.line")
+                    }
                 }
+                if case .downloading = pack.state {
+                    Divider()
+                    Button("Stop downloading", role: .destructive) { pack.cancel() }
+                } else if pack.isReady {
+                    Divider()
+                    Button("Remove \(SpeechPack.name)", role: .destructive, action: remove)
+                }
+            } label: {
+                MenuRowLabel(title: "Speech to text", value: value)
             }
-        } trailing: {
-            switch pack.state {
-            case .absent:
-                pill { Label(SpeechPack.sizeLabel, systemImage: "arrow.down.to.line") }
-                    .accessibilityLabel("Download \(SpeechPack.sizeLabel)")
-            case .failed:
-                pill { Text("Try again") }
-            case .downloading:
-                circle(label: "Stop downloading", action: pack.cancel) {
-                    Image(systemName: "xmark").font(.system(size: 11, weight: .bold))
+            .buttonStyle(.plain)
+
+            if let line = statusLine {
+                VStack(alignment: .leading, spacing: 7) {
+                    if case let .downloading(fraction) = pack.state {
+                        ProgressBar(fraction: fraction)
+                    }
+                    Text(line)
+                        .font(.scaled(13, .regular, relativeTo: .footnote).monospacedDigit())
+                        .foregroundStyle(warns ? Color.jLive : Color.jText3)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-            case .preparing:
-                ProgressView().controlSize(.small).frame(width: 30, height: 30)
-            case .ready:
-                circle(label: "Remove \(SpeechPack.name)", action: remove) {
-                    GlyphView(glyph: .trash, color: .jText2).frame(width: 15, height: 15)
-                }
+                .padding(.horizontal, 16)
+                .padding(.top, -6)
+                .padding(.bottom, 14)
+                .transition(.opacity)
             }
         }
-        .font(.scaled(14, .regular, relativeTo: .subheadline))
-        .foregroundStyle(Color.jText2)
         .animation(.easeOut(duration: 0.2), value: pack.state)
+    }
+
+    private var value: String {
+        switch pack.state {
+        case .downloading, .preparing: SpeechPack.name
+        default: config.usesQwen ? SpeechPack.name : "Apple"
+        }
+    }
+
+    private var warns: Bool {
+        if case .failed = pack.state { return true }
+        return pack.stalled
     }
 
     /// How far, how long to go, and what to do meanwhile: keep jotto
     /// open for the App Store, which loses a download sent to the
     /// background; Hugging Face carries on with jotto closed.
-    private func progressLine(_ fraction: Double) -> String {
-        if pack.stalled {
-            return pack.fromApple
-                ? "Waiting for the network. Keep jotto open; it picks up as soon as it can."
-                : "Can't reach the download server from this network yet. It keeps trying, even with jotto closed; Apple's model carries on meanwhile."
+    private var statusLine: String? {
+        switch pack.state {
+        case .absent, .ready: return nil
+        case .preparing: return "Getting it ready…"
+        case let .failed(why): return why
+        case let .downloading(fraction):
+            if pack.stalled {
+                return pack.fromApple
+                    ? "Waiting for the network. Keep jotto open."
+                    : "Can't reach the download server yet. It keeps trying; Apple's model works meanwhile."
+            }
+            var parts = ["\(Int(fraction * 100))%"]
+            if let left = pack.secondsLeft { parts.append(Self.timeLeft(left)) }
+            if pack.fromApple {
+                parts.append(pack.startedOver ? "started over · keep jotto open" : "keep jotto open")
+            }
+            return parts.joined(separator: " · ")
         }
-        var line = "\(Int(fraction * Double(SpeechPack.megabytes))) of \(SpeechPack.sizeLabel)"
-        if let left = pack.secondsLeft { line += ", \(Self.timeLeft(left))" }
-        line += ". "
-        if pack.fromApple {
-            if pack.startedOver { line += "Started over, as iOS stops it when jotto is closed. " }
-            line += "Keep jotto open; the screen stays on until it's done."
-        } else {
-            line += "Carries on with jotto closed; Apple's model works meanwhile."
-        }
-        return line
     }
 
     static func timeLeft(_ seconds: Double) -> String {
@@ -653,35 +695,38 @@ private struct QwenRow: View {
         if minutes < 90 { return "about \(minutes) min left" }
         return "about \(Int((seconds / 3600).rounded())) h left"
     }
+}
 
-    private func circle(label: String, action: @escaping () -> Void, @ViewBuilder _ glyph: () -> some View) -> some View {
-        Button(action: action) {
-            glyph()
+/// Under On this iPhone: what your own key would add, said once.
+private struct OwnKeyExtras: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("With your own key you'd also get")
+                .font(.scaled(13, .medium, relativeTo: .footnote))
                 .foregroundStyle(Color.jText2)
-                .frame(width: 30, height: 30)
-                .background(Color.jFill, in: Circle())
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
+            if StoreRegion.shared.isChinaMainland {
+                item("character.bubble", "Mixed Chinese and English, heard better")
+            } else {
+                item("person.2", "Who said what")
+            }
+            item("square.stack.3d.up", "Larger models, run by the service")
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-        // Laid out as the 30-pt circle, touched as 44 pt.
-        .padding(-7)
-        .padding(.top, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(Color.jWell, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
     }
 
-    private func pill(@ViewBuilder _ content: () -> some View) -> some View {
-        Button { pack.download() } label: {
-            content()
-                .font(.scaled(14, .semibold, relativeTo: .subheadline))
+    private func item(_ icon: String, _ text: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color.jText2)
+                .frame(width: 18)
+            Text(text)
+                .font(.scaled(15, .regular, relativeTo: .subheadline))
                 .foregroundStyle(Color.jText)
-                .labelStyle(.titleAndIcon)
-                .padding(.horizontal, 12)
-                .frame(height: 30)
-                .background(Color.jFill, in: Capsule())
         }
-        .buttonStyle(.plain)
-        .padding(.top, 2)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -691,50 +736,11 @@ private struct ProgressBar: View {
         GeometryReader { geo in
             Capsule().fill(Color.jHairline)
                 .overlay(alignment: .leading) {
-                    Capsule().fill(Color.jText).frame(width: max(4, geo.size.width * fraction))
+                    Capsule().fill(Color.jLive).frame(width: max(4, geo.size.width * fraction))
                 }
         }
         .frame(height: 4)
         .animation(.linear(duration: 0.2), value: fraction)
-    }
-}
-
-/// The service with a key for everything, or one at an address: a
-/// two-way switch.
-private struct ServicePicker: View {
-    @Binding var selection: Cloud.Service
-    let services: [Cloud.Service]
-    @Namespace private var knob
-
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(services) { service in
-                let on = service == selection
-                Button {
-                    withAnimation(.spring(duration: 0.3, bounce: 0.1)) { selection = service }
-                } label: {
-                    Text(service.name)
-                        .font(.scaled(15, on ? .semibold : .medium, relativeTo: .subheadline))
-                        .foregroundStyle(on ? Color.jText : Color.jText2)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background {
-                            if on {
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(Color.jSurface)
-                                    .shadow(color: .black.opacity(0.08), radius: 1.5, y: 1)
-                                    .matchedGeometryEffect(id: "knob", in: knob)
-                            }
-                        }
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(on ? .isSelected : [])
-            }
-        }
-        .padding(3)
-        .frame(height: 40)
-        .background(Color.jFill, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-        .sensoryFeedback(.selection, trigger: selection)
     }
 }
 
@@ -743,7 +749,7 @@ private struct ServicePicker: View {
 @MainActor
 enum ModelPick {
     static func title(_ slot: Cloud.ModelSlot) -> String {
-        slot == .transcribe ? "Transcription" : "Titles and formatting"
+        slot == .transcribe ? "Speech to text" : "Tidying and titles"
     }
 
     /// For the service in use: OpenRouter's names, or the service at the
@@ -841,38 +847,48 @@ private struct ModelChoices: View {
     }
 }
 
-/// A large pick-one option: title, a sentence on what it means, and a
-/// filled check when chosen.
+/// A large pick-one option, one of two side by side: an icon and the
+/// check on top, then its name and a sentence on what it means.
 struct ChoiceCard: View {
     let title: String
     let detail: String
+    let icon: String
     let selected: Bool
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(alignment: .top, spacing: 12) {
-                ZStack {
-                    Circle().strokeBorder(Color.jText5, lineWidth: 1.5).opacity(selected ? 0 : 1)
-                    Circle().fill(Color.jText).opacity(selected ? 1 : 0)
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 11, weight: .heavy))
-                        .foregroundStyle(Color.jBg)
-                        .opacity(selected ? 1 : 0)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Image(systemName: icon)
+                        .font(.system(size: 18, weight: .regular))
+                        .foregroundStyle(Color.jText)
+                    Spacer()
+                    ZStack {
+                        Circle().strokeBorder(Color.jText5, lineWidth: 1.5).opacity(selected ? 0 : 1)
+                        Circle().fill(Color.jText).opacity(selected ? 1 : 0)
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 10, weight: .heavy))
+                            .foregroundStyle(Color.jBg)
+                            .opacity(selected ? 1 : 0)
+                    }
+                    .frame(width: 20, height: 20)
                 }
-                .frame(width: 22, height: 22)
-                .padding(.top, 1)
+                .frame(height: 22)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.rowTitle).foregroundStyle(Color.jText)
+                    Text(title)
+                        .font(.scaled(16, .semibold, relativeTo: .callout))
+                        .foregroundStyle(Color.jText)
                     Text(detail)
-                        .font(.scaled(14, .regular, relativeTo: .subheadline))
+                        .font(.scaled(13, .regular, relativeTo: .footnote))
                         .foregroundStyle(Color.jText2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
             }
-            .padding(16)
-            .background(selected ? Color.jSurface : Color.jBg, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .padding(14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .background(Color.jBg, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                     .strokeBorder(selected ? Color.jText : Color.jHairline, lineWidth: selected ? 1.5 : 1)
@@ -880,7 +896,9 @@ struct ChoiceCard: View {
             .contentShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         }
         .buttonStyle(.plain)
-        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+        .animation(.easeOut(duration: 0.2), value: selected)
     }
 }
 

@@ -70,12 +70,6 @@ struct StarReach: View {
             }
             .font(.scaled(11, .medium, relativeTo: .caption2).monospacedDigit())
             .foregroundStyle(Color.jText4)
-
-            Text("Drag either end. Sections cover exactly what you mark.")
-                .font(.scaled(13, .regular, relativeTo: .footnote))
-                .foregroundStyle(Color.jText3)
-                .padding(.top, 12)
-                .padding(.bottom, 8)
         }
         .sensoryFeedback(.selection, trigger: config.momentBefore)
         .sensoryFeedback(.selection, trigger: config.momentAfter)
@@ -110,5 +104,123 @@ struct StarReach: View {
     private func adjust(_ value: Int, _ direction: AccessibilityAdjustmentDirection) -> Int {
         let next = direction == .increment ? value + Self.step : value - Self.step
         return min(Highlight.maxReach, max(Self.step, next))
+    }
+}
+
+/// Settings → Highlights: a picture of what a star keeps, the two ends
+/// to drag, and three lengths to pick at once.
+struct HighlightsPage: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable private var config: AppConfig = .shared
+
+    private static let presets: [(name: String, seconds: Int)] = [("Quick", 5), ("Moment", 10), ("Long", 30)]
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                PageHeader(title: "Highlights", detail: "Tap the star while you record. jotto keeps the moments around it.") { dismiss() }
+
+                StarPicture(before: config.momentBefore, after: config.momentAfter)
+                    .padding(.top, 24)
+
+                StarReach(config: config)
+                    .padding(.top, 10)
+
+                HStack(spacing: 8) {
+                    ForEach(Self.presets, id: \.seconds) { preset in
+                        let on = config.momentBefore == preset.seconds && config.momentAfter == preset.seconds
+                        Button {
+                            config.momentBefore = preset.seconds
+                            config.momentAfter = preset.seconds
+                        } label: {
+                            Text("\(preset.name) · \(preset.seconds) s")
+                                .font(.scaled(14, .medium, relativeTo: .subheadline))
+                                .foregroundStyle(on ? Color.jBg : Color.jText)
+                                .padding(.horizontal, 14)
+                                .frame(height: 34)
+                                .background(on ? Color.jText : Color.jFill, in: Capsule())
+                        }
+                        .buttonStyle(PressStyle())
+                        .accessibilityAddTraits(on ? .isSelected : [])
+                    }
+                }
+                .padding(.top, 16)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 48)
+        }
+        .statusBarCover()
+        .background(Color.jBg)
+        .toolbar(.hidden, for: .navigationBar)
+    }
+}
+
+/// A stretch of speech as bars, the part a star keeps lit around the
+/// tap, as wide as the seconds before and after.
+private struct StarPicture: View {
+    let before: Int
+    let after: Int
+
+    private static let heights: [CGFloat] = [10, 16, 22, 14, 26, 18, 30, 12, 20, 28, 16, 24, 34, 18, 26, 14, 30, 22, 12, 28, 18, 24, 32, 16, 20, 26, 14, 22, 30, 18, 12, 24, 16, 28, 20, 14]
+
+    var body: some View {
+        GeometryReader { geo in
+            let width = geo.size.width - 32
+            let mid = width / 2
+            let scale = mid / CGFloat(Highlight.maxReach)
+            let left = mid - CGFloat(before) * scale
+            let right = mid + CGFloat(after) * scale
+            let step = width / CGFloat(Self.heights.count)
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.jLiveHalo.opacity(0.7))
+                    .frame(width: right - left, height: 64)
+                    .offset(x: 16 + left, y: 44)
+                HStack(alignment: .center, spacing: 0) {
+                    ForEach(Array(Self.heights.enumerated()), id: \.offset) { i, h in
+                        let x = (CGFloat(i) + 0.5) * step
+                        Capsule()
+                            .fill(x >= left && x <= right ? Color.jText : Color.jText5)
+                            .frame(width: 3, height: h * 1.4)
+                            .frame(width: step)
+                    }
+                }
+                .frame(width: width, height: 64)
+                .offset(x: 16, y: 44)
+                // The tap.
+                Rectangle()
+                    .fill(Color.jLive)
+                    .frame(width: 1.5, height: 72)
+                    .offset(x: 16 + mid - 0.75, y: 40)
+                HStack(spacing: 4) {
+                    GlyphView(glyph: .star, color: .jLive).frame(width: 10, height: 10)
+                    Text("You tap")
+                        .font(.scaled(12, .semibold, relativeTo: .caption1))
+                        .foregroundStyle(Color.ink50)
+                }
+                .padding(.horizontal, 9)
+                .frame(height: 24)
+                .background(Color.ink950, in: Capsule())
+                .fixedSize()
+                .frame(width: 120)
+                .offset(x: 16 + mid - 60, y: 12)
+                HStack {
+                    Text("← \(before) s")
+                    Spacer()
+                    Text("\(after) s →")
+                }
+                .font(.scaled(13, .semibold, relativeTo: .footnote).monospacedDigit())
+                .foregroundStyle(Color.jText)
+                .frame(width: min(width, max(120, right - left)))
+                .offset(x: 16 + min(width - min(width, max(120, right - left)), max(0, (left + right) / 2 - min(width, max(120, right - left)) / 2)), y: 116)
+                .contentTransition(.numericText())
+            }
+        }
+        .frame(height: 150)
+        .background(Color.jWell, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .animation(.easeOut(duration: 0.15), value: before)
+        .animation(.easeOut(duration: 0.15), value: after)
+        .accessibilityElement()
+        .accessibilityLabel("A star keeps \(before) seconds before the tap and \(after) seconds after")
     }
 }
