@@ -17,6 +17,8 @@ final class Pipeline {
     /// Why recordings are waiting rather than being transcribed, for the
     /// screens: the speech model is downloading, or can't be had.
     private(set) var waiting: String?
+    /// What's waiting is a speech model that didn't come: worth a Try again.
+    private(set) var modelsStuck = false
 
     @ObservationIgnored private var store: LocalStore { .shared }
     @ObservationIgnored private var running = false
@@ -758,10 +760,17 @@ final class Pipeline {
         let models = SpeechModels.shared
         let wanted = AppConfig.shared.languages
         await models.refresh()
-        if wanted.contains(where: { !models.isInstalled($0) }) { waiting = "Downloading the speech model" }
+        if wanted.contains(where: { !models.isInstalled($0) }) { waiting = "Getting the speech model ready" }
         await models.ensure(wanted)
-        waiting = wanted.contains(where: models.failed.contains)
-            ? "Couldn't download the speech model. Open jotto on Wi-Fi to try again" : nil
+        modelsStuck = wanted.contains(where: models.failed.contains)
+        waiting = modelsStuck ? "Couldn't get the speech model" : nil
+    }
+
+    /// Try again, from the transcript: ask for the speech models afresh.
+    func retryModels() {
+        modelsStuck = false
+        waiting = nil
+        languageChanged()
     }
 
     private enum Step {
@@ -922,9 +931,6 @@ final class Pipeline {
                 let language: String
                 if let known = r.locale {
                     language = known
-                } else if AppConfig.shared.mixesLanguages, languages.count > 1 {
-                    language = LocalRecording.mixed
-                    store.update(id, startedAt: r.startedAt) { $0.locale = language }
                 } else {
                     language = try await OnDeviceTranscriber.shared.detect(url).identifier
                     store.update(id, startedAt: r.startedAt) { $0.locale = language }
@@ -944,6 +950,8 @@ final class Pipeline {
             } catch OnDeviceTranscriber.Failure.notReady(let why) {
                 transcriberNotReady = true
                 if waiting == nil { waiting = why }
+                // Still not ready after this launch asked for it: offer to ask again.
+                if prepared, UIApplication.shared.applicationState == .active { modelsStuck = true }
                 PhoneLog.shared.note("asr_not_ready", why)
             } catch {
                 if deferInBackground("asr", id: id, index: index, error) { return }

@@ -61,7 +61,7 @@ actor OnDeviceTranscriber {
         }
         let transcriber = SpeechTranscriber(locale: locale, preset: .transcription)
         guard await AssetInventory.status(forModules: [transcriber]) == .installed else {
-            throw Failure.notReady("Waiting for the \(Self.name(locale)) speech model. Open jotto to download it")
+            throw Failure.notReady("Getting the \(Self.name(locale)) speech model ready")
         }
         return transcriber
     }

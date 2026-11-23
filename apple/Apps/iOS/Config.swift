@@ -15,12 +15,6 @@ final class AppConfig {
     }
     static let maxLanguages = 3
 
-    /// Experiment: with two or more languages, transcribe every recording
-    /// in all of them and keep the surest, stretch by stretch.
-    var mixesLanguages: Bool {
-        didSet { UserDefaults.standard.set(mixesLanguages, forKey: "mixesLanguages") }
-    }
-
     /// First launch: the iPhone's languages and keyboards, as a start.
     func fillLanguagesIfNeeded() async {
         guard languages.isEmpty else { return }
@@ -113,7 +107,6 @@ final class AppConfig {
         bailianTranscribeModel = defaults.string(forKey: "bailianTranscribeModel") ?? Cloud.defaultBailianTranscribeModel
         bailianWriteModel = defaults.string(forKey: "bailianWriteModel") ?? Cloud.defaultBailianWriteModel
         // Before 2026-11-11 there was one language, or Automatic (none).
-        mixesLanguages = defaults.bool(forKey: "mixesLanguages")
         languages = defaults.stringArray(forKey: "transcriptionLocales")
             ?? defaults.string(forKey: "transcriptionLocale").map { [$0] } ?? []
         keepAudioDays = defaults.object(forKey: "keepAudioDays") as? Int ?? 30

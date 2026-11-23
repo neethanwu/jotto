@@ -616,6 +616,13 @@ struct TranscriptView: View {
                     .font(.metaSmall)
                     .foregroundStyle(Color.jText3)
                     .contentTransition(.numericText())
+                if detail.status == "processing", Pipeline.shared.modelsStuck, Pipeline.shared.waiting != nil {
+                    Button("Try again") { Pipeline.shared.retryModels() }
+                        .font(.metaSmall.weight(.semibold))
+                        .foregroundStyle(Color.jText)
+                        .buttonStyle(.plain)
+                        .contentShape(.rect.inset(by: -10))
+                }
                 if failed > 0, detail.status == "ready", tidying == nil {
                     Button("Try again") { Pipeline.shared.retryFailed(detail.id) }
                         .font(.metaSmall.weight(.semibold))

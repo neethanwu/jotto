@@ -1058,13 +1058,28 @@ struct LanguageView: View {
                     }
                 }
                 if config.languages.count > 1 {
-                    VStack(alignment: .leading, spacing: 6) {
-                        SettingsToggle("Mixed in one recording", isOn: $config.mixesLanguages)
-                        Text("Experiment. Transcribes each recording in every language above and keeps whichever is surer, a sentence or two at a time. Takes a little longer.")
-                            .font(.metaSmall)
-                            .foregroundStyle(Color.jText3)
+                    // Apple's models hear one language per recording; for
+                    // switching back and forth, Qwen3-ASR is the one.
+                    HStack(alignment: .center, spacing: 12) {
+                        Text("Switch languages within one recording? \(SpeechPack.name) hears them mixed.")
+                            .font(.scaled(13, .regular, relativeTo: .footnote))
+                            .foregroundStyle(Color.jText2)
                             .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Button {
+                            useQwen()
+                        } label: {
+                            Text(SpeechPack.shared.isReady ? "Use it" : "Get it · \(SpeechPack.sizeLabel)")
+                                .font(.scaled(14, .semibold, relativeTo: .subheadline))
+                                .foregroundStyle(Color.jText)
+                                .padding(.horizontal, 13)
+                                .frame(height: 32)
+                                .background(Color.jFill, in: Capsule())
+                        }
+                        .buttonStyle(PressStyle())
                     }
+                    .padding(14)
+                    .background(Color.jWell, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                     .padding(.top, 12)
                 }
                 if limitNote {
@@ -1161,6 +1176,18 @@ struct LanguageView: View {
                 Text(text).font(.metaSmall).foregroundStyle(Color.jText3)
             }
         }
+    }
+
+    /// Qwen3-ASR from here: picked, downloaded first if it isn't here yet
+    /// (its progress shows on Processing, where this goes back to).
+    private func useQwen() {
+        config.speechModel = .qwen
+        if SpeechPack.shared.isReady {
+            Pipeline.shared.languageChanged()
+        } else {
+            SpeechPack.shared.download()
+        }
+        dismiss()
     }
 
     private func toggle(_ id: String) {
