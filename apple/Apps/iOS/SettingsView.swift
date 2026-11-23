@@ -11,6 +11,9 @@ struct SettingsView: View {
     private var library: Library { .shared }
     private var places: PlaceTracker { .shared }
     @State private var isBeta = false
+    /// The row open in place, if any: one at a time.
+    @State private var open: Open?
+    enum Open { case openIn, keepAudio }
 
     /// A build from Xcode or TestFlight, not the App Store.
     static func isBetaBuild() async -> Bool {
@@ -43,13 +46,25 @@ struct SettingsView: View {
                 }
 
                 CardSection("Transcripts", inset: 56) {
-                    NavigationLink(value: Route.openIn) {
-                        CardRow("Open in", icon: "doc.text", value: config.opensOriginal ? "Original" : "Formatted")
+                    ExpandRow(title: "Open in", icon: "doc.text", value: config.opensOriginal ? "Original" : "Formatted",
+                              open: openBinding(.openIn)) {
+                        ChoiceLine(name: "Formatted", detail: "Tidied into sentences, fillers taken out",
+                                   selected: !config.opensOriginal, first: true, underIcon: true) { pick { config.opensOriginal = false } }
+                        ChoiceLine(name: "Original", detail: "Every word, with the cuts struck through",
+                                   selected: config.opensOriginal, underIcon: true) { pick { config.opensOriginal = true } }
                     }
-                    NavigationLink(value: Route.keepAudio) {
-                        CardRow("Keep audio", icon: "waveform", value: KeepAudio.label(config.keepAudioDays))
+                    ExpandRow(title: "Keep audio", icon: "waveform", value: KeepAudio.label(config.keepAudioDays),
+                              open: openBinding(.keepAudio)) {
+                        ForEach(Array(KeepAudio.options.enumerated()), id: \.element) { i, days in
+                            ChoiceLine(name: KeepAudio.label(days),
+                                       selected: config.keepAudioDays == days, first: i == 0, underIcon: true) {
+                                pick { config.keepAudioDays = days }
+                            }
+                        }
                     }
                 }
+                .sensoryFeedback(.selection, trigger: config.opensOriginal)
+                .sensoryFeedback(.selection, trigger: config.keepAudioDays)
 
                 VStack(alignment: .leading, spacing: 0) {
                     CardSectionTitle("Your month")
@@ -94,6 +109,19 @@ struct SettingsView: View {
         }
         .task { await library.refresh() }
         .task { isBeta = await Self.isBetaBuild() }
+    }
+
+    private func openBinding(_ row: Open) -> Binding<Bool> {
+        Binding(get: { open == row }, set: { open = $0 ? row : (open == row ? nil : open) })
+    }
+
+    /// Picked: a beat to see the check move, then fold away.
+    private func pick(_ change: () -> Void) {
+        change()
+        Task {
+            try? await Task.sleep(for: .milliseconds(250))
+            withAnimation(ExpandRow<EmptyView>.fold) { open = nil }
+        }
     }
 
     private var placesValue: String {
@@ -537,55 +565,6 @@ enum KeepAudio {
         case 365: "1 year"
         default: "\(days) days"
         }
-    }
-}
-
-struct KeepAudioView: View {
-    @Environment(\.dismiss) private var dismiss
-    @Bindable var config: AppConfig = .shared
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                PageHeader(title: "Keep audio", detail: "Transcripts stay until you delete them. Audio is removed this long after a recording is transcribed.") { dismiss() }
-                SettingsGroup {
-                    ForEach(KeepAudio.options, id: \.self) { days in
-                        ChoiceRow(label: KeepAudio.label(days), selected: config.keepAudioDays == days) {
-                            config.keepAudioDays = days
-                        }
-                    }
-                }
-                .padding(.top, 24)
-            }
-            .padding(.horizontal, 20)
-        }
-        .statusBarCover()
-        .background(Color.jBg)
-        .toolbar(.hidden, for: .navigationBar)
-        .sensoryFeedback(.selection, trigger: config.keepAudioDays)
-    }
-}
-
-struct OpenInView: View {
-    @Environment(\.dismiss) private var dismiss
-    @Bindable var config: AppConfig = .shared
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                PageHeader(title: "Open transcripts in", detail: "You can always switch between them on the transcript.") { dismiss() }
-                SettingsGroup {
-                    ChoiceRow(label: "Formatted", detail: "Tidied into sentences, fillers taken out", selected: !config.opensOriginal) { config.opensOriginal = false }
-                    ChoiceRow(label: "Original", detail: "Every word, with the cuts struck through", selected: config.opensOriginal) { config.opensOriginal = true }
-                }
-                .padding(.top, 24)
-            }
-            .padding(.horizontal, 20)
-        }
-        .statusBarCover()
-        .background(Color.jBg)
-        .toolbar(.hidden, for: .navigationBar)
-        .sensoryFeedback(.selection, trigger: config.opensOriginal)
     }
 }
 

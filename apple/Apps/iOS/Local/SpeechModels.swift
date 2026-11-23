@@ -18,14 +18,35 @@ final class SpeechModels {
         Task { await refresh() }
     }
 
+    /// Ready for jotto, language by language: what SpeechAnalyzer itself
+    /// says, not `installedLocales`. A model iOS already has for dictation
+    /// is listed there as installed, yet jotto can't use it until it asks
+    /// for it (which reserves it), so going by that list said "Downloaded"
+    /// while recordings waited for the model forever.
     func refresh() async {
-        installed = Set(await SpeechTranscriber.installedLocales.map(\.identifier))
+        var ready: Set<String> = []
+        for id in Set(AppConfig.shared.languages).union(installed) {
+            if await Self.status(id) == .installed { ready.insert(id) }
+        }
+        installed = ready
+    }
+
+    private static func status(_ id: String) async -> AssetInventory.Status {
+        await AssetInventory.status(forModules: [SpeechTranscriber(locale: Locale(identifier: id), preset: .transcription)])
     }
 
     func isInstalled(_ id: String) -> Bool { installed.contains(id) }
 
-    /// Downloads whichever of these aren't on the phone yet, side by side.
-    /// Needs jotto in front; returns when all have finished or failed.
+    /// A language no longer picked gives back its place: iOS lets an app
+    /// hold only a few.
+    func release(_ id: String) {
+        installed.remove(id)
+        Task { _ = await AssetInventory.release(reservedLocale: Locale(identifier: id)) }
+    }
+
+    /// Asks for whichever of these jotto can't use yet, side by side: a
+    /// download, or only claiming one already on the iPhone. Needs jotto
+    /// in front; returns when all have finished or failed.
     func ensure(_ ids: [String]) async {
         await refresh()
         let missing = ids.filter { !installed.contains($0) && progress[$0] == nil }
@@ -42,8 +63,11 @@ final class SpeechModels {
         let transcriber = SpeechTranscriber(locale: Locale(identifier: id), preset: .transcription)
         failed.remove(id)
         do {
-            // Nil: nothing to download.
-            guard let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) else { return }
+            // Nil: nothing to download; asking was enough to claim it.
+            guard let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) else {
+                PhoneLog.shared.note("asr_claimed", id)
+                return
+            }
             progress[id] = 0
             PhoneLog.shared.note("asr_download", id)
             let poll = Task { [weak self] in

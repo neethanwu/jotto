@@ -11,8 +11,6 @@ enum Route: Hashable {
     case transcript(id: String, at: Double? = nil, rename: Bool = false)
     case processing
     case language
-    case keepAudio
-    case openIn
     case places
     case highlights
     case sendAutomatically
@@ -124,8 +122,6 @@ struct RootView: View {
                     case let .transcript(id, at, rename): TranscriptView(id: id, startAt: at, startsRenaming: rename)
                     case .processing: ProcessingView()
                     case .language: LanguageView()
-                    case .keepAudio: KeepAudioView()
-                    case .openIn: OpenInView()
                     case .places: PlacesPage()
                     case .highlights: HighlightsPage()
                     case .sendAutomatically: SendAutomaticallyPage()

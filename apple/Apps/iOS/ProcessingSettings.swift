@@ -601,6 +601,7 @@ extension Cloud {
 /// The choices fold open and shut at their bottom edge.
 struct ExpandRow<Choices: View>: View {
     let title: String
+    var icon: String? = nil
     let value: String
     @Binding var open: Bool
     @ViewBuilder var choices: Choices
@@ -613,6 +614,7 @@ struct ExpandRow<Choices: View>: View {
                 withAnimation(Self.fold) { open.toggle() }
             } label: {
                 HStack(spacing: 6) {
+                    if let icon { RowIcon(icon).padding(.trailing, 6) }
                     Text(title).font(.reading).foregroundStyle(Color.jText)
                         .lineLimit(1)
                         .layoutPriority(1)
@@ -651,6 +653,9 @@ struct ChoiceLine<Trailing: View>: View {
     var detail: String?
     let selected: Bool
     var first = false
+    /// Under a row with an icon: the check sits in the icon's column, so
+    /// the names line up with the row's.
+    var underIcon = false
     let action: () -> Void
     @ViewBuilder var trailing: Trailing
 
@@ -658,7 +663,7 @@ struct ChoiceLine<Trailing: View>: View {
         VStack(spacing: 0) {
             if !first {
                 // Hairlines start where the names do.
-                Rectangle().fill(Color.jHairline).frame(height: 1).padding(.leading, 48).padding(.trailing, 16)
+                Rectangle().fill(Color.jHairline).frame(height: 1).padding(.leading, underIcon ? 56 : 48).padding(.trailing, 16)
             }
             HStack(spacing: 12) {
                 Button(action: action) {
@@ -667,7 +672,7 @@ struct ChoiceLine<Trailing: View>: View {
                             .font(.system(size: 14, weight: .bold))
                             .foregroundStyle(Color.jText)
                             .opacity(selected ? 1 : 0)
-                            .frame(width: 20)
+                            .frame(width: underIcon ? 28 : 20)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(name)
                                 .font(.scaled(16, .regular, relativeTo: .body))
@@ -694,8 +699,9 @@ struct ChoiceLine<Trailing: View>: View {
 }
 
 extension ChoiceLine where Trailing == EmptyView {
-    init(name: String, detail: String? = nil, selected: Bool, first: Bool = false, action: @escaping () -> Void) {
-        self.init(name: name, detail: detail, selected: selected, first: first, action: action) { EmptyView() }
+    init(name: String, detail: String? = nil, selected: Bool, first: Bool = false, underIcon: Bool = false,
+         action: @escaping () -> Void) {
+        self.init(name: name, detail: detail, selected: selected, first: first, underIcon: underIcon, action: action) { EmptyView() }
     }
 }
 
@@ -1094,7 +1100,9 @@ struct LanguageView: View {
         .animation(.easeOut(duration: 0.2), value: limitNote)
         .task {
             await config.fillLanguagesIfNeeded()
-            await models.refresh()
+            // Picked but not usable yet (one iOS has for dictation isn't
+            // jotto's until asked for): ask now, while jotto is in front.
+            await models.ensure(config.languages)
             let supported = await SpeechTranscriber.supportedLocales
             all = supported.sorted { Self.name($0.identifier).localizedStandardCompare(Self.name($1.identifier)) == .orderedAscending }
             loaded = true
@@ -1164,6 +1172,7 @@ struct LanguageView: View {
             // At least one stays.
             guard config.languages.count > 1 else { return }
             config.languages.remove(at: i)
+            models.release(id)
         } else {
             guard config.languages.count < AppConfig.maxLanguages else {
                 limitNote = true
