@@ -141,33 +141,37 @@ struct FlowCard: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("How a recording becomes text")
-                    .font(.scaled(13, .medium, relativeTo: .footnote))
-                    .foregroundStyle(Color.jText2)
-                Spacer(minLength: 8)
-                Button(action: change) {
-                    HStack(spacing: 4) {
-                        Text("Change")
-                        Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold))
+            // The whole picture opens Processing, not only "Change".
+            Button(action: change) {
+                VStack(spacing: 0) {
+                    HStack {
+                        Text("How a recording becomes text")
+                            .font(.scaled(13, .medium, relativeTo: .footnote))
+                            .foregroundStyle(Color.jText2)
+                        Spacer(minLength: 8)
+                        HStack(spacing: 4) {
+                            Text("Change")
+                            Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold))
+                        }
+                        .font(.scaled(15, .semibold, relativeTo: .subheadline))
+                        .foregroundStyle(Color.jText)
                     }
-                    .font(.scaled(15, .semibold, relativeTo: .subheadline))
-                    .foregroundStyle(Color.jText)
-                    .contentShape(Rectangle().inset(by: -8))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Change processing")
-            }
-            .padding(.horizontal, 18)
-            .padding(.top, 16)
+                    .padding(.horizontal, 18)
+                    .padding(.top, 16)
 
-            FlowSteps(steps: [
-                .init(icon: .symbol("applewatch"), label: "Records", value: "Apple Watch"),
-                .init(icon: .symbol("iphone"), label: "Transcribes", value: transcribes),
-                .init(icon: .symbol("text.alignleft"), label: "Tidies and titles", value: tidies ?? "Off", off: tidies == nil),
-            ])
-            .padding(.top, 18)
-            .padding(.bottom, 18)
+                    FlowSteps(steps: [
+                        .init(icon: .symbol("applewatch"), label: "Records", value: "Apple Watch"),
+                        .init(icon: .symbol("iphone"), label: "Transcribes", value: transcribes),
+                        .init(icon: .symbol("text.alignleft"), label: "Tidies and titles", value: tidies ?? "Off", off: tidies == nil),
+                    ])
+                    .padding(.top, 18)
+                    .padding(.bottom, 18)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(Highlight())
+            .accessibilityElement(children: .combine)
+            .accessibilityHint("Change processing")
 
             Rectangle().fill(Color.jHairline).frame(height: 1)
             HStack(spacing: 12) {
@@ -183,6 +187,18 @@ struct FlowCard: View {
         .card()
         .onChange(of: config.notifiesWhenReady) { _, on in
             if on { Task { await Notifier.shared.askIfNeeded(fromSwitch: true) } }
+        }
+    }
+
+    /// Pressed, the picture dims a touch, like a row in a list.
+    private struct Highlight: ButtonStyle {
+        func makeBody(configuration: Configuration) -> some View {
+            configuration.label
+                .background(
+                    UnevenRoundedRectangle(topLeadingRadius: Radius.card, topTrailingRadius: Radius.card, style: .continuous)
+                        .fill(Color.jText.opacity(configuration.isPressed ? 0.05 : 0))
+                )
+                .animation(.easeOut(duration: configuration.isPressed ? 0.05 : 0.2), value: configuration.isPressed)
         }
     }
 
