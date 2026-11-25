@@ -257,8 +257,9 @@ struct SendView: View {
             VStack(alignment: .leading, spacing: 0) {
                 NavigationLink(value: Route.sendAutomatically) {
                     HStack(spacing: 12) {
-                        // A plain line icon, like every row in Settings.
-                        RowIcon("paperplane")
+                        // A plain line icon, like every row in Settings: the one Shortcuts
+                        // gives its Automation tab.
+                        RowIcon("clock.badge.checkmark")
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Send automatically").font(.reading).foregroundStyle(Color.jText)
                             Text("With the Shortcuts app")

@@ -135,11 +135,11 @@ struct ProcessingView: View {
             VStack(spacing: 0) {
                 SpeechMenuRow(open: openBinding(.speech), pick: pick, remove: { confirmingRemove = true })
                 if !config.usesQwen {
-                    Rectangle().fill(Color.jHairline).frame(height: 1).padding(.leading, 36)
-                    // Only Apple's model needs telling; it belongs to the row above.
+                    Rectangle().fill(Color.jHairline).frame(height: 1).padding(.leading, 16)
+                    // Only Apple's model needs telling, so the row is here only with it.
                     NavigationLink(value: Route.language) {
                         HStack(spacing: 6) {
-                            Text("Languages").font(.scaled(15, .regular, relativeTo: .subheadline)).foregroundStyle(Color.jText)
+                            Text("Languages").font(.reading).foregroundStyle(Color.jText)
                             Spacer(minLength: 8)
                             Text(config.languages.count == 1
                                  ? LanguageView.name(config.languages[0])
@@ -149,9 +149,8 @@ struct ProcessingView: View {
                                 .lineLimit(1)
                             Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold)).foregroundStyle(Color.jText4)
                         }
-                        .padding(.leading, 36)
-                        .padding(.trailing, 16)
-                        .frame(minHeight: 48)
+                        .padding(.horizontal, 16)
+                        .frame(minHeight: 56)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -761,14 +760,10 @@ private struct SpeechMenuRow: View {
         .animation(.easeOut(duration: 0.2), value: pack.state)
     }
 
-    /// Picked: a beat to see the check move, then fold away. Qwen3-ASR
-    /// not here yet starts coming, its progress under the row.
+    /// Picked, the list stays open: Qwen3-ASR's download, its stop and
+    /// its bin are on its line, so it folds only when the row is tapped.
     private func choose(_ model: AppConfig.SpeechModel) {
         pick(model)
-        Task {
-            try? await Task.sleep(for: .milliseconds(250))
-            withAnimation(ExpandRow<EmptyView>.fold) { open = false }
-        }
     }
 
     private func circle(label: String, action: @escaping () -> Void, @ViewBuilder _ glyph: () -> some View) -> some View {
