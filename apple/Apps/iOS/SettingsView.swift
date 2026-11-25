@@ -270,12 +270,8 @@ struct FlowSteps: View {
                 .font(.system(size: 17, weight: .regular))
                 .foregroundStyle(step.off ? Color.jText4 : Color.jText)
         case .app:
-            // jotto's own mark: the dot on black.
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color.ink950)
-                .overlay(Circle().fill(Color.jLive).frame(width: 7, height: 7))
-                .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Color.jChromeStroke))
-                .frame(width: 20, height: 20)
+            // jotto, as its dot: what the watch shows when it records.
+            Circle().fill(Color.jLive).frame(width: 12, height: 12)
         }
     }
 }

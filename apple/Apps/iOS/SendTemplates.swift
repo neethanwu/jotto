@@ -257,11 +257,8 @@ struct SendView: View {
             VStack(alignment: .leading, spacing: 0) {
                 NavigationLink(value: Route.sendAutomatically) {
                     HStack(spacing: 12) {
-                        Image(systemName: "bolt")
-                            .font(.system(size: 16, weight: .regular))
-                            .foregroundStyle(Color.jText)
-                            .frame(width: 36, height: 36)
-                            .background(Color.jFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        // A plain line icon, like every row in Settings.
+                        RowIcon("paperplane")
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Send automatically").font(.reading).foregroundStyle(Color.jText)
                             Text("With the Shortcuts app")
