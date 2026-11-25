@@ -128,7 +128,7 @@ enum Cloud {
     static let bailianWriteModels: [Suggestion] = [
         .init(id: "qwen-plus", name: "Qwen Plus"),
         .init(id: "qwen-flash", name: "Qwen Flash"),
-        .init(id: "deepseek-v3.2", name: "DeepSeek V3.2"),
+        .init(id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash"),
     ]
     static let defaultBailianTranscribeModel = "qwen3-asr-flash"
     static let defaultBailianWriteModel = "qwen-plus"
