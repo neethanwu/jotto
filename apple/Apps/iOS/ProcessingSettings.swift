@@ -206,7 +206,8 @@ struct ProcessingView: View {
 
     private var keySettings: some View {
         VStack(alignment: .leading, spacing: 0) {
-            CardSectionTitle("Service").padding(.top, 28)
+            // Named like its choice above, as "On this iPhone" is.
+            CardSectionTitle("Your own key").padding(.top, 28)
             VStack(spacing: 0) {
                 ExpandRow(title: "Service", value: Cloud.service.name, open: openBinding(.service)) {
                     ForEach(Array(Cloud.services.enumerated()), id: \.element) { i, service in
@@ -346,7 +347,8 @@ struct ProcessingView: View {
             if let keys = keyPage {
                 Link(destination: keys) {
                     HStack(spacing: 6) {
-                        Text(Cloud.service == .bailian ? "Get a Bailian key, and what it costs" : "How to get a key, and what it costs")
+                        // Each service by name: "Get an OpenRouter key", "Get a Bailian key".
+                        Text("Get \(Cloud.service == .openRouter ? "an" : "a") \(Cloud.service.name) key, and what it costs")
                         Image(systemName: "arrow.up.right").font(.system(size: 11, weight: .semibold))
                     }
                     .font(.scaled(15, .medium, relativeTo: .subheadline))
