@@ -103,7 +103,7 @@ If a run is missed, the next one catches up. To send to more than one place, mak
 - Recordings and transcripts stay on your iPhone and watch. Audio is deleted 30 days after it's transcribed; you can make that 7 days, a year, or never.
 - Nothing leaves the app unless you send it, or you use your own API key. With a key, audio and text go straight from your iPhone to that service.
 
-The full policy is in [PRIVACY.md](PRIVACY.md). For help, see [SUPPORT.md](SUPPORT.md).
+The full policy is in [PRIVACY.md](PRIVACY.md), also at [neethanwu.com/jotto/privacy](https://neethanwu.com/jotto/privacy). For help, see [SUPPORT.md](SUPPORT.md) or [neethanwu.com/jotto/support](https://neethanwu.com/jotto/support).
 
 ## How it's built
 

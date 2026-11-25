@@ -1,11 +1,11 @@
 import SwiftUI
 
-/// Where jotto's pages outside the app live: the privacy policy on its
-/// web page, the rest in its public repository.
+/// Where jotto's pages outside the app live: help and the privacy policy
+/// on its web pages, the source in its public repository.
 enum Links {
     static let source = URL(string: "https://github.com/neethanwu/jotto")!
     static let privacy = URL(string: "https://neethanwu.com/jotto/privacy")!
-    static let support = URL(string: "https://github.com/neethanwu/jotto/blob/main/SUPPORT.md")!
+    static let support = URL(string: "https://neethanwu.com/jotto/support")!
 }
 
 /// Whose work jotto builds on, with the licence it comes under in full
